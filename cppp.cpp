@@ -1,5 +1,6 @@
 #include <bits/stdc++.h>
 
+#include "assignmentCppp.h"
 #include "errors.h"
 #include "printCppp.h"
 #include "typesCppp.h"
@@ -117,6 +118,17 @@ int main(int argc, char* argv[]) {
 
             sourceRanges[generatedLine + 1] = typeResult.sourceRanges;
             emitLine(typeResult.generatedStatement, lineNumber);
+            continue;
+        }
+
+        const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, statementBody, sourceLines, declaredVariables);
+        if (assignmentResult.matched) {
+            if (!assignmentResult.ok) {
+                continue;
+            }
+
+            sourceRanges[generatedLine + 1] = assignmentResult.sourceRanges;
+            emitLine(assignmentResult.generatedStatement, lineNumber);
             continue;
         }
 

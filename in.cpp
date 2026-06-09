@@ -40,3 +40,9 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
+    long long a = 1;
+    long long b = 0;
+    b += a;
+    cout << a << ' ' << b << '\n';
+    return 0;
+}

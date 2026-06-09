@@ -19,7 +19,7 @@ missing semicolon
 unsupported statement
   The statement is not recognized by the current compiler frontend.
   At the moment, supported top-level statements are primitive declarations
-  and print(...) calls.
+  assignment statements, and print(...) calls.
 
   Example:
     doThing();
@@ -68,7 +68,8 @@ expected ';' or '=' after variable name
     error: expected ';' or '=' after variable name
 
 int requires an integer literal
-  CP++ int declarations currently accept integer literals only.
+  CP++ int declarations accept integer literals and arithmetic expressions.
+  Non-arithmetic literal values are rejected.
 
   Example:
     int x = 1.5;
@@ -216,3 +217,51 @@ print requires at least one value before flush
 
   Diagnostic:
     error: print requires at least one value before flush
+
+Expression and assignment errors
+--------------------------------
+
+use of undeclared variable '<name>'
+  Arithmetic expressions and assignments must reference declared variables.
+
+  Example:
+    int x = missing + 1;
+
+  Diagnostic:
+    error: use of undeclared variable 'missing'
+
+expected expression
+  An arithmetic operator or assignment has no expression where one is required.
+
+  Example:
+    int x = 1 +;
+
+  Diagnostic:
+    error: expected expression
+
+unexpected token in expression
+  Extra tokens appeared after a complete expression.
+
+  Example:
+    int x = 1 2;
+
+  Diagnostic:
+    error: unexpected token in expression
+
+unclosed parenthesis in expression
+  An expression starts a parenthesized group but does not close it.
+
+  Example:
+    int x = (1 + 2;
+
+  Diagnostic:
+    error: unclosed parenthesis in expression
+
+expected expression after assignment
+  An assignment operator has no value after it.
+
+  Example:
+    x +=;
+
+  Diagnostic:
+    error: expected expression after assignment

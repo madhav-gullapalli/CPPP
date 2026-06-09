@@ -8,6 +8,8 @@ This project is a small compiler/transpiler for `.cppp` files. It reads a CP++ s
 - `tokenizer.cpp` / `tokenizer.h` scan source text into tokens with line and column spans.
 - `typesCppp.cpp` / `typesCppp.h` translate CP++ declarations such as `int`, `bigint`, `char`, `float`, `bigfloat`, and `bool`.
 - `printCppp.cpp` / `printCppp.h` translate `print(...)` statements to `cout`.
+- `expressions.cpp` / `expressions.h` parse arithmetic expressions using C++ operators.
+- `assignmentCppp.cpp` / `assignmentCppp.h` translate assignment statements.
 - `errors.cpp` / `errors.h` collect and print source-level diagnostics, including mapping some generated C++ compiler errors back to `.cppp` lines.
 - `in.cppp` is the sample input file.
 
@@ -106,7 +108,19 @@ print("count:", count);
 print("done", flush);
 ```
 
-`flush` is only valid as the final `print` argument.
+`flush` is only valid as the final `print` argument. Print arguments can also be arithmetic expressions.
+
+Supported arithmetic expressions use C++-style infix operators: `+`, `-`, `*`, `/`, and `%`. Assignments support `=`, `+=`, `-=`, `*=`, `/=`, and `%=`.
+
+```cpp
+int total = 1 + 2 * 3;
+total += 4;
+total -= 1;
+total *= 2;
+total /= 3;
+total %= 5;
+print("total:", total);
+```
 
 ## Cleaning Build Outputs
 

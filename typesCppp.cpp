@@ -1,5 +1,6 @@
 #include "typesCppp.h"
 
+#include "expressions.h"
 #include "tokenizer.h"
 
 #include <cctype>
@@ -70,6 +71,20 @@ bool isFloatLiteral(const std::string& text) {
     return std::regex_match(text, pattern) && text.find('.') != std::string::npos;
 }
 
+bool shouldParseAsExpression(const std::vector<Token>& tokens) {
+    if (hasArithmeticOperator(tokens)) {
+        return true;
+    }
+
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::Identifier || token.kind == TokenKind::LeftParen || token.kind == TokenKind::RightParen) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 std::string quotedString(const std::string& text) {
     return "\"" + text + "\"";
 }
@@ -136,7 +151,8 @@ TypeEmitResult emitTypeDeclaration(
     const std::map<int, std::string>& sourceLines,
     std::set<std::string>& declaredVariables
 ) {
-    const size_t firstSpace = statementBody.find_first_of(" \t");
+    (void)sourceLine;
+
     const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
         return {false, true, "", {}};
@@ -225,6 +241,7 @@ TypeEmitResult emitTypeDeclaration(
     std::string emittedValue = type->second.defaultValue;
     if (!assignedValue.empty()) {
         emittedValue = assignedValue;
+        const std::vector<Token> valueTokens = tokenize(assignedValue);
 
         if (typeName == "char") {
             if (!isCharLiteral(assignedValue)) {
@@ -252,6 +269,21 @@ TypeEmitResult emitTypeDeclaration(
 
             emittedValue = "CPPPChar(" + assignedValue + ")";
         } else if (typeName == "int") {
+            if (shouldParseAsExpression(valueTokens)) {
+                const ExpressionEmitResult expression = emitExpression(
+                    inputFile,
+                    lineNumber,
+                    assignedValue,
+                    assignedValueColumn,
+                    sourceLines,
+                    declaredVariables
+                );
+                if (!expression.ok) {
+                    return {true, false, "", {}};
+                }
+
+                emittedValue = expression.generatedExpression;
+            } else {
             if (!isIntegerLiteral(assignedValue)) {
                 recordSourceError(
                     inputFile,
@@ -272,6 +304,7 @@ TypeEmitResult emitTypeDeclaration(
                     sourceLines
                 );
                 return {true, false, "", {}};
+            }
             }
         } else if (typeName == "bigint") {
             if (!isIntegerLiteral(assignedValue)) {
@@ -300,8 +333,21 @@ TypeEmitResult emitTypeDeclaration(
 
             emittedValue = "CPPPBigFloat(" + quotedString(assignedValue) + ")";
         } else if (typeName == "float") {
-            emittedValue = assignedValue;
-            if (assignedValue.find('.') != std::string::npos && assignedValue.find_first_of("lL") == std::string::npos) {
+            if (shouldParseAsExpression(valueTokens)) {
+                const ExpressionEmitResult expression = emitExpression(
+                    inputFile,
+                    lineNumber,
+                    assignedValue,
+                    assignedValueColumn,
+                    sourceLines,
+                    declaredVariables
+                );
+                if (!expression.ok) {
+                    return {true, false, "", {}};
+                }
+
+                emittedValue = expression.generatedExpression;
+            } else if (assignedValue.find('.') != std::string::npos && assignedValue.find_first_of("lL") == std::string::npos) {
                 emittedValue += "L";
             }
         }

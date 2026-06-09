@@ -1,5 +1,6 @@
 #include "printCppp.h"
 
+#include "expressions.h"
 #include "tokenizer.h"
 
 #include <algorithm>
@@ -183,18 +184,30 @@ PrintEmitResult emitPrintStatement(
     std::string generatedStatement = "    cout";
     std::vector<SourceRange> ranges;
     for (size_t i = 0; i < printableArgumentCount; ++i) {
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            arguments[i].text,
+            arguments[i].column,
+            sourceLines,
+            declaredVariables
+        );
+        if (!expression.ok) {
+            return {false, "", {}};
+        }
+
         if (i > 0) {
             generatedStatement += " << ' '";
         }
 
         generatedStatement += " << ";
         const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
-        generatedStatement += arguments[i].text;
+        generatedStatement += expression.generatedExpression;
         ranges.push_back({
             lineNumber,
             arguments[i].column,
             generatedStartColumn,
-            generatedStartColumn + static_cast<int>(arguments[i].text.size()) - 1
+            generatedStartColumn + static_cast<int>(expression.generatedExpression.size()) - 1
         });
     }
 

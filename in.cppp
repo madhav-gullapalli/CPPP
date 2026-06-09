@@ -1,17 +1,4 @@
-int n = 100000000000000000000000000000000;
-bigint badBig = 12.34;
-char missingClose = 'B;
-char trailing = 'B's;
-char doubleQuoted = "B";
-char tooMany = 'AB';
-bigfloat notFloat = 123;
-print(ok, n, badBig, missingClose, trailing, doubleQuoted, tooMany, notFloat);
-print("left quote);
-print(right quote");
-print("no semicolon")
-print(wrote char);
-print(wrote);
-print("Oops: flush" flush);
-print(flush, "x");
-print(flush);
-print(ok, n, badBig;
+int a = 1;
+int b;
+b+=a;
+print(a,b);
