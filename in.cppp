@@ -1,0 +1,7 @@
+bool ok = true;
+int n = 10000000;
+bigint big = 123456789012345678901234567890;
+char c = 'B';
+float p = 0.125;
+bigfloat z = 12345678901234567890.12345678901234567890;
+print(ok, n, big, c, p, z);
