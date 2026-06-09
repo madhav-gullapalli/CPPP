@@ -101,6 +101,16 @@ float ratio = 3.14;
 bigfloat precise = 3.1415926535;
 ```
 
+`bigint` is a generated arbitrary-size integer type and `bigfloat` currently lowers to `long double`, so arithmetic expressions work with them:
+
+```cpp
+bigint x = 100000000000;
+bigint y = 10000000000000000;
+bigint z = x * y;
+print(x, y);
+print(x * y);
+```
+
 Supported printing:
 
 ```cpp
@@ -111,6 +121,41 @@ print("done", flush);
 `flush` is only valid as the final `print` argument. Print arguments can also be arithmetic expressions.
 
 Supported arithmetic expressions use C++-style infix operators: `+`, `-`, `*`, `/`, and `%`. Assignments support `=`, `+=`, `-=`, `*=`, `/=`, and `%=`.
+
+Basic input is available with target-typed `input()` in declarations and assignments:
+
+```cpp
+int x = input();
+char c = input();
+bigint big = input();
+
+x = input();
+print(x, c, big);
+```
+
+`input()` reads one value from standard input using the destination variable's type.
+
+Numeric conversions follow this implicit hierarchy:
+
+```text
+bool -> char -> int -> bigint
+              \-> float -> bigfloat
+```
+
+`bigint` and floating-point types are otherwise separate branches. Narrowing conversions and bigint/float conversions require an explicit cast:
+
+```cpp
+int x = 5;
+bigint y = x;
+
+char c = '0';
+int s = c;
+
+char bad = x;        // invalid
+char ok = (char)x;   // valid
+
+float f = (float)y;  // explicit bigint -> float
+```
 
 ```cpp
 int total = 1 + 2 * 3;

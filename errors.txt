@@ -88,8 +88,8 @@ integer literal overflows CP++ int
     error: integer literal overflows CP++ int
 
 bigint requires an integer literal
-  bigint currently accepts arbitrary-size integer literals, but not floats
-  or other expressions.
+  bigint accepts arbitrary-size integer literals and arithmetic expressions,
+  but not floating-point literals.
 
   Example:
     bigint x = 12.34;
@@ -98,7 +98,8 @@ bigint requires an integer literal
     error: bigint requires an integer literal
 
 bigfloat requires a floating-point literal
-  bigfloat currently accepts arbitrary-size floating-point literals.
+  bigfloat accepts arbitrary-size floating-point literals and arithmetic
+  expressions.
 
   Example:
     bigfloat x = 123;
@@ -265,3 +266,33 @@ expected expression after assignment
 
   Diagnostic:
     error: expected expression after assignment
+
+cannot implicitly convert <from> to <to>
+  Numeric narrowing conversions and bigint/float branch conversions require
+  an explicit cast.
+
+  Example:
+    int x = 1;
+    char y = x;
+
+  Diagnostic:
+    error: cannot implicitly convert int to char
+
+Input
+-----
+
+input()
+  input() is target-typed by declarations and assignments. It reads one value
+  from standard input using the destination type.
+
+  Example:
+    int x = input();
+    x = input();
+illegal operation on type
+  An assignment expressions with illega;l types
+
+  Example:
+    (3 + "hi");
+  
+  Diagnostic:
+    error: cannot add dissimilar types.

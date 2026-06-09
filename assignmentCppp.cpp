@@ -17,7 +17,7 @@ AssignmentEmitResult emitAssignmentStatement(
     int lineNumber,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::set<std::string>& declaredVariables
+    const std::map<std::string, CpppType>& declaredVariables
 ) {
     const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
@@ -31,10 +31,12 @@ AssignmentEmitResult emitAssignmentStatement(
     }
 
     const std::string variableName = tokens[0].text;
-    if (declaredVariables.count(variableName) == 0) {
+    const auto variable = declaredVariables.find(variableName);
+    if (variable == declaredVariables.end()) {
         recordSourceError(inputFile, lineNumber, tokens[0].span.startColumn, "use of undeclared variable '" + variableName + "'", sourceLines);
         return {true, false, "", {}};
     }
+    const CpppType targetType = variable->second;
 
     const size_t expressionTokenIndex = simpleAssignment ? 2 : 3;
     if (tokens[expressionTokenIndex].kind == TokenKind::EndOfFile) {
@@ -54,6 +56,22 @@ AssignmentEmitResult emitAssignmentStatement(
         static_cast<size_t>(expressionStartColumn - 1),
         static_cast<size_t>(expressionEndColumn - expressionStartColumn + 1)
     );
+    const std::vector<Token> expressionTokens = tokenize(expressionText);
+    if (isInputCall(expressionTokens)) {
+        const std::string generatedStatement = "    " + variableName + " = " + inputFunctionForType(targetType) + ";";
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                tokens[0].span.startColumn,
+                5,
+                5 + static_cast<int>(variableName.size()) - 1
+            }}
+        };
+    }
+
     const ExpressionEmitResult expression = emitExpression(
         inputFile,
         lineNumber,
@@ -66,8 +84,24 @@ AssignmentEmitResult emitAssignmentStatement(
         return {true, false, "", {}};
     }
 
+    if (!expression.explicitCast && !isImplicitlyConvertible(expression.type, targetType)) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            expressionStartColumn,
+            "cannot implicitly convert " + cpppTypeName(expression.type) + " to " + cpppTypeName(targetType),
+            sourceLines
+        );
+        return {true, false, "", {}};
+    }
+
+    std::string emittedExpression = expression.generatedExpression;
+    if (!isImplicitlyConvertible(expression.type, targetType) || expression.type != targetType) {
+        emittedExpression = castExpressionTo(emittedExpression, targetType);
+    }
+
     const std::string assignmentOperator = simpleAssignment ? "=" : tokens[1].text + "=";
-    const std::string generatedStatement = "    " + variableName + " " + assignmentOperator + " " + expression.generatedExpression + ";";
+    const std::string generatedStatement = "    " + variableName + " " + assignmentOperator + " " + emittedExpression + ";";
     return {
         true,
         true,

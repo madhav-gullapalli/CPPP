@@ -71,7 +71,7 @@ int main(int argc, char* argv[]) {
     std::map<int, int> cppToCpppLine;
     std::map<int, std::string> sourceLines;
     std::map<int, std::vector<SourceRange>> sourceRanges;
-    std::set<std::string> declaredVariables;
+    std::map<std::string, CpppType> declaredVariables;
     int generatedLine = 0;
     const auto emitLine = [&](const std::string& text, int sourceLine = 0) {
         output << text << '\n';

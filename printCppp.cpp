@@ -93,7 +93,7 @@ PrintEmitResult emitPrintStatement(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::set<std::string>& declaredVariables
+    const std::map<std::string, CpppType>& declaredVariables
 ) {
     const size_t statementColumn = sourceLine.find(statementBody);
     const std::string printPrefix = "print(";

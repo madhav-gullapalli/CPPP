@@ -1,9 +1,9 @@
 #pragma once
 
 #include "errors.h"
+#include "expressions.h"
 
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -19,5 +19,5 @@ AssignmentEmitResult emitAssignmentStatement(
     int lineNumber,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::set<std::string>& declaredVariables
+    const std::map<std::string, CpppType>& declaredVariables
 );

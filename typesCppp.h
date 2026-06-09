@@ -1,9 +1,9 @@
 #pragma once
 
 #include "errors.h"
+#include "expressions.h"
 
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -22,5 +22,5 @@ TypeEmitResult emitTypeDeclaration(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    std::set<std::string>& declaredVariables
+    std::map<std::string, CpppType>& declaredVariables
 );
