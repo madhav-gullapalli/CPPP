@@ -1,0 +1,9 @@
+build/
+*.exe
+*.o
+*.obj
+*.compile.log
+*.pdf
+/tmp*
+tmp_*
+in.cpp
