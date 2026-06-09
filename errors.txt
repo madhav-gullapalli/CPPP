@@ -1,0 +1,218 @@
+CP++ Error Documentation
+========================
+
+This file documents the native CP++ diagnostics currently produced before
+falling back to generated C++ compiler errors.
+
+General syntax
+--------------
+
+missing semicolon
+  A CP++ statement must end with a semicolon.
+
+  Example:
+    print("hello")
+
+  Diagnostic:
+    error: missing semicolon
+
+unsupported statement
+  The statement is not recognized by the current compiler frontend.
+  At the moment, supported top-level statements are primitive declarations
+  and print(...) calls.
+
+  Example:
+    doThing();
+
+  Diagnostic:
+    error: unsupported statement
+
+Primitive type errors
+---------------------
+
+expected variable name after <type>
+  A primitive declaration must provide a valid identifier after the type.
+
+  Example:
+    int = 5;
+
+  Diagnostic:
+    error: expected variable name after int
+
+variable '<name>' is already declared
+  A variable name cannot be declared twice in the same current scope.
+
+  Example:
+    int x;
+    int x;
+
+  Diagnostic:
+    error: variable 'x' is already declared
+
+expected value after '='
+  A declaration assignment has an equals sign but no value.
+
+  Example:
+    int x =;
+
+  Diagnostic:
+    error: expected value after '='
+
+expected ';' or '=' after variable name
+  Extra tokens appeared after a variable name in a declaration.
+
+  Example:
+    int x y;
+
+  Diagnostic:
+    error: expected ';' or '=' after variable name
+
+int requires an integer literal
+  CP++ int declarations currently accept integer literals only.
+
+  Example:
+    int x = 1.5;
+
+  Diagnostic:
+    error: int requires an integer literal
+
+integer literal overflows CP++ int
+  CP++ int is a 64-bit signed integer. Literal values outside that range
+  are rejected.
+
+  Example:
+    int n = 100000000000000000000000000000000;
+
+  Diagnostic:
+    error: integer literal overflows CP++ int
+
+bigint requires an integer literal
+  bigint currently accepts arbitrary-size integer literals, but not floats
+  or other expressions.
+
+  Example:
+    bigint x = 12.34;
+
+  Diagnostic:
+    error: bigint requires an integer literal
+
+bigfloat requires a floating-point literal
+  bigfloat currently accepts arbitrary-size floating-point literals.
+
+  Example:
+    bigfloat x = 123;
+
+  Diagnostic:
+    error: bigfloat requires a floating-point literal
+
+char values must be a single character in single quotes
+  char literals must use single quotes and contain exactly one character.
+
+  Example:
+    char c = "B";
+
+  Diagnostic:
+    error: char values must be a single character in single quotes
+
+unterminated char literal
+  A char literal starts with a single quote but does not close.
+
+  Example:
+    char c = 'B;
+
+  Diagnostic:
+    error: unterminated char literal
+
+unexpected characters after char literal
+  Extra characters appeared after a valid char literal.
+
+  Example:
+    char c = 'B's;
+
+  Diagnostic:
+    error: unexpected characters after char literal
+
+char literal contains too many characters
+  A char literal contains more than one character.
+
+  Example:
+    char c = 'AB';
+
+  Diagnostic:
+    error: char literal contains too many characters
+
+Print errors
+------------
+
+unclosed parenthesis in print
+  A print call starts with print( but does not close its argument list.
+
+  Example:
+    print(x;
+
+  Diagnostic:
+    error: unclosed parenthesis in print
+
+empty print argument
+  A print call has an empty argument.
+
+  Example:
+    print(x, );
+
+  Diagnostic:
+    error: empty print argument
+
+unterminated string literal in print
+  A print argument starts a string literal but does not close it.
+
+  Example:
+    print("hello);
+
+  Diagnostic:
+    error: unterminated string literal in print
+
+expected ',' between print arguments
+  Print arguments must be separated with commas.
+
+  Example:
+    print(wrote char);
+
+  Diagnostic:
+    error: expected ',' between print arguments
+
+use of undeclared variable '<name>'
+  A bare identifier passed to print must refer to a declared variable.
+
+  Example:
+    print(wrote);
+
+  Diagnostic:
+    error: use of undeclared variable 'wrote'
+
+expected ',' before flush
+  flush is a special print marker and must be separated from the value
+  being printed.
+
+  Example:
+    print("answer" flush);
+
+  Diagnostic:
+    error: expected ',' before flush
+
+flush must be the final print argument
+  The flush marker is only valid as the last argument.
+
+  Example:
+    print(flush, "x");
+
+  Diagnostic:
+    error: flush must be the final print argument
+
+print requires at least one value before flush
+  print(flush) is invalid because flush is a marker, not a printable value.
+
+  Example:
+    print(flush);
+
+  Diagnostic:
+    error: print requires at least one value before flush
