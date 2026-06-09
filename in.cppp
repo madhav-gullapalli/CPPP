@@ -1,3 +1,5 @@
-int x = input();
-int y = input();
-print((x*y)/2);
+// Very big ass comment
+bigint x = 2;
+bigint y = 3;
+bigint z = x * y;
+print(z);

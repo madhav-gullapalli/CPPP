@@ -227,8 +227,10 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    long long x = CPPPInputInt();
-    long long y = CPPPInputInt();
-    cout << (((x * y)) / 2) << '\n';
+    // Very big ass comment
+    CPPPBigInt x = CPPPBigInt("2");
+    CPPPBigInt y = CPPPBigInt("3");
+    CPPPBigInt z = (x * y);
+    cout << z << '\n';
     return 0;
 }

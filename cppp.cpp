@@ -103,6 +103,11 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        if (statement.rfind("//", 0) == 0) {
+            emitLine("    " + statement, lineNumber);
+            continue;
+        }
+
         if (statement.back() != ';') {
             const int column = static_cast<int>(line.find_last_not_of(" \t\r\n")) + 1;
             recordSourceError(inputFile, lineNumber, column, "missing semicolon", sourceLines);
