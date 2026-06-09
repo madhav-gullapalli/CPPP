@@ -9,6 +9,8 @@ enum class TokenKind {
     Float,
     String,
     Char,
+    DoubleQuote,
+    SingleQuote,
     LeftParen,
     RightParen,
     Comma,

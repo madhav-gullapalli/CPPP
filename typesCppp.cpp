@@ -1,5 +1,7 @@
 #include "typesCppp.h"
 
+#include "tokenizer.h"
+
 #include <cctype>
 #include <map>
 #include <regex>
@@ -135,26 +137,35 @@ TypeEmitResult emitTypeDeclaration(
     std::set<std::string>& declaredVariables
 ) {
     const size_t firstSpace = statementBody.find_first_of(" \t");
-    if (firstSpace == std::string::npos) {
+    const std::vector<Token> tokens = tokenize(statementBody);
+    if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
         return {false, true, "", {}};
     }
 
-    const std::string typeName = statementBody.substr(0, firstSpace);
+    const std::string typeName = tokens[0].text;
     const auto type = primitiveTypes().find(typeName);
     if (type == primitiveTypes().end()) {
         return {false, true, "", {}};
     }
 
-    const std::string rest = trim(statementBody.substr(firstSpace + 1));
-    const size_t equals = rest.find('=');
-    const std::string variableName = trim(equals == std::string::npos ? rest : rest.substr(0, equals));
-    const std::string assignedValue = equals == std::string::npos ? "" : trim(rest.substr(equals + 1));
-    const size_t variableColumn = sourceLine.find(variableName);
+    if (tokens[1].kind != TokenKind::Identifier) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            tokens[1].span.startColumn,
+            "expected variable name after " + typeName,
+            sourceLines
+        );
+        return {true, false, "", {}};
+    }
+
+    const std::string variableName = tokens[1].text;
+    const int variableColumn = tokens[1].span.startColumn;
     if (!isIdentifier(variableName)) {
         recordSourceError(
             inputFile,
             lineNumber,
-            static_cast<int>(variableColumn == std::string::npos ? 1 : variableColumn + 1),
+            variableColumn,
             "expected variable name after " + typeName,
             sourceLines
         );
@@ -165,19 +176,47 @@ TypeEmitResult emitTypeDeclaration(
         recordSourceError(
             inputFile,
             lineNumber,
-            static_cast<int>(variableColumn == std::string::npos ? 1 : variableColumn + 1),
+            variableColumn,
             "variable '" + variableName + "' is already declared",
             sourceLines
         );
         return {true, false, "", {}};
     }
 
-    if (equals != std::string::npos && assignedValue.empty()) {
+    size_t tokenIndex = 2;
+    std::string assignedValue;
+    int assignedValueColumn = 1;
+    if (tokens[tokenIndex].kind == TokenKind::Equals) {
+        ++tokenIndex;
+        if (tokens[tokenIndex].kind == TokenKind::EndOfFile) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[tokenIndex - 1].span.endColumn + 1,
+                "expected value after '='",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        assignedValueColumn = tokens[tokenIndex].span.startColumn;
+        const int assignedValueStartColumn = tokens[tokenIndex].span.startColumn;
+        int assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
+        while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+            assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
+            ++tokenIndex;
+        }
+
+        assignedValue = trim(statementBody.substr(
+            static_cast<size_t>(assignedValueStartColumn - 1),
+            static_cast<size_t>(assignedValueEndColumn - assignedValueStartColumn + 1)
+        ));
+    } else if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
         recordSourceError(
             inputFile,
             lineNumber,
-            static_cast<int>(sourceLine.find('=') + 2),
-            "expected value after '='",
+            tokens[tokenIndex].span.startColumn,
+            "expected ';' or '=' after variable name",
             sourceLines
         );
         return {true, false, "", {}};
@@ -204,7 +243,7 @@ TypeEmitResult emitTypeDeclaration(
                 recordSourceError(
                     inputFile,
                     lineNumber,
-                    static_cast<int>(sourceLine.find(assignedValue) + 1),
+                    assignedValueColumn,
                     message,
                     sourceLines
                 );
@@ -217,7 +256,7 @@ TypeEmitResult emitTypeDeclaration(
                 recordSourceError(
                     inputFile,
                     lineNumber,
-                    static_cast<int>(sourceLine.find(assignedValue) + 1),
+                    assignedValueColumn,
                     "int requires an integer literal",
                     sourceLines
                 );
@@ -228,7 +267,7 @@ TypeEmitResult emitTypeDeclaration(
                 recordSourceError(
                     inputFile,
                     lineNumber,
-                    static_cast<int>(sourceLine.find(assignedValue) + 1),
+                    assignedValueColumn,
                     "integer literal overflows CP++ int",
                     sourceLines
                 );
@@ -239,7 +278,7 @@ TypeEmitResult emitTypeDeclaration(
                 recordSourceError(
                     inputFile,
                     lineNumber,
-                    static_cast<int>(sourceLine.find(assignedValue) + 1),
+                    assignedValueColumn,
                     "bigint requires an integer literal",
                     sourceLines
                 );
@@ -252,7 +291,7 @@ TypeEmitResult emitTypeDeclaration(
                 recordSourceError(
                     inputFile,
                     lineNumber,
-                    static_cast<int>(sourceLine.find(assignedValue) + 1),
+                    assignedValueColumn,
                     "bigfloat requires a floating-point literal",
                     sourceLines
                 );
@@ -274,14 +313,13 @@ TypeEmitResult emitTypeDeclaration(
     declaredVariables.insert(variableName);
 
     const int generatedStartColumn = 5 + static_cast<int>(type->second.cppType.size()) + 1;
-    const int sourceColumn = static_cast<int>(variableColumn == std::string::npos ? 1 : variableColumn + 1);
     return {
         true,
         true,
         generatedStatement,
         {{
             lineNumber,
-            sourceColumn,
+            variableColumn,
             generatedStartColumn,
             generatedStartColumn + static_cast<int>(variableName.size()) - 1
         }}

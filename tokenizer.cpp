@@ -209,6 +209,10 @@ std::string tokenKindName(TokenKind kind) {
             return "String";
         case TokenKind::Char:
             return "Char";
+        case TokenKind::DoubleQuote:
+            return "DoubleQuote";
+        case TokenKind::SingleQuote:
+            return "SingleQuote";
         case TokenKind::LeftParen:
             return "LeftParen";
         case TokenKind::RightParen:
