@@ -15,6 +15,42 @@ static std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+static size_t findLineCommentStart(const std::string& text) {
+    bool inString = false;
+    bool inChar = false;
+    bool escaped = false;
+
+    for (size_t i = 0; i + 1 < text.size(); ++i) {
+        const char ch = text[i];
+
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if ((inString || inChar) && ch == '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (!inChar && ch == '"') {
+            inString = !inString;
+            continue;
+        }
+
+        if (!inString && ch == '\'') {
+            inChar = !inChar;
+            continue;
+        }
+
+        if (!inString && !inChar && ch == '/' && text[i + 1] == '/') {
+            return i;
+        }
+    }
+
+    return std::string::npos;
+}
+
 static std::string quotePath(const std::string& path) {
     return "\"" + path + "\"";
 }
@@ -97,19 +133,22 @@ int main(int argc, char* argv[]) {
     while (std::getline(input, line)) {
         ++lineNumber;
         sourceLines[lineNumber] = line;
-        const std::string statement = trim(line);
+        const size_t commentStart = findLineCommentStart(line);
+        const std::string commentText = commentStart == std::string::npos ? "" : trim(line.substr(commentStart));
+        const bool hasComment = !commentText.empty();
+        const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
+        const std::string statement = trim(codeText);
 
         if (statement.empty()) {
+            if (hasComment) {
+                emitLine("    " + commentText, lineNumber);
+            }
             continue;
         }
 
-        if (statement.rfind("//", 0) == 0) {
-            emitLine("    " + statement, lineNumber);
-            continue;
-        }
-
-        if (statement.back() != ';') {
-            const int column = static_cast<int>(line.find_last_not_of(" \t\r\n")) + 1;
+        const bool hasSemicolon = statement.back() == ';';
+        if (!hasSemicolon) {
+            const int column = static_cast<int>(codeText.find_last_not_of(" \t\r\n")) + 1;
             recordSourceError(inputFile, lineNumber, column, "missing semicolon", sourceLines);
             continue;
         }
@@ -122,7 +161,7 @@ int main(int argc, char* argv[]) {
             }
 
             sourceRanges[generatedLine + 1] = typeResult.sourceRanges;
-            emitLine(typeResult.generatedStatement, lineNumber);
+            emitLine(typeResult.generatedStatement + (hasComment ? " " + commentText : ""), lineNumber);
             continue;
         }
 
@@ -133,7 +172,7 @@ int main(int argc, char* argv[]) {
             }
 
             sourceRanges[generatedLine + 1] = assignmentResult.sourceRanges;
-            emitLine(assignmentResult.generatedStatement, lineNumber);
+            emitLine(assignmentResult.generatedStatement + (hasComment ? " " + commentText : ""), lineNumber);
             continue;
         }
 
@@ -143,7 +182,7 @@ int main(int argc, char* argv[]) {
         }
 
         sourceRanges[generatedLine + 1] = printResult.sourceRanges;
-        emitLine(printResult.generatedStatement, lineNumber);
+        emitLine(printResult.generatedStatement + (hasComment ? " " + commentText : ""), lineNumber);
     }
 
     if (hasRecordedSourceErrors()) {
