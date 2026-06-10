@@ -13,6 +13,11 @@ struct TypeInfo {
     std::string defaultValue;
 };
 
+struct DeclaredName {
+    std::string name;
+    int column;
+};
+
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -176,6 +181,17 @@ std::vector<std::string> typeSupportPreamble() {
         "    return input;",
         "}",
         "",
+        "CPPPChar& operator++(CPPPChar& value) { ++value.value; return value; }",
+        "CPPPChar operator++(CPPPChar& value, int) { CPPPChar old = value; ++value; return old; }",
+        "CPPPChar& operator--(CPPPChar& value) { --value.value; return value; }",
+        "CPPPChar operator--(CPPPChar& value, int) { CPPPChar old = value; --value; return old; }",
+        "",
+        "bool CPPPToBool(bool value) { return value; }",
+        "bool CPPPToBool(int value) { return value != 0; }",
+        "bool CPPPToBool(long long value) { return value != 0; }",
+        "bool CPPPToBool(long double value) { return value != 0.0L && !isnan(value); }",
+        "bool CPPPToBool(const CPPPChar& value) { return value.value != '\\0'; }",
+        "",
         "struct CPPPBigInt {",
         "    bool negative = false;",
         "    string digits = \"0\";",
@@ -202,6 +218,7 @@ std::vector<std::string> typeSupportPreamble() {
         "        for (char digit : digits) { result = result * 10 + (digit - '0'); }",
         "        return negative ? -result : result;",
         "    }",
+        "    explicit operator bool() const { return digits != \"0\"; }",
         "",
         "    void assign(string value) {",
         "        negative = false;",
@@ -350,11 +367,29 @@ std::vector<std::string> typeSupportPreamble() {
         "    return result;",
         "}",
         "",
+        "int compare(const CPPPBigInt& left, const CPPPBigInt& right) {",
+        "    if (left.negative != right.negative) { return left.negative ? -1 : 1; }",
+        "    int result = CPPPBigInt::compareAbs(left, right);",
+        "    return left.negative ? -result : result;",
+        "}",
+        "",
+        "bool operator==(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) == 0; }",
+        "bool operator!=(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) != 0; }",
+        "bool operator<(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) < 0; }",
+        "bool operator<=(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) <= 0; }",
+        "bool operator>(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) > 0; }",
+        "bool operator>=(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) >= 0; }",
+        "bool CPPPToBool(const CPPPBigInt& value) { return static_cast<bool>(value); }",
+        "",
         "CPPPBigInt& operator+=(CPPPBigInt& left, const CPPPBigInt& right) { left = left + right; return left; }",
         "CPPPBigInt& operator-=(CPPPBigInt& left, const CPPPBigInt& right) { left = left - right; return left; }",
         "CPPPBigInt& operator*=(CPPPBigInt& left, const CPPPBigInt& right) { left = left * right; return left; }",
         "CPPPBigInt& operator/=(CPPPBigInt& left, const CPPPBigInt& right) { left = left / right; return left; }",
         "CPPPBigInt& operator%=(CPPPBigInt& left, const CPPPBigInt& right) { left = left % right; return left; }",
+        "CPPPBigInt& operator++(CPPPBigInt& value) { value += CPPPBigInt(1); return value; }",
+        "CPPPBigInt operator++(CPPPBigInt& value, int) { CPPPBigInt old = value; ++value; return old; }",
+        "CPPPBigInt& operator--(CPPPBigInt& value) { value -= CPPPBigInt(1); return value; }",
+        "CPPPBigInt operator--(CPPPBigInt& value, int) { CPPPBigInt old = value; --value; return old; }",
         "",
         "ostream& operator<<(ostream& output, const CPPPBigInt& value) {",
         "    if (value.negative) { output << '-'; }",
@@ -399,42 +434,77 @@ TypeEmitResult emitTypeDeclaration(
     }
     const CpppType targetType = declaredTypeForName(typeName);
 
-    if (tokens[1].kind != TokenKind::Identifier) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[1].span.startColumn,
-            "expected variable name after " + typeName,
-            sourceLines
-        );
-        return {true, false, "", {}};
+    std::vector<DeclaredName> variables;
+    size_t tokenIndex = 1;
+    while (true) {
+        if (tokens[tokenIndex].kind != TokenKind::Identifier) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[tokenIndex].span.startColumn,
+                "expected variable name after " + typeName,
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const std::string variableName = tokens[tokenIndex].text;
+        const int variableColumn = tokens[tokenIndex].span.startColumn;
+        if (!isIdentifier(variableName)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                variableColumn,
+                "expected variable name after " + typeName,
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (declaredVariables.count(variableName) != 0) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                variableColumn,
+                "variable '" + variableName + "' is already declared",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        for (const DeclaredName& variable : variables) {
+            if (variable.name == variableName) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    variableColumn,
+                    "variable '" + variableName + "' is already declared",
+                    sourceLines
+                );
+                return {true, false, "", {}};
+            }
+        }
+
+        variables.push_back({variableName, variableColumn});
+        ++tokenIndex;
+
+        if (tokens[tokenIndex].kind != TokenKind::Comma) {
+            break;
+        }
+
+        ++tokenIndex;
+        if (tokens[tokenIndex].kind == TokenKind::EndOfFile) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[tokenIndex - 1].span.endColumn + 1,
+                "expected variable name after ','",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
     }
 
-    const std::string variableName = tokens[1].text;
-    const int variableColumn = tokens[1].span.startColumn;
-    if (!isIdentifier(variableName)) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            variableColumn,
-            "expected variable name after " + typeName,
-            sourceLines
-        );
-        return {true, false, "", {}};
-    }
-
-    if (declaredVariables.count(variableName) != 0) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            variableColumn,
-            "variable '" + variableName + "' is already declared",
-            sourceLines
-        );
-        return {true, false, "", {}};
-    }
-
-    size_t tokenIndex = 2;
     std::string assignedValue;
     int assignedValueColumn = 1;
     if (tokens[tokenIndex].kind == TokenKind::Equals) {
@@ -474,11 +544,13 @@ TypeEmitResult emitTypeDeclaration(
     }
 
     std::string emittedValue = type->second.defaultValue;
+    bool assignsInput = false;
     if (!assignedValue.empty()) {
         emittedValue = assignedValue;
         const std::vector<Token> valueTokens = tokenize(assignedValue);
 
         if (isInputCall(valueTokens)) {
+            assignsInput = true;
             emittedValue = inputFunctionForType(targetType);
         } else if (typeName == "char") {
             if (isCharLiteral(assignedValue)) {
@@ -650,21 +722,32 @@ TypeEmitResult emitTypeDeclaration(
         }
     }
 
-    const std::string generatedStatement =
-        "    " + type->second.cppType + " " + variableName + " = " + emittedValue + ";";
+    std::string generatedStatement = "    " + type->second.cppType + " ";
+    std::vector<SourceRange> ranges;
+    for (size_t i = 0; i < variables.size(); ++i) {
+        if (i > 0) {
+            generatedStatement += ", ";
+        }
 
-    declaredVariables[variableName] = targetType;
+        const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
+        generatedStatement += variables[i].name + " = " + (assignsInput ? inputFunctionForType(targetType) : emittedValue);
+        ranges.push_back({
+            lineNumber,
+            variables[i].column,
+            generatedStartColumn,
+            generatedStartColumn + static_cast<int>(variables[i].name.size()) - 1
+        });
+    }
+    generatedStatement += ";";
 
-    const int generatedStartColumn = 5 + static_cast<int>(type->second.cppType.size()) + 1;
+    for (const DeclaredName& variable : variables) {
+        declaredVariables[variable.name] = targetType;
+    }
+
     return {
         true,
         true,
         generatedStatement,
-        {{
-            lineNumber,
-            variableColumn,
-            generatedStartColumn,
-            generatedStartColumn + static_cast<int>(variableName.size()) - 1
-        }}
+        ranges
     };
 }

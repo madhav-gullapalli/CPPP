@@ -152,6 +152,21 @@ std::vector<Token> tokenize(const std::string& source) {
             continue;
         }
 
+        if ((ch == '<' && (scanner.peekNext() == '<' || scanner.peekNext() == '=')) ||
+            (ch == '>' && (scanner.peekNext() == '>' || scanner.peekNext() == '=')) ||
+            (ch == '=' && scanner.peekNext() == '=') ||
+            (ch == '!' && scanner.peekNext() == '=') ||
+            (ch == '+' && scanner.peekNext() == '+') ||
+            (ch == '-' && scanner.peekNext() == '-') ||
+            (ch == '&' && scanner.peekNext() == '&') ||
+            (ch == '|' && scanner.peekNext() == '|')) {
+            std::string text;
+            text += scanner.advance();
+            text += scanner.advance();
+            tokens.push_back(makeToken(TokenKind::Operator, text, startLine, startColumn, scanner.line, scanner.column - 1));
+            continue;
+        }
+
         const char consumed = scanner.advance();
         TokenKind kind = TokenKind::Unknown;
         switch (consumed) {

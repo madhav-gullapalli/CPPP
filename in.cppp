@@ -1,5 +1,4 @@
-// Very big ass comment
-bigint x = 2;
-bigint y = 3;
-bigint z = x * y;
-print(z);
+int n = input();
+while(n--){
+    print(n);
+}

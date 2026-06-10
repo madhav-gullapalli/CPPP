@@ -3,7 +3,9 @@ CXXFLAGS := -std=c++17 -Wall -Wextra -pedantic
 
 BUILD_DIR := build
 COMPILER := $(BUILD_DIR)/cppp.exe
-SOURCES := cppp.cpp assignmentCppp.cpp errors.cpp expressions.cpp printCppp.cpp tokenizer.cpp typesCppp.cpp
+SRC_DIR := src
+SOURCES := $(SRC_DIR)/cppp.cpp $(SRC_DIR)/assignmentCppp.cpp $(SRC_DIR)/controlFlow.cpp $(SRC_DIR)/errors.cpp $(SRC_DIR)/expressions.cpp $(SRC_DIR)/printCppp.cpp $(SRC_DIR)/tokenizer.cpp $(SRC_DIR)/typesCppp.cpp
+HEADERS := $(SRC_DIR)/assignmentCppp.h $(SRC_DIR)/controlFlow.h $(SRC_DIR)/errors.h $(SRC_DIR)/expressions.h $(SRC_DIR)/printCppp.h $(SRC_DIR)/tokenizer.h $(SRC_DIR)/typesCppp.h
 
 INPUT ?= in.cppp
 PROGRAM := $(BUILD_DIR)/$(basename $(notdir $(INPUT))).exe
@@ -15,7 +17,7 @@ all: $(COMPILER)
 $(BUILD_DIR):
 	if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 
-$(COMPILER): $(SOURCES) assignmentCppp.h errors.h expressions.h printCppp.h tokenizer.h typesCppp.h | $(BUILD_DIR)
+$(COMPILER): $(SOURCES) $(HEADERS) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(SOURCES) -o $(COMPILER)
 
 transpile: $(COMPILER)

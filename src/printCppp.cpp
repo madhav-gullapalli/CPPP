@@ -85,6 +85,56 @@ bool isValueToken(const Token& token) {
         token.kind == TokenKind::String ||
         token.kind == TokenKind::Char;
 }
+
+bool isEndOption(const PrintArgument& argument) {
+    return argument.tokens.size() == 3 &&
+        argument.tokens[0].kind == TokenKind::Identifier &&
+        argument.tokens[0].text == "end" &&
+        argument.tokens[1].kind == TokenKind::Equals;
+}
+
+bool parseCallArguments(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& sourceLine,
+    const std::string& statementBody,
+    const std::string& functionName,
+    const std::string& unclosedMessage,
+    const std::map<int, std::string>& sourceLines,
+    std::string& argumentsText,
+    int& argumentsStartColumn
+) {
+    const size_t statementColumn = sourceLine.find(statementBody);
+    const int statementStartColumn = static_cast<int>(statementColumn == std::string::npos ? 1 : statementColumn + 1);
+    const std::vector<Token> statementTokens = tokenize(statementBody);
+    if (statementTokens.size() < 2 ||
+        statementTokens[0].kind != TokenKind::Identifier ||
+        statementTokens[0].text != functionName ||
+        statementTokens[1].kind != TokenKind::LeftParen) {
+        recordSourceError(inputFile, lineNumber, 1, "unsupported statement", sourceLines);
+        return false;
+    }
+
+    if (statementTokens.size() < 4 || statementTokens[statementTokens.size() - 2].kind != TokenKind::RightParen) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            statementStartColumn + statementTokens[1].span.startColumn - 1,
+            unclosedMessage,
+            sourceLines
+        );
+        return false;
+    }
+
+    const Token& leftParen = statementTokens[1];
+    const Token& rightParen = statementTokens[statementTokens.size() - 2];
+    argumentsText = statementBody.substr(
+        static_cast<size_t>(leftParen.span.endColumn),
+        static_cast<size_t>(rightParen.span.startColumn - leftParen.span.endColumn - 1)
+    );
+    argumentsStartColumn = statementStartColumn + leftParen.span.endColumn;
+    return true;
+}
 }
 
 PrintEmitResult emitPrintStatement(
@@ -95,31 +145,11 @@ PrintEmitResult emitPrintStatement(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, CpppType>& declaredVariables
 ) {
-    const size_t statementColumn = sourceLine.find(statementBody);
-    const std::string printPrefix = "print(";
-    if (statementBody.rfind(printPrefix, 0) != 0) {
-        recordSourceError(inputFile, lineNumber, 1, "unsupported statement", sourceLines);
+    std::string printArguments;
+    int argumentsStartColumn = 1;
+    if (!parseCallArguments(inputFile, lineNumber, sourceLine, statementBody, "print", "unclosed parenthesis in print", sourceLines, printArguments, argumentsStartColumn)) {
         return {false, "", {}};
     }
-
-    if (statementBody.back() != ')') {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            static_cast<int>((statementColumn == std::string::npos ? 0 : statementColumn) + printPrefix.size()),
-            "unclosed parenthesis in print",
-            sourceLines
-        );
-        return {false, "", {}};
-    }
-
-    const std::string printArguments = statementBody.substr(
-        printPrefix.size(),
-        statementBody.size() - printPrefix.size() - 1
-    );
-    const int argumentsStartColumn =
-        static_cast<int>(statementColumn == std::string::npos ? 1 : statementColumn + 1) +
-        static_cast<int>(printPrefix.size());
 
     const std::vector<Token> tokens = tokenize(printArguments);
     for (const Token& token : tokens) {
@@ -138,46 +168,60 @@ PrintEmitResult emitPrintStatement(
         return {false, "", {}};
     }
 
-    bool shouldFlush = false;
+    std::string generatedEnd = " << '\\n'";
+    size_t printableArgumentCount = arguments.size();
     for (size_t i = 0; i < arguments.size(); ++i) {
         for (size_t tokenIndex = 1; tokenIndex < arguments[i].tokens.size(); ++tokenIndex) {
             const Token& previous = arguments[i].tokens[tokenIndex - 1];
             const Token& current = arguments[i].tokens[tokenIndex];
             if (isValueToken(previous) && isValueToken(current) && current.span.startColumn > previous.span.endColumn + 1) {
-                const std::string message = current.text == "flush" ? "expected ',' before flush" : "expected ',' between print arguments";
-                recordSourceError(inputFile, lineNumber, arguments[i].column + current.span.startColumn - 1, message, sourceLines);
+                recordSourceError(inputFile, lineNumber, arguments[i].column + current.span.startColumn - 1, "expected ',' between print arguments", sourceLines);
+                return {false, "", {}};
+            }
+        }
+
+        if (isEndOption(arguments[i])) {
+            if (i != arguments.size() - 1) {
+                recordSourceError(inputFile, lineNumber, arguments[i].column, "end must be the final print option", sourceLines);
+                return {false, "", {}};
+            }
+
+            const Token& endValue = arguments[i].tokens[2];
+            if (endValue.kind == TokenKind::String || endValue.kind == TokenKind::Char) {
+                generatedEnd = " << " + endValue.text;
+            } else if (endValue.kind == TokenKind::Identifier && endValue.text == "flush") {
+                generatedEnd = " << '\\n' << flush";
+            } else {
+                recordSourceError(inputFile, lineNumber, arguments[i].column + endValue.span.startColumn - 1, "print end must be a string, char, or flush", sourceLines);
+                return {false, "", {}};
+            }
+
+            printableArgumentCount = i;
+            continue;
+        }
+
+        for (const Token& token : arguments[i].tokens) {
+            if (token.kind == TokenKind::Identifier && token.text == "end") {
+                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "expected end = value", sourceLines);
+                return {false, "", {}};
+            }
+
+            if (token.kind == TokenKind::Identifier && token.text == "flush") {
+                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "use end = flush instead of flush argument", sourceLines);
                 return {false, "", {}};
             }
         }
 
         if (arguments[i].tokens.size() == 1 &&
             arguments[i].tokens[0].kind == TokenKind::Identifier &&
-            arguments[i].text != "flush" &&
             declaredVariables.count(arguments[i].text) == 0) {
             recordSourceError(inputFile, lineNumber, arguments[i].column, "use of undeclared variable '" + arguments[i].text + "'", sourceLines);
             return {false, "", {}};
         }
-
-        for (const Token& token : arguments[i].tokens) {
-            if (token.kind == TokenKind::Identifier && token.text == "flush" && arguments[i].text != "flush") {
-                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "expected ',' before flush", sourceLines);
-                return {false, "", {}};
-            }
-        }
-
-        if (arguments[i].text == "flush") {
-            if (i != arguments.size() - 1) {
-                recordSourceError(inputFile, lineNumber, arguments[i].column, "flush must be the final print argument", sourceLines);
-                return {false, "", {}};
-            }
-
-            shouldFlush = true;
-        }
     }
 
-    const size_t printableArgumentCount = shouldFlush ? arguments.size() - 1 : arguments.size();
     if (printableArgumentCount == 0) {
-        recordSourceError(inputFile, lineNumber, arguments.back().column, "print requires at least one value before flush", sourceLines);
+        recordSourceError(inputFile, lineNumber, arguments.back().column, "print requires at least one value", sourceLines);
         return {false, "", {}};
     }
 
@@ -211,11 +255,48 @@ PrintEmitResult emitPrintStatement(
         });
     }
 
-    if (shouldFlush) {
-        generatedStatement += " << '\\n' << flush;";
-    } else {
-        generatedStatement += " << '\\n';";
-    }
+    generatedStatement += generatedEnd + ";";
 
     return {true, generatedStatement, ranges};
+}
+
+PrintEmitResult emitDescribeStatement(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& sourceLine,
+    const std::string& statementBody,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, CpppType>& declaredVariables
+) {
+    std::string describeArgument;
+    int argumentStartColumn = 1;
+    if (!parseCallArguments(inputFile, lineNumber, sourceLine, statementBody, "describe", "unclosed parenthesis in describe", sourceLines, describeArgument, argumentStartColumn)) {
+        return {false, "", {}};
+    }
+
+    const std::vector<Token> tokens = tokenize(describeArgument);
+    if (tokens.size() != 2 ||
+        tokens[0].kind != TokenKind::Identifier ||
+        tokens[1].kind != TokenKind::EndOfFile) {
+        recordSourceError(inputFile, lineNumber, argumentStartColumn, "describe requires a single variable", sourceLines);
+        return {false, "", {}};
+    }
+
+    const std::string variableName = tokens[0].text;
+    if (declaredVariables.count(variableName) == 0) {
+        recordSourceError(inputFile, lineNumber, argumentStartColumn, "use of undeclared variable '" + variableName + "'", sourceLines);
+        return {false, "", {}};
+    }
+
+    const std::string generatedStatement = "    cout << \"" + variableName + ": \" << " + variableName + " << '\\n';";
+    return {
+        true,
+        generatedStatement,
+        {{
+            lineNumber,
+            argumentStartColumn,
+            19 + static_cast<int>(variableName.size()),
+            19 + static_cast<int>(variableName.size()) + static_cast<int>(variableName.size()) - 1
+        }}
+    };
 }

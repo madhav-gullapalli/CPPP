@@ -1,0 +1,614 @@
+#include <bits/stdc++.h>
+
+#include "assignmentCppp.h"
+#include "controlFlow.h"
+#include "errors.h"
+#include "printCppp.h"
+#include "typesCppp.h"
+
+static std::string trim(const std::string& text) {
+    const size_t start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return "";
+    }
+
+    const size_t end = text.find_last_not_of(" \t\r\n");
+    return text.substr(start, end - start + 1);
+}
+
+static std::string indentForDepth(int depth) {
+    return std::string(static_cast<size_t>((depth + 1) * 4), ' ');
+}
+
+static std::string indentGeneratedStatement(const std::string& generatedStatement, int depth) {
+    return indentForDepth(depth) + trim(generatedStatement);
+}
+
+static std::string stripGeneratedStatement(const std::string& generatedStatement) {
+    std::string text = trim(generatedStatement);
+    if (!text.empty() && text.back() == ';') {
+        text.pop_back();
+    }
+
+    return text;
+}
+
+static bool isRepCountType(CpppType type) {
+    return type == CpppType::Bool ||
+        type == CpppType::Char ||
+        type == CpppType::Int ||
+        type == CpppType::BigInt ||
+        type == CpppType::Float ||
+        type == CpppType::BigFloat;
+}
+
+static size_t findLineCommentStart(const std::string& text) {
+    bool inString = false;
+    bool inChar = false;
+    bool escaped = false;
+
+    for (size_t i = 0; i + 1 < text.size(); ++i) {
+        const char ch = text[i];
+
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if ((inString || inChar) && ch == '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (!inChar && ch == '"') {
+            inString = !inString;
+            continue;
+        }
+
+        if (!inString && ch == '\'') {
+            inChar = !inChar;
+            continue;
+        }
+
+        if (!inString && !inChar && ch == '/' && text[i + 1] == '/') {
+            return i;
+        }
+    }
+
+    return std::string::npos;
+}
+
+static std::string quotePath(const std::string& path) {
+    return "\"" + path + "\"";
+}
+
+static std::string executablePathFor(const std::string& inputFile, const std::string& extension) {
+    const size_t slash = inputFile.find_last_of("\\/");
+    const std::string directory = slash == std::string::npos ? "" : inputFile.substr(0, slash + 1);
+    const std::string baseName = inputFile.substr(
+        slash == std::string::npos ? 0 : slash + 1,
+        inputFile.size() - (slash == std::string::npos ? 0 : slash + 1) - extension.size()
+    );
+
+    return directory + "build\\" + baseName + ".exe";
+}
+
+int main(int argc, char* argv[]) {
+    if ((argc != 3 && argc != 4) || std::string(argv[1]) != "--cppp") {
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile]\n";
+        return 1;
+    }
+    clearRecordedSourceErrors();
+
+    const bool shouldCompile = argc == 4;
+    if (shouldCompile && std::string(argv[3]) != "--compile") {
+        std::cerr << "Error: unknown option " << argv[3] << '\n';
+        return 1;
+    }
+
+    const std::string inputFile = argv[2];
+    const std::string cpppExtension = ".cppp";
+
+    if (inputFile.size() < cpppExtension.size() ||
+        inputFile.substr(inputFile.size() - cpppExtension.size()) != cpppExtension) {
+        std::cerr << "Error: input file must have a .cppp extension\n";
+        return 1;
+    }
+
+    const std::string outputFile =
+        inputFile.substr(0, inputFile.size() - cpppExtension.size()) + ".cpp";
+    const std::string executableFile = executablePathFor(inputFile, cpppExtension);
+
+    std::ifstream input(inputFile, std::ios::binary);
+    if (!input) {
+        std::cerr << "Error: could not open " << inputFile << '\n';
+        return 1;
+    }
+
+    std::ofstream output(outputFile, std::ios::binary);
+    if (!output) {
+        std::cerr << "Error: could not write to " << outputFile << '\n';
+        return 1;
+    }
+
+    std::map<int, int> cppToCpppLine;
+    std::map<int, std::string> sourceLines;
+    std::map<int, std::vector<SourceRange>> sourceRanges;
+    std::map<std::string, CpppType> declaredVariables;
+    int generatedLine = 0;
+    int blockDepth = 0;
+    bool canAttachElse = false;
+    std::vector<std::string> blockKinds;
+    int repLoopIndex = 0;
+    const auto emitLine = [&](const std::string& text, int sourceLine = 0) {
+        output << text << '\n';
+        ++generatedLine;
+        if (sourceLine != 0) {
+            cppToCpppLine[generatedLine] = sourceLine;
+        }
+    };
+
+    emitLine("#include <bits/stdc++.h>");
+    emitLine("using namespace std;");
+    emitLine("");
+    for (const std::string& preambleLine : typeSupportPreamble()) {
+        emitLine(preambleLine);
+    }
+    emitLine("int main() {");
+    emitLine("    ios::sync_with_stdio(false);");
+    emitLine("    cin.tie(nullptr);");
+    emitLine("");
+
+    std::string line;
+    int lineNumber = 0;
+    while (std::getline(input, line)) {
+        ++lineNumber;
+        sourceLines[lineNumber] = line;
+        const size_t commentStart = findLineCommentStart(line);
+        const std::string commentText = commentStart == std::string::npos ? "" : trim(line.substr(commentStart));
+        const bool hasComment = !commentText.empty();
+        const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
+        const std::string statement = trim(codeText);
+
+        if (statement.empty()) {
+            if (hasComment) {
+                emitLine(indentForDepth(blockDepth) + commentText, lineNumber);
+            }
+            continue;
+        }
+
+        const size_t statementStart = codeText.find(statement);
+        const int statementStartColumn = static_cast<int>(statementStart == std::string::npos ? 1 : statementStart + 1);
+
+        const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0) {
+            const size_t conditionOffset = absoluteOffset + header.conditionOffset;
+            if (header.condition.empty()) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), "expected condition", sourceLines);
+                ++blockDepth;
+                blockKinds.push_back(keyword);
+                canAttachElse = false;
+                return false;
+            }
+
+            const ExpressionEmitResult condition = emitExpression(
+                inputFile,
+                lineNumber,
+                header.condition,
+                statementStartColumn + static_cast<int>(conditionOffset),
+                sourceLines,
+                declaredVariables
+            );
+            if (!condition.ok) {
+                ++blockDepth;
+                blockKinds.push_back(keyword);
+                canAttachElse = false;
+                return false;
+            }
+
+            if (!isImplicitlyConvertible(condition.type, CpppType::Bool)) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), keyword + " condition must be bool", sourceLines);
+                ++blockDepth;
+                blockKinds.push_back(keyword);
+                canAttachElse = false;
+                return false;
+            }
+
+            std::string generatedCondition = condition.generatedExpression;
+            if (condition.type != CpppType::Bool) {
+                generatedCondition = castExpressionTo(generatedCondition, CpppType::Bool);
+            }
+
+            emitLine(indentForDepth(blockDepth) + keyword + " (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+            ++blockDepth;
+            blockKinds.push_back(keyword);
+            canAttachElse = false;
+            return true;
+        };
+
+        const auto emitForPart = [&](const std::string& part, int partColumn, bool allowDeclaration, std::string& generatedPart) {
+            generatedPart.clear();
+            if (part.empty()) {
+                return true;
+            }
+
+            if (allowDeclaration) {
+                const TypeEmitResult typeResult = emitTypeDeclaration(inputFile, lineNumber, line, part, sourceLines, declaredVariables);
+                if (typeResult.matched) {
+                    if (!typeResult.ok) {
+                        return false;
+                    }
+
+                    generatedPart = stripGeneratedStatement(typeResult.generatedStatement);
+                    return true;
+                }
+            }
+
+            const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, part, sourceLines, declaredVariables);
+            if (assignmentResult.matched) {
+                if (!assignmentResult.ok) {
+                    return false;
+                }
+
+                generatedPart = stripGeneratedStatement(assignmentResult.generatedStatement);
+                return true;
+            }
+
+            const ExpressionEmitResult expression = emitExpression(
+                inputFile,
+                lineNumber,
+                part,
+                partColumn,
+                sourceLines,
+                declaredVariables
+            );
+            if (!expression.ok) {
+                return false;
+            }
+
+            generatedPart = expression.generatedExpression;
+            return true;
+        };
+
+        if (statement[0] == '}') {
+            if (blockDepth == 0) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn, "unmatched closing brace", sourceLines);
+                continue;
+            }
+
+            --blockDepth;
+            const std::string closedBlock = blockKinds.empty() ? "" : blockKinds.back();
+            if (!blockKinds.empty()) {
+                blockKinds.pop_back();
+            }
+            canAttachElse = closedBlock == "if" || closedBlock == "else if";
+
+            const std::string afterBrace = trim(statement.substr(1));
+            if (afterBrace.empty()) {
+                emitLine(indentForDepth(blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
+                continue;
+            }
+
+            if (!canAttachElse) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + 1, "else without matching if", sourceLines);
+                if (parseElseHeader(afterBrace)) {
+                    ++blockDepth;
+                    blockKinds.push_back("else");
+                } else {
+                    ConditionHeader recoveryHeader;
+                    if (parseElseIfHeader(afterBrace, recoveryHeader)) {
+                        ++blockDepth;
+                        blockKinds.push_back("else if");
+                    }
+                }
+                continue;
+            }
+
+            if (parseElseHeader(afterBrace)) {
+                emitLine(indentForDepth(blockDepth) + "} else {" + (hasComment ? " " + commentText : ""), lineNumber);
+                ++blockDepth;
+                blockKinds.push_back("else");
+                canAttachElse = false;
+                continue;
+            }
+
+            ConditionHeader header;
+            if (parseElseIfHeader(afterBrace, header)) {
+                if (header.condition.empty()) {
+                    recordSourceError(inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "expected condition", sourceLines);
+                    ++blockDepth;
+                    blockKinds.push_back("else if");
+                    canAttachElse = false;
+                    continue;
+                }
+
+                const ExpressionEmitResult condition = emitExpression(
+                    inputFile,
+                    lineNumber,
+                    header.condition,
+                    statementStartColumn + 1 + static_cast<int>(header.conditionOffset),
+                    sourceLines,
+                    declaredVariables
+                );
+                if (!condition.ok) {
+                    ++blockDepth;
+                    blockKinds.push_back("else if");
+                    canAttachElse = false;
+                    continue;
+                }
+
+                if (!isImplicitlyConvertible(condition.type, CpppType::Bool)) {
+                    recordSourceError(inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "if condition must be bool", sourceLines);
+                    ++blockDepth;
+                    blockKinds.push_back("else if");
+                    canAttachElse = false;
+                    continue;
+                }
+
+                std::string generatedCondition = condition.generatedExpression;
+                if (condition.type != CpppType::Bool) {
+                    generatedCondition = castExpressionTo(generatedCondition, CpppType::Bool);
+                }
+
+                emitLine(indentForDepth(blockDepth) + "} else if (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+                ++blockDepth;
+                blockKinds.push_back("else if");
+                canAttachElse = false;
+                continue;
+            }
+
+            emitLine(indentForDepth(blockDepth) + "}", lineNumber);
+            recordSourceError(inputFile, lineNumber, statementStartColumn + 1, "expected else, else if, or end of statement after '}'", sourceLines);
+            continue;
+        }
+
+        if (parseElseHeader(statement)) {
+            if (!canAttachElse) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
+                ++blockDepth;
+                blockKinds.push_back("else");
+                continue;
+            }
+
+            emitLine(indentForDepth(blockDepth) + "else {" + (hasComment ? " " + commentText : ""), lineNumber);
+            ++blockDepth;
+            blockKinds.push_back("else");
+            canAttachElse = false;
+            continue;
+        }
+
+        ConditionHeader header;
+        if (parseElseIfHeader(statement, header)) {
+            if (!canAttachElse) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
+                ++blockDepth;
+                blockKinds.push_back("else if");
+                continue;
+            }
+
+            emitConditionHeader("else if", header);
+            continue;
+        }
+
+        ForHeader forHeader;
+        if (parseForHeader(statement, forHeader)) {
+            std::string generatedInitializer;
+            std::string generatedIteration;
+            if (!emitForPart(
+                    forHeader.initializer,
+                    statementStartColumn + static_cast<int>(forHeader.initializerOffset),
+                    true,
+                    generatedInitializer)) {
+                ++blockDepth;
+                blockKinds.push_back("for");
+                canAttachElse = false;
+                continue;
+            }
+
+            std::string generatedCondition = "true";
+            if (!forHeader.condition.empty()) {
+                const ExpressionEmitResult condition = emitExpression(
+                    inputFile,
+                    lineNumber,
+                    forHeader.condition,
+                    statementStartColumn + static_cast<int>(forHeader.conditionOffset),
+                    sourceLines,
+                    declaredVariables
+                );
+                if (!condition.ok) {
+                    ++blockDepth;
+                    blockKinds.push_back("for");
+                    canAttachElse = false;
+                    continue;
+                }
+
+                if (!isImplicitlyConvertible(condition.type, CpppType::Bool)) {
+                    recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(forHeader.conditionOffset), "for condition must be bool", sourceLines);
+                    ++blockDepth;
+                    blockKinds.push_back("for");
+                    canAttachElse = false;
+                    continue;
+                }
+
+                generatedCondition = condition.generatedExpression;
+                if (condition.type != CpppType::Bool) {
+                    generatedCondition = castExpressionTo(generatedCondition, CpppType::Bool);
+                }
+            }
+
+            if (!emitForPart(
+                    forHeader.iteration,
+                    statementStartColumn + static_cast<int>(forHeader.iterationOffset),
+                    false,
+                    generatedIteration)) {
+                ++blockDepth;
+                blockKinds.push_back("for");
+                canAttachElse = false;
+                continue;
+            }
+
+            emitLine(indentForDepth(blockDepth) + "for (" + generatedInitializer + "; " + generatedCondition + "; " + generatedIteration + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+            ++blockDepth;
+            blockKinds.push_back("for");
+            canAttachElse = false;
+            continue;
+        }
+
+        if (parseConditionHeader(statement, "rep", header)) {
+            if (header.condition.empty()) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected rep count", sourceLines);
+                ++blockDepth;
+                blockKinds.push_back("rep");
+                canAttachElse = false;
+                continue;
+            }
+
+            const ExpressionEmitResult count = emitExpression(
+                inputFile,
+                lineNumber,
+                header.condition,
+                statementStartColumn + static_cast<int>(header.conditionOffset),
+                sourceLines,
+                declaredVariables
+            );
+            if (!count.ok) {
+                ++blockDepth;
+                blockKinds.push_back("rep");
+                canAttachElse = false;
+                continue;
+            }
+
+            if (!isRepCountType(count.type)) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "rep count must be numeric", sourceLines);
+                ++blockDepth;
+                blockKinds.push_back("rep");
+                canAttachElse = false;
+                continue;
+            }
+
+            const std::string indexName = "__cppp_rep_" + std::to_string(repLoopIndex);
+            const std::string limitName = "__cppp_rep_limit_" + std::to_string(repLoopIndex);
+            ++repLoopIndex;
+            emitLine(
+                indentForDepth(blockDepth) +
+                "for (long long " + indexName + " = 0, " + limitName + " = " + castExpressionTo(count.generatedExpression, CpppType::Int) +
+                "; " + indexName + " < " + limitName + "; ++" + indexName + ") {" +
+                (hasComment ? " " + commentText : ""),
+                lineNumber
+            );
+            ++blockDepth;
+            blockKinds.push_back("rep");
+            canAttachElse = false;
+            continue;
+        }
+
+        if (parseConditionHeader(statement, "if", header)) {
+            emitConditionHeader("if", header);
+            continue;
+        }
+
+        if (parseConditionHeader(statement, "while", header)) {
+            emitConditionHeader("while", header);
+            continue;
+        }
+
+        canAttachElse = false;
+
+        const bool hasSemicolon = statement.back() == ';';
+        if (!hasSemicolon) {
+            const int column = static_cast<int>(codeText.find_last_not_of(" \t\r\n")) + 1;
+            recordSourceError(inputFile, lineNumber, column, "missing semicolon", sourceLines);
+            continue;
+        }
+
+        const std::string statementBody = trim(statement.substr(0, statement.size() - 1));
+        const TypeEmitResult typeResult = emitTypeDeclaration(inputFile, lineNumber, line, statementBody, sourceLines, declaredVariables);
+        if (typeResult.matched) {
+            if (!typeResult.ok) {
+                continue;
+            }
+
+            sourceRanges[generatedLine + 1] = typeResult.sourceRanges;
+            emitLine(indentGeneratedStatement(typeResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+            continue;
+        }
+
+        const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, statementBody, sourceLines, declaredVariables);
+        if (assignmentResult.matched) {
+            if (!assignmentResult.ok) {
+                continue;
+            }
+
+            sourceRanges[generatedLine + 1] = assignmentResult.sourceRanges;
+            emitLine(indentGeneratedStatement(assignmentResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+            continue;
+        }
+
+        if (statementBody.find("++") != std::string::npos || statementBody.find("--") != std::string::npos) {
+            const ExpressionEmitResult expression = emitExpression(
+                inputFile,
+                lineNumber,
+                statementBody,
+                statementStartColumn,
+                sourceLines,
+                declaredVariables
+            );
+            if (!expression.ok) {
+                continue;
+            }
+
+            emitLine(indentForDepth(blockDepth) + expression.generatedExpression + ";" + (hasComment ? " " + commentText : ""), lineNumber);
+            continue;
+        }
+
+        if (statementBody.rfind("describe", 0) == 0) {
+            const PrintEmitResult describeResult = emitDescribeStatement(inputFile, lineNumber, line, statementBody, sourceLines, declaredVariables);
+            if (!describeResult.ok) {
+                continue;
+            }
+
+            sourceRanges[generatedLine + 1] = describeResult.sourceRanges;
+            emitLine(indentGeneratedStatement(describeResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+            continue;
+        }
+
+        const PrintEmitResult printResult = emitPrintStatement(inputFile, lineNumber, line, statementBody, sourceLines, declaredVariables);
+        if (!printResult.ok) {
+            continue;
+        }
+
+        sourceRanges[generatedLine + 1] = printResult.sourceRanges;
+        emitLine(indentGeneratedStatement(printResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+    }
+
+    if (blockDepth > 0) {
+        recordSourceError(inputFile, lineNumber, 1, "unclosed block", sourceLines);
+    }
+
+    if (hasRecordedSourceErrors()) {
+        printRecordedSourceErrors();
+        clearRecordedSourceErrors();
+        return 1;
+    }
+
+    emitLine("    return 0;");
+    emitLine("}");
+    output.close();
+
+    if (shouldCompile) {
+        std::filesystem::create_directories(std::filesystem::path(executableFile).parent_path());
+
+        const std::string compileLogFile = outputFile + ".compile.log";
+        const std::string command =
+            "g++ " + quotePath(outputFile) + " -o " + quotePath(executableFile) +
+            " > " + quotePath(compileLogFile) + " 2>&1";
+        const int result = std::system(command.c_str());
+        if (result != 0) {
+            printCompileErrors(inputFile, compileLogFile, sourceLines, cppToCpppLine, sourceRanges);
+            return 1;
+        }
+
+        std::cout << "Built " << executableFile << '\n';
+    }
+
+    return 0;
+}

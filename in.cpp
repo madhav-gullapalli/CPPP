@@ -25,6 +25,17 @@ istream& operator>>(istream& input, CPPPChar& value) {
     return input;
 }
 
+CPPPChar& operator++(CPPPChar& value) { ++value.value; return value; }
+CPPPChar operator++(CPPPChar& value, int) { CPPPChar old = value; ++value; return old; }
+CPPPChar& operator--(CPPPChar& value) { --value.value; return value; }
+CPPPChar operator--(CPPPChar& value, int) { CPPPChar old = value; --value; return old; }
+
+bool CPPPToBool(bool value) { return value; }
+bool CPPPToBool(int value) { return value != 0; }
+bool CPPPToBool(long long value) { return value != 0; }
+bool CPPPToBool(long double value) { return value != 0.0L && !isnan(value); }
+bool CPPPToBool(const CPPPChar& value) { return value.value != '\0'; }
+
 struct CPPPBigInt {
     bool negative = false;
     string digits = "0";
@@ -51,6 +62,7 @@ struct CPPPBigInt {
         for (char digit : digits) { result = result * 10 + (digit - '0'); }
         return negative ? -result : result;
     }
+    explicit operator bool() const { return digits != "0"; }
 
     void assign(string value) {
         negative = false;
@@ -199,11 +211,29 @@ CPPPBigInt operator%(const CPPPBigInt& left, const CPPPBigInt& right) {
     return result;
 }
 
+int compare(const CPPPBigInt& left, const CPPPBigInt& right) {
+    if (left.negative != right.negative) { return left.negative ? -1 : 1; }
+    int result = CPPPBigInt::compareAbs(left, right);
+    return left.negative ? -result : result;
+}
+
+bool operator==(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) == 0; }
+bool operator!=(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) != 0; }
+bool operator<(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) < 0; }
+bool operator<=(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) <= 0; }
+bool operator>(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) > 0; }
+bool operator>=(const CPPPBigInt& left, const CPPPBigInt& right) { return compare(left, right) >= 0; }
+bool CPPPToBool(const CPPPBigInt& value) { return static_cast<bool>(value); }
+
 CPPPBigInt& operator+=(CPPPBigInt& left, const CPPPBigInt& right) { left = left + right; return left; }
 CPPPBigInt& operator-=(CPPPBigInt& left, const CPPPBigInt& right) { left = left - right; return left; }
 CPPPBigInt& operator*=(CPPPBigInt& left, const CPPPBigInt& right) { left = left * right; return left; }
 CPPPBigInt& operator/=(CPPPBigInt& left, const CPPPBigInt& right) { left = left / right; return left; }
 CPPPBigInt& operator%=(CPPPBigInt& left, const CPPPBigInt& right) { left = left % right; return left; }
+CPPPBigInt& operator++(CPPPBigInt& value) { value += CPPPBigInt(1); return value; }
+CPPPBigInt operator++(CPPPBigInt& value, int) { CPPPBigInt old = value; ++value; return old; }
+CPPPBigInt& operator--(CPPPBigInt& value) { value -= CPPPBigInt(1); return value; }
+CPPPBigInt operator--(CPPPBigInt& value, int) { CPPPBigInt old = value; --value; return old; }
 
 ostream& operator<<(ostream& output, const CPPPBigInt& value) {
     if (value.negative) { output << '-'; }
@@ -227,10 +257,9 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    // Very big ass comment
-    CPPPBigInt x = CPPPBigInt("2");
-    CPPPBigInt y = CPPPBigInt("3");
-    CPPPBigInt z = (x * y);
-    cout << z << '\n';
+    long long n = CPPPInputInt();
+    while (CPPPToBool((n--))) {
+        cout << n << '\n';
+    }
     return 0;
 }

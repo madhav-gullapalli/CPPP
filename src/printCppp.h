@@ -21,3 +21,12 @@ PrintEmitResult emitPrintStatement(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, CpppType>& declaredVariables
 );
+
+PrintEmitResult emitDescribeStatement(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& sourceLine,
+    const std::string& statementBody,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, CpppType>& declaredVariables
+);

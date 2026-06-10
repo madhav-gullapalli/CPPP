@@ -18,8 +18,9 @@ missing semicolon
 
 unsupported statement
   The statement is not recognized by the current compiler frontend.
-  At the moment, supported top-level statements are primitive declarations
-  assignment statements, and print(...) calls.
+  At the moment, supported statements are primitive declarations,
+  assignment statements, print(...) calls, if/else blocks, while loops,
+  for loops, and rep loops.
 
   Example:
     doThing();
@@ -66,6 +67,16 @@ expected ';' or '=' after variable name
 
   Diagnostic:
     error: expected ';' or '=' after variable name
+
+expected variable name after ','
+  A comma-separated declaration list must include a variable name after
+  every comma.
+
+  Example:
+    int a,;
+
+  Diagnostic:
+    error: expected variable name after ','
 
 int requires an integer literal
   CP++ int declarations accept integer literals and arithmetic expressions.
@@ -192,32 +203,70 @@ use of undeclared variable '<name>'
     error: use of undeclared variable 'wrote'
 
 expected ',' before flush
-  flush is a special print marker and must be separated from the value
-  being printed.
+  Deprecated. Use end = flush instead of passing flush as a print argument.
 
   Example:
     print("answer" flush);
 
   Diagnostic:
-    error: expected ',' before flush
+    error: use end = flush instead of flush argument
 
-flush must be the final print argument
-  The flush marker is only valid as the last argument.
-
-  Example:
-    print(flush, "x");
-
-  Diagnostic:
-    error: flush must be the final print argument
-
-print requires at least one value before flush
-  print(flush) is invalid because flush is a marker, not a printable value.
+end must be the final print option
+  The end option controls how a print call ends and must appear after all
+  printable values.
 
   Example:
-    print(flush);
+    print("x", end = " ", 1);
 
   Diagnostic:
-    error: print requires at least one value before flush
+    error: end must be the final print option
+
+print end must be a string, char, or flush
+  print end accepts a string, a char, or flush. end = flush emits a newline
+  and flushes the stream.
+
+  Example:
+    print("x", end = 1);
+
+  Diagnostic:
+    error: print end must be a string, char, or flush
+
+print requires at least one value
+  print must receive at least one printable value before any end option.
+
+  Example:
+    print(end = " ");
+
+  Diagnostic:
+    error: print requires at least one value
+
+print end option
+  print ends with a newline by default. The end option changes the ending.
+  end = flush means newline plus flush.
+
+  Example:
+    print("hi");
+    print("hi", end = " ");
+    print("hi", end = flush);
+
+describe
+  describe prints the variable name followed by its value.
+
+  Example:
+    int x = 3;
+    describe(x);
+
+  Output:
+    x: 3
+
+describe requires a single variable
+  describe accepts exactly one variable, not a literal or expression.
+
+  Example:
+    describe(x + 1);
+
+  Diagnostic:
+    error: describe requires a single variable
 
 Expression and assignment errors
 --------------------------------
@@ -278,16 +327,302 @@ cannot implicitly convert <from> to <to>
   Diagnostic:
     error: cannot implicitly convert int to char
 
+Operator support
+----------------
+
+shift operators
+  << and >> are supported for int, char, and bool expression operands.
+  The result is an int value.
+
+  Example:
+    int shifted = 1 << 4;
+
+bitwise operators
+  &, |, and ^ are supported for int, char, and bool expression operands.
+  The result is an int value.
+
+  Example:
+    int flags = 5 & 3;
+
+boolean operators
+  &&, ||, and ! are supported for CP++ value expressions. The result is bool.
+
+  Example:
+    bool ok = true && !false;
+
+increment and decrement operators
+  ++ and -- are supported in prefix and postfix form for mutable char, int,
+  bigint, float, and bigfloat variables. They can be used as statements or
+  inside expressions, including if and while conditions.
+
+  Example:
+    int n = 3;
+    while (n--) {
+        print(n);
+    }
+
+    ++n;
+
+comparison operators
+  <, <=, >, >=, ==, and != are supported for int, float, bigint, bigfloat,
+  char, and bool values. int and float values can be compared with each
+  other. bigint can be compared with integer-like values, but not with float
+  or bigfloat values.
+
+  Example:
+    bool less = 1 < 2;
+    bool same = 'A' == 'A';
+    bigint a = 10;
+    bigint b = 11;
+    bool bigLess = a < b;
+
+cannot use '<operator>' with <left> and <right>
+  An operator was used with operand types that CP++ does not support.
+
+  Example:
+    float f = 1.2;
+    int bad = f & 3;
+
+  Diagnostic:
+    error: cannot use '&' with float and int
+
+cannot use '++' with <type>
+  Increment and decrement operators require a mutable numeric or char
+  variable. bool cannot be incremented or decremented.
+
+  Example:
+    bool ok = true;
+    ok++;
+
+  Diagnostic:
+    error: cannot use '++' with bool
+
+expected variable before '++'
+  Postfix increment and decrement must be applied to a mutable variable.
+
+  Example:
+    1++;
+
+  Diagnostic:
+    error: expected variable before '++'
+
+expected variable after '++'
+  Prefix increment and decrement must be followed by a mutable variable.
+
+  Example:
+    ++1;
+
+  Diagnostic:
+    error: expected variable after '++'
+
+cannot compare <left> and <right>
+  The two operand types cannot be compared by CP++.
+
+  Example:
+    bigint big = 10;
+    float f = 1.2;
+    bool bad = big < f;
+
+  Diagnostic:
+    error: cannot compare bigint and float
+
+Control flow
+------------
+
+if, else if, else, while, for, and rep blocks
+  CP++ supports C++-style if, else if, else, while, and for block outlines,
+  plus rep(count). Conditions must be bool expressions or values that can be
+  implicitly converted to bool, and block bodies use normal CP++ statements.
+
+  Example:
+    int a = 1;
+    int b = 2;
+    if (a < b) {
+        print(a);
+    } else if (a == b) {
+        print(0);
+    } else {
+        print(b);
+    }
+
+    while (a < b) {
+        a = a + 1;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        print(i);
+    }
+
+    rep(3) {
+        print("again");
+    }
+
+expected condition
+  An if or else if block has an empty condition.
+
+  Example:
+    if () {
+        print(1);
+    }
+
+  Diagnostic:
+    error: expected condition
+
+if condition must be bool
+  if and else if conditions must produce bool or a value that can be
+  implicitly converted to bool. int and bigint convert as 0 -> false and
+  nonzero -> true. char converts as '\0' -> false and any other character
+  -> true. float and bigfloat convert as 0 or NaN -> false and any other
+  value -> true.
+
+  Example:
+    if ("not supported") {
+        print(1);
+    }
+
+  Diagnostic:
+    error: if condition must be bool
+
+while condition must be bool
+  while conditions follow the same bool conversion rules as if conditions.
+
+  Example:
+    while ("not supported") {
+        print(1);
+    }
+
+  Diagnostic:
+    error: while condition must be bool
+
+for condition must be bool
+  for loop conditions follow the same bool conversion rules as if conditions.
+
+  Example:
+    for (int i = 0; "bad"; i++) {
+        print(i);
+    }
+
+  Diagnostic:
+    error: for condition must be bool
+
+expected rep count
+  rep requires a count expression inside parentheses.
+
+  Example:
+    rep() {
+        print(1);
+    }
+
+  Diagnostic:
+    error: expected rep count
+
+rep count must be numeric
+  rep count must be a numeric or char/bool value.
+
+  Example:
+    rep("bad") {
+        print(1);
+    }
+
+  Diagnostic:
+    error: rep count must be numeric
+
+else without matching if
+  An else or else if block must immediately follow a completed if or else if
+  block.
+
+  Example:
+    else {
+        print(1);
+    }
+
+  Diagnostic:
+    error: else without matching if
+
+unmatched closing brace
+  A closing brace appeared without a matching open if, else if, or else block.
+
+  Example:
+    }
+
+  Diagnostic:
+    error: unmatched closing brace
+
+unclosed block
+  An if, else if, or else block was opened but not closed before the end of
+  the file.
+
+  Example:
+    if (true) {
+        print(1);
+
+  Diagnostic:
+    error: unclosed block
+
 Input
 -----
 
 input()
   input() is target-typed by declarations and assignments. It reads one value
-  from standard input using the destination type.
+  from standard input using the destination type. In multi-declarations and
+  multi-assignments, one input value is read for each destination variable.
 
   Example:
     int x = input();
     x = input();
+
+    int a,b,c = input();
+    a,b,c = input();
+
+input must be called as input()
+  input is a built-in input call, not a variable name. It must include the
+  empty parenthesized call.
+
+  Example:
+    int x = input;
+
+  Diagnostic:
+    error: input must be called as input()
+
+input() does not take arguments
+  input() is target-typed by the destination variable, so it does not accept
+  arguments inside the parentheses.
+
+  Example:
+    int x = input(123);
+
+  Diagnostic:
+    error: input() does not take arguments
+
+unclosed parenthesis in input
+  An input call starts with input( but does not close the call.
+
+  Example:
+    int x = input(;
+
+  Diagnostic:
+    error: unclosed parenthesis in input
+
+input() can only be used as the entire value in an assignment or declaration
+  input() cannot currently be embedded inside an expression because its type
+  comes from the assignment or declaration target.
+
+  Example:
+    int x = input() + 3;
+
+  Diagnostic:
+    error: input() can only be used as the entire value in an assignment or declaration
+
+multi-assignment requires input()
+  A comma-separated assignment can only read multiple values with input().
+
+  Example:
+    int a,b;
+    a,b = 1;
+
+  Diagnostic:
+    error: multi-assignment requires input()
+
 illegal operation on type
   An assignment expressions with illega;l types
 
