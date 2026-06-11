@@ -1,0 +1,41 @@
+name: Regressions
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  regressions:
+    name: Run shell regression tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y g++ make bash
+
+      - name: Build compiler
+        run: make
+
+      - name: Run all shell scripts in tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          found=0
+          for script in tests/*.sh; do
+            if [[ ! -f "$script" ]]; then
+              continue
+            fi
+
+            found=1
+            echo "Running $script"
+            bash "$script"
+          done
+
+          if [[ "$found" -eq 0 ]]; then
+            echo "No shell scripts found in tests/"
+            exit 1
+          fi
