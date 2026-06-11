@@ -8,12 +8,10 @@ ifeq ($(OS),Windows_NT)
     EXE_EXT := .exe
     MKDIR_P := if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
     RM_RF := if exist "$(BUILD_DIR)" rmdir /s /q "$(BUILD_DIR)"
-    RUN_PREFIX :=
 else
     EXE_EXT :=
     MKDIR_P := mkdir -p "$(BUILD_DIR)"
     RM_RF := rm -rf "$(BUILD_DIR)"
-    RUN_PREFIX := ./
 endif
 
 COMPILER := $(BUILD_DIR)/cppp$(EXE_EXT)
@@ -40,7 +38,7 @@ HEADERS := \
 INPUT ?= in.cppp
 PROGRAM := $(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
-.PHONY: all transpile compile run clean
+.PHONY: all transpile compile run submit subrun clean
 
 all: $(COMPILER)
 
@@ -58,6 +56,13 @@ compile: $(COMPILER)
 
 run: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)" --run
+
+submit: $(COMPILER)
+	"$(COMPILER)" --cppp "$(INPUT)" --submit
+
+subrun: $(COMPILER)
+	"$(COMPILER)" --cppp "$(INPUT)" --submit
+	"$(PROGRAM)"
 
 clean:
 	$(RM_RF)

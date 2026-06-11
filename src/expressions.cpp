@@ -10,6 +10,11 @@ struct ParsedExpression {
     bool mutableValue;
 };
 
+bool& expressionRuntimeChecksEnabled() {
+    static bool enabled = false;
+    return enabled;
+}
+
 class ExpressionParser {
 public:
     ExpressionParser(
@@ -18,7 +23,8 @@ public:
         const std::string& expressionText,
         int expressionColumn,
         const std::map<int, std::string>& sourceLines,
-        const std::map<std::string, CpppType>& declaredVariables
+        const std::map<std::string, CpppType>& declaredVariables,
+        bool emitRuntimeChecks
     ) :
         inputFile(inputFile),
         lineNumber(lineNumber),
@@ -26,6 +32,7 @@ public:
         expressionColumn(expressionColumn),
         sourceLines(sourceLines),
         declaredVariables(declaredVariables),
+        emitRuntimeChecks(emitRuntimeChecks),
         tokens(tokenize(expressionText)) {}
 
     ExpressionEmitResult parse() {
@@ -67,6 +74,7 @@ private:
     int expressionColumn;
     const std::map<int, std::string>& sourceLines;
     const std::map<std::string, CpppType>& declaredVariables;
+    bool emitRuntimeChecks;
     std::vector<Token> tokens;
     size_t current = 0;
 
@@ -213,7 +221,11 @@ private:
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
             expression.type = CpppType::Int;
             expression.explicitCast = false;
         }
@@ -240,7 +252,11 @@ private:
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
             expression.type = CpppType::Int;
             expression.explicitCast = false;
         }
@@ -267,7 +283,11 @@ private:
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
             expression.type = CpppType::Int;
             expression.explicitCast = false;
         }
@@ -294,7 +314,11 @@ private:
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
             expression.type = CpppType::Bool;
             expression.explicitCast = false;
         }
@@ -321,7 +345,11 @@ private:
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
             expression.type = CpppType::Bool;
             expression.explicitCast = false;
         }
@@ -348,7 +376,11 @@ private:
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
             expression.type = CpppType::Int;
             expression.explicitCast = false;
         }
@@ -378,7 +410,11 @@ private:
                 report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
         }
 
         return expression;
@@ -406,7 +442,11 @@ private:
                 report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+                expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
+            } else {
+                expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
+            }
         }
 
         return expression;
@@ -629,6 +669,57 @@ private:
         return type == CpppType::Float;
     }
 
+    std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
+        return "throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(column) + ":" + message + "\")";
+    }
+
+    std::string checkedIntegerExpression(
+        const std::string& left,
+        const std::string& right,
+        const std::string& op,
+        int column
+    ) const {
+        if (op == "/") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if (__cppp_right == 0) { " + runtimeErrorThrowExpression(column, "division by zero") + "; } "
+                "if (__cppp_left == LLONG_MIN && __cppp_right == -1) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left / __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "%") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if (__cppp_right == 0) { " + runtimeErrorThrowExpression(column, "modulo by zero") + "; } "
+                "if (__cppp_left == LLONG_MIN && __cppp_right == -1) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left % __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "+") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if ((__cppp_right > 0 && __cppp_left > LLONG_MAX - __cppp_right) || (__cppp_right < 0 && __cppp_left < LLONG_MIN - __cppp_right)) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left + __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "-") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if ((__cppp_right < 0 && __cppp_left > LLONG_MAX + __cppp_right) || (__cppp_right > 0 && __cppp_left < LLONG_MIN + __cppp_right)) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left - __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "*") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "__int128 __cppp_product = static_cast<__int128>(__cppp_left) * static_cast<__int128>(__cppp_right); "
+                "if (__cppp_product > LLONG_MAX || __cppp_product < LLONG_MIN) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return static_cast<long long>(__cppp_product); "
+                "})(" + left + ", " + right + ")";
+        }
+
+        return "(" + left + " " + op + " " + right + ")";
+    }
+
 };
 }
 
@@ -739,10 +830,15 @@ ExpressionEmitResult emitExpression(
     const std::string& expressionText,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables
+    const std::map<std::string, CpppType>& declaredVariables,
+    bool emitRuntimeChecks
 ) {
-    ExpressionParser parser(inputFile, lineNumber, expressionText, expressionColumn, sourceLines, declaredVariables);
+    ExpressionParser parser(inputFile, lineNumber, expressionText, expressionColumn, sourceLines, declaredVariables, emitRuntimeChecks || expressionRuntimeChecksEnabled());
     return parser.parse();
+}
+
+void setExpressionRuntimeChecksEnabled(bool enabled) {
+    expressionRuntimeChecksEnabled() = enabled;
 }
 
 bool hasArithmeticOperator(const std::vector<Token>& tokens) {

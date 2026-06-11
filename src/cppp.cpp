@@ -8,6 +8,7 @@
 #include "assignmentCppp.h"
 #include "controlFlow.h"
 #include "errors.h"
+#include "expressions.h"
 #include "printCppp.h"
 #include "typesCppp.h"
 
@@ -206,19 +207,21 @@ static std::string executablePathFor(const std::string& inputFile, const std::st
 
 int main(int argc, char* argv[]) {
     if ((argc != 3 && argc != 4) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run]\n";
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run|--submit]\n";
         return 1;
     }
     clearRecordedSourceErrors();
 
     const bool hasAction = argc == 4;
     const std::string action = hasAction ? std::string(argv[3]) : "";
-    const bool shouldCompile = action == "--compile" || action == "--run";
+    const bool shouldCompile = action == "--compile" || action == "--run" || action == "--submit";
     const bool shouldRun = action == "--run";
+    const bool shouldSubmit = action == "--submit";
     if (hasAction && !shouldCompile) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
         return 1;
     }
+    setExpressionRuntimeChecksEnabled(shouldRun);
 
     const std::string inputFile = argv[2];
     const std::string cpppExtension = ".cppp";
@@ -272,6 +275,9 @@ int main(int argc, char* argv[]) {
     emitLine("    ios::sync_with_stdio(false);");
     emitLine("    cin.tie(nullptr);");
     emitLine("");
+    if (shouldRun) {
+        emitLine("    try {");
+    }
 
     std::vector<SourceFragment> sourceFragments;
     std::string rawLine;
@@ -716,6 +722,19 @@ int main(int argc, char* argv[]) {
     }
 
     emitLine("    return 0;");
+    if (shouldRun) {
+        emitLine("    } catch (const runtime_error& __cppp_error) {");
+        emitLine("        string __cppp_message = __cppp_error.what();");
+        emitLine("        size_t __cppp_first = __cppp_message.find(':');");
+        emitLine("        size_t __cppp_second = __cppp_message.find(':', __cppp_first + 1);");
+        emitLine("        if (__cppp_first != string::npos && __cppp_second != string::npos) {");
+        emitLine("            cout << \"" + inputFile + ":\" << __cppp_message.substr(0, __cppp_first) << \":\" << __cppp_message.substr(__cppp_first + 1, __cppp_second - __cppp_first - 1) << \": error: runtime error: \" << __cppp_message.substr(__cppp_second + 1) << '\\n';");
+        emitLine("        } else {");
+        emitLine("            cout << \"CP++ runtime error: \" << __cppp_message << '\\n';");
+        emitLine("        }");
+        emitLine("        return 1;");
+        emitLine("    }");
+    }
     emitLine("}");
     output.close();
 
@@ -732,16 +751,12 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::cout << "Built " << executableFile << '\n';
+        std::cout << (shouldSubmit ? "Built submit target " : "Built ") << executableFile << '\n' << std::flush;
 
         if (shouldRun) {
-            const std::string runtimeLogFile = outputFile + ".runtime.log";
-            const std::string runCommand = commandPathFor(executableFile) + " 2> " + quotePath(runtimeLogFile);
+            const std::string runCommand = commandPathFor(executableFile);
             const int runResult = std::system(runCommand.c_str());
             if (runResult != 0) {
-                if (!printRuntimeErrors(inputFile, runtimeLogFile, sourceLines, cppToCpppLine)) {
-                    std::cout << "CP++ runtime error: generated program exited with status " << runResult << '\n';
-                }
                 return 1;
             }
         }

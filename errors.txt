@@ -658,11 +658,10 @@ Runtime errors
 --------------
 
 runtime diagnostic model
-  When run with --run, CP++ compiles the generated C++ normally, without UBSan
-  or any other sanitizer flags. The generated C++ keeps ordinary arithmetic
-  expressions such as / and % as ordinary C++ expressions. CP++ redirects the
-  generated program's stderr to a runtime log, reads that log after a failing
-  run, and prints a readable CP++ runtime diagnostic to stdout.
+  CP++ has two runtime-oriented compilation targets. --run emits checked C++
+  for readable CP++ runtime diagnostics and catches those errors in generated
+  main. --submit emits lean C++ for submission and does not add readable
+  runtime-error checks. Both modes otherwise lower the same CP++ program.
 
   Example:
     int total=18;
@@ -673,10 +672,8 @@ runtime diagnostic model
     error: runtime error: division by zero
 
 division by zero
-  Division by zero is emitted as ordinary C++. If the platform reports the
-  failure on stderr, CP++ translates the runtime log to a CP++ diagnostic. If
-  the platform exits without stderr text, CP++ still reports a readable runtime
-  failure attached to the most likely arithmetic operation in the source program.
+  In --run mode, integer division by zero is checked and reported as a readable
+  CP++ runtime error. In --submit mode, division is emitted as ordinary C++.
 
   Example:
     int numerator=12;
@@ -687,8 +684,8 @@ division by zero
     error: runtime error: division by zero
 
 modulo by zero
-  Modulo by zero is emitted as ordinary C++ and translated from the runtime
-  stderr log when the platform reports it.
+  In --run mode, integer modulo by zero is checked and reported as a readable
+  CP++ runtime error. In --submit mode, modulo is emitted as ordinary C++.
 
   Example:
     int x = 4 % 0;
@@ -697,8 +694,9 @@ modulo by zero
     error: runtime error: modulo by zero
 
 integer overflow
-  If the runtime reports integer overflow on stderr, CP++ translates that log
-  into a readable integer overflow diagnostic.
+  In --run mode, integer +, -, *, and the LLONG_MIN / -1 and LLONG_MIN % -1
+  cases are checked and reported as readable integer overflow diagnostics. In
+  --submit mode, arithmetic is emitted as ordinary C++.
 
   Example:
     int x = 9223372036854775807;

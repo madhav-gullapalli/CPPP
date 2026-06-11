@@ -30,6 +30,7 @@ std::string castExpressionTo(const std::string& expression, CpppType to);
 CpppType declaredTypeForName(const std::string& name);
 bool isInputCall(const std::vector<Token>& tokens);
 std::string inputFunctionForType(CpppType type);
+void setExpressionRuntimeChecksEnabled(bool enabled);
 
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
@@ -37,7 +38,8 @@ ExpressionEmitResult emitExpression(
     const std::string& expressionText,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables
+    const std::map<std::string, CpppType>& declaredVariables,
+    bool emitRuntimeChecks = false
 );
 
 bool hasArithmeticOperator(const std::vector<Token>& tokens);
