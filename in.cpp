@@ -40,16 +40,5 @@ long long CPPPInputInt() { long long value; cin >> value; return value; }
 long double CPPPInputFloat() { long double value; cin >> value; return value; }
 
 int main() {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
 
-    long long n = CPPPInputInt();
-    long long a = (100000 / ((n - 2)));
-    if ((CPPPToBool((CPPPToBool((n % 2)) || CPPPToBool((n == 2)))) || CPPPToBool((a == 1000)))) {
-        cout << "No" << '\n';
-    }
-    else {
-        cout << "Yes" << '\n';
-    }
-    return 0;
 }
