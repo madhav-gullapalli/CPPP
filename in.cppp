@@ -1,6 +1,2 @@
-int n = input();
-int a = 100000/(n-2);
-if(n%2 || n == 2 ||a == 1000){print("NO");}
-else{
-    print("YES");
-}
+int x = input();
+print(x==1);

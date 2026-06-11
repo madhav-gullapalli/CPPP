@@ -6,6 +6,7 @@
 #include <cctype>
 #include <map>
 #include <regex>
+#include <set>
 
 namespace {
 struct TypeInfo {
@@ -16,6 +17,13 @@ struct TypeInfo {
 struct DeclaredName {
     std::string name;
     int column;
+};
+
+struct ParsedTypeName {
+    bool ok = true;
+    Type type;
+    std::string name;
+    size_t nextTokenIndex = 0;
 };
 
 std::string trim(const std::string& text) {
@@ -100,14 +108,65 @@ bool isBoolLiteral(const std::string& text) {
     return text == "true" || text == "false";
 }
 
+bool parseTypeName(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::vector<Token>& tokens,
+    const std::map<int, std::string>& sourceLines,
+    ParsedTypeName& parsedType
+) {
+    if (tokens.empty() || tokens[0].kind != TokenKind::Identifier) {
+        return false;
+    }
+
+    const std::string typeName = tokens[0].text;
+    if (typeName == "bigint" || typeName == "Bigint" || typeName == "bigfloat" || typeName == "BigFloat") {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            tokens[0].span.startColumn,
+            typeName + " has been removed from CP++; use int or float instead",
+            sourceLines
+        );
+        parsedType.ok = false;
+        parsedType.nextTokenIndex = 1;
+        return true;
+    }
+
+    const auto type = primitiveTypes().find(typeName);
+    if (type == primitiveTypes().end()) {
+        return false;
+    }
+
+    const Type rootType = declaredTypeForName(typeName);
+    parsedType.ok = true;
+    parsedType.type = rootType;
+    parsedType.name = typeName;
+    parsedType.nextTokenIndex = 1;
+
+    if (tokens.size() > 1 && tokens[1].kind == TokenKind::Operator && tokens[1].text == "<") {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            tokens[1].span.startColumn,
+            typeName + " expects " + std::to_string(primitiveArity(rootType.primitive)) + " subtypes",
+            sourceLines
+        );
+        parsedType.ok = false;
+        parsedType.nextTokenIndex = 1;
+    }
+
+    return true;
+}
+
 bool finishExpressionAssignment(
     const std::string& inputFile,
     int lineNumber,
     const std::string& assignedValue,
     int assignedValueColumn,
-    CpppType targetType,
+    Type targetType,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables,
+    const std::map<std::string, Type>& declaredVariables,
     std::string& emittedValue
 ) {
     const ExpressionEmitResult expression = emitExpression(
@@ -135,7 +194,7 @@ bool finishExpressionAssignment(
 
     emittedValue = expression.generatedExpression;
     if (!isImplicitlyConvertible(expression.type, targetType) || expression.type != targetType) {
-        emittedValue = castExpressionTo(emittedValue, targetType);
+        emittedValue = castExpressionTo(emittedValue, expression.type, targetType);
     }
 
     return true;
@@ -172,56 +231,186 @@ std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
 }
 }
 
-std::vector<std::string> typeSupportPreamble() {
+std::vector<RuntimeHelper> runtimeHelpers() {
     return {
-        "struct CPPPChar {",
-        "    char value = '\\0';",
-        "    CPPPChar() = default;",
-        "    CPPPChar(char initialValue) : value(initialValue) {}",
-        "    operator char() const { return value; }",
-        "};",
-        "",
-        "ostream& operator<<(ostream& output, const CPPPChar& value) {",
-        "    if (value.value == '\\0') {",
-        "        return output << 0;",
-        "    }",
-        "",
-        "    return output << value.value;",
-        "}",
-        "",
-        "istream& operator>>(istream& input, CPPPChar& value) {",
-        "    char ch;",
-        "    input >> ch;",
-        "    value = CPPPChar(ch);",
-        "    return input;",
-        "}",
-        "",
-        "CPPPChar& operator++(CPPPChar& value) { ++value.value; return value; }",
-        "CPPPChar operator++(CPPPChar& value, int) { CPPPChar old = value; ++value; return old; }",
-        "CPPPChar& operator--(CPPPChar& value) { --value.value; return value; }",
-        "CPPPChar operator--(CPPPChar& value, int) { CPPPChar old = value; --value; return old; }",
-        "",
-        "bool CPPPToBool(bool value) { return value; }",
-        "bool CPPPToBool(int value) { return value != 0; }",
-        "bool CPPPToBool(long long value) { return value != 0; }",
-        "bool CPPPToBool(long double value) { return value != 0.0L && !isnan(value); }",
-        "bool CPPPToBool(const CPPPChar& value) { return value.value != '\\0'; }",
-        "",
-        "bool CPPPInputBool() { bool value; cin >> value; return value; }",
-        "CPPPChar CPPPInputChar() { CPPPChar value; cin >> value; return value; }",
-        "long long CPPPInputInt() { long long value; cin >> value; return value; }",
-        "long double CPPPInputFloat() { long double value; cin >> value; return value; }",
-        ""
+        {
+            "CPPPCharCore",
+            {
+                "struct CPPPChar {",
+                "    char value = '\\0';",
+                "    CPPPChar() = default;",
+                "    CPPPChar(char initialValue) : value(initialValue) {}",
+                "    operator char() const { return value; }",
+                "};",
+                "",
+                "ostream& operator<<(ostream& output, const CPPPChar& value) {",
+                "    if (value.value == '\\0') {",
+                "        return output << 0;",
+                "    }",
+                "",
+                "    return output << value.value;",
+                "}",
+                "",
+                "istream& operator>>(istream& input, CPPPChar& value) {",
+                "    char ch;",
+                "    input >> ch;",
+                "    value = CPPPChar(ch);",
+                "    return input;",
+                "}",
+                "",
+                "CPPPChar& operator++(CPPPChar& value) { ++value.value; return value; }",
+                "CPPPChar operator++(CPPPChar& value, int) { CPPPChar old = value; ++value; return old; }",
+                "CPPPChar& operator--(CPPPChar& value) { --value.value; return value; }",
+                "CPPPChar operator--(CPPPChar& value, int) { CPPPChar old = value; --value; return old; }",
+                ""
+            },
+            {},
+            {"CPPPChar"}
+        },
+        {
+            "CPPPToBoolBool",
+            {
+                "bool CPPPToBoolBool(bool value) { return value; }",
+                ""
+            },
+            {},
+            {"CPPPToBoolBool("}
+        },
+        {
+            "CPPPToBoolInt",
+            {
+                "bool CPPPToBoolInt(long long value) { return value != 0; }",
+                ""
+            },
+            {},
+            {"CPPPToBoolInt("}
+        },
+        {
+            "CPPPToBoolFloat",
+            {
+                "bool CPPPToBoolFloat(long double value) { return value != 0.0L && !isnan(value); }",
+                ""
+            },
+            {},
+            {"CPPPToBoolFloat("}
+        },
+        {
+            "CPPPToBoolChar",
+            {
+                "bool CPPPToBoolChar(const CPPPChar& value) { return value.value != '\\0'; }",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPToBoolChar("}
+        },
+        {
+            "CPPPToBoolFallback",
+            {
+                "bool CPPPToBool(bool value) { return value; }",
+                "bool CPPPToBool(int value) { return value != 0; }",
+                "bool CPPPToBool(long long value) { return value != 0; }",
+                "bool CPPPToBool(long double value) { return value != 0.0L && !isnan(value); }",
+                "bool CPPPToBool(const CPPPChar& value) { return value.value != '\\0'; }",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPToBool("}
+        },
+        {
+            "CPPPInputBool",
+            {
+                "bool CPPPInputBool() { bool value; cin >> value; return value; }",
+                ""
+            },
+            {},
+            {"CPPPInputBool("}
+        },
+        {
+            "CPPPInputChar",
+            {
+                "CPPPChar CPPPInputChar() { CPPPChar value; cin >> value; return value; }",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPInputChar("}
+        },
+        {
+            "CPPPInputInt",
+            {
+                "long long CPPPInputInt() { long long value; cin >> value; return value; }",
+                ""
+            },
+            {},
+            {"CPPPInputInt("}
+        },
+        {
+            "CPPPInputFloat",
+            {
+                "long double CPPPInputFloat() { long double value; cin >> value; return value; }",
+                ""
+            },
+            {},
+            {"CPPPInputFloat("}
+        }
     };
 }
 
+std::vector<std::string> typeSupportPreamble() {
+    std::vector<std::string> preamble;
+    for (const RuntimeHelper& helper : runtimeHelpers()) {
+        preamble.insert(preamble.end(), helper.code.begin(), helper.code.end());
+    }
+    return preamble;
+}
+
+std::vector<std::string> typeSupportPreambleForSubmit(const std::string& generatedProgramText) {
+    const std::vector<RuntimeHelper> helpers = runtimeHelpers();
+    std::map<std::string, RuntimeHelper> helpersByName;
+    for (const RuntimeHelper& helper : helpers) {
+        helpersByName[helper.name] = helper;
+    }
+
+    std::set<std::string> requiredHelpers;
+    std::vector<std::string> worklist;
+    for (const RuntimeHelper& helper : helpers) {
+        for (const std::string& trigger : helper.triggers) {
+            if (generatedProgramText.find(trigger) != std::string::npos) {
+                if (requiredHelpers.insert(helper.name).second) {
+                    worklist.push_back(helper.name);
+                }
+                break;
+            }
+        }
+    }
+
+    for (size_t i = 0; i < worklist.size(); ++i) {
+        const RuntimeHelper& helper = helpersByName.at(worklist[i]);
+        for (const std::string& dep : helper.deps) {
+            if (requiredHelpers.insert(dep).second) {
+                worklist.push_back(dep);
+            }
+        }
+    }
+
+    std::vector<std::string> preamble;
+    for (const RuntimeHelper& helper : helpers) {
+        if (requiredHelpers.count(helper.name) == 0) {
+            continue;
+        }
+
+        preamble.insert(preamble.end(), helper.code.begin(), helper.code.end());
+    }
+
+    return preamble;
+}
+ 
 TypeEmitResult emitTypeDeclaration(
     const std::string& inputFile,
     int lineNumber,
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    std::map<std::string, CpppType>& declaredVariables
+    std::map<std::string, Type>& declaredVariables
 ) {
     (void)sourceLine;
 
@@ -230,26 +419,20 @@ TypeEmitResult emitTypeDeclaration(
         return {false, true, "", {}};
     }
 
-    const std::string typeName = tokens[0].text;
-    if (typeName == "bigint" || typeName == "Bigint" || typeName == "bigfloat" || typeName == "BigFloat") {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[0].span.startColumn,
-            typeName + " has been removed from CP++; use int or float instead",
-            sourceLines
-        );
+    ParsedTypeName parsedType;
+    if (!parseTypeName(inputFile, lineNumber, tokens, sourceLines, parsedType)) {
+        return {false, true, "", {}};
+    }
+    if (!parsedType.ok) {
         return {true, false, "", {}};
     }
 
+    const std::string typeName = parsedType.name;
     const auto type = primitiveTypes().find(typeName);
-    if (type == primitiveTypes().end()) {
-        return {false, true, "", {}};
-    }
-    const CpppType targetType = declaredTypeForName(typeName);
+    const Type targetType = parsedType.type;
 
     std::vector<DeclaredName> variables;
-    size_t tokenIndex = 1;
+    size_t tokenIndex = parsedType.nextTokenIndex;
     while (true) {
         if (tokens[tokenIndex].kind != TokenKind::Identifier) {
             recordSourceError(

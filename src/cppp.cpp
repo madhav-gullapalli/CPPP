@@ -44,11 +44,17 @@ struct SourceFragment {
     std::string text;
 };
 
-static bool isRepCountType(CpppType type) {
-    return type == CpppType::Bool ||
-        type == CpppType::Char ||
-        type == CpppType::Int ||
-        type == CpppType::Float;
+struct GeneratedLine {
+    std::string text;
+    int sourceLine = 0;
+    std::vector<SourceRange> sourceRanges;
+};
+
+static bool isRepCountType(Type type) {
+    return type == PrimitiveType::Bool ||
+        type == PrimitiveType::Char ||
+        type == PrimitiveType::Int ||
+        type == PrimitiveType::Float;
 }
 
 static size_t findLineCommentStart(const std::string& text) {
@@ -251,7 +257,7 @@ int main(int argc, char* argv[]) {
     std::map<int, int> cppToCpppLine;
     std::map<int, std::string> sourceLines;
     std::map<int, std::vector<SourceRange>> sourceRanges;
-    std::map<std::string, CpppType> declaredVariables;
+    std::map<std::string, Type> declaredVariables;
     int generatedLine = 0;
     int blockDepth = 0;
     bool canAttachElse = false;
@@ -264,20 +270,10 @@ int main(int argc, char* argv[]) {
             cppToCpppLine[generatedLine] = sourceLine;
         }
     };
-
-    emitLine("#include <bits/stdc++.h>");
-    emitLine("using namespace std;");
-    emitLine("");
-    for (const std::string& preambleLine : typeSupportPreamble()) {
-        emitLine(preambleLine);
-    }
-    emitLine("int main() {");
-    emitLine("    ios::sync_with_stdio(false);");
-    emitLine("    cin.tie(nullptr);");
-    emitLine("");
-    if (shouldRun) {
-        emitLine("    try {");
-    }
+    std::vector<GeneratedLine> generatedBodyLines;
+    const auto queueGeneratedLine = [&](const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
+        generatedBodyLines.push_back({text, sourceLine, std::move(ranges)});
+    };
 
     std::vector<SourceFragment> sourceFragments;
     std::string rawLine;
@@ -303,7 +299,7 @@ int main(int argc, char* argv[]) {
 
         if (statement.empty()) {
             if (hasComment) {
-                emitLine(indentForDepth(blockDepth) + commentText, lineNumber);
+                queueGeneratedLine(indentForDepth(blockDepth) + commentText, lineNumber);
             }
             continue;
         }
@@ -336,7 +332,7 @@ int main(int argc, char* argv[]) {
                 return false;
             }
 
-            if (!isImplicitlyConvertible(condition.type, CpppType::Bool)) {
+            if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), keyword + " condition must be bool", sourceLines);
                 ++blockDepth;
                 blockKinds.push_back(keyword);
@@ -345,11 +341,11 @@ int main(int argc, char* argv[]) {
             }
 
             std::string generatedCondition = condition.generatedExpression;
-            if (condition.type != CpppType::Bool) {
-                generatedCondition = castExpressionTo(generatedCondition, CpppType::Bool);
+            if (condition.type != PrimitiveType::Bool) {
+                generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
             }
 
-            emitLine(indentForDepth(blockDepth) + keyword + " (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(indentForDepth(blockDepth) + keyword + " (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
             ++blockDepth;
             blockKinds.push_back(keyword);
             canAttachElse = false;
@@ -415,7 +411,7 @@ int main(int argc, char* argv[]) {
 
             const std::string afterBrace = trim(statement.substr(1));
             if (afterBrace.empty()) {
-                emitLine(indentForDepth(blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
+                queueGeneratedLine(indentForDepth(blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
                 continue;
             }
 
@@ -435,7 +431,7 @@ int main(int argc, char* argv[]) {
             }
 
             if (parseElseHeader(afterBrace)) {
-                emitLine(indentForDepth(blockDepth) + "} else {" + (hasComment ? " " + commentText : ""), lineNumber);
+                queueGeneratedLine(indentForDepth(blockDepth) + "} else {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++blockDepth;
                 blockKinds.push_back("else");
                 canAttachElse = false;
@@ -467,7 +463,7 @@ int main(int argc, char* argv[]) {
                     continue;
                 }
 
-                if (!isImplicitlyConvertible(condition.type, CpppType::Bool)) {
+                if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
                     recordSourceError(inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "if condition must be bool", sourceLines);
                     ++blockDepth;
                     blockKinds.push_back("else if");
@@ -476,18 +472,18 @@ int main(int argc, char* argv[]) {
                 }
 
                 std::string generatedCondition = condition.generatedExpression;
-                if (condition.type != CpppType::Bool) {
-                    generatedCondition = castExpressionTo(generatedCondition, CpppType::Bool);
+                if (condition.type != PrimitiveType::Bool) {
+                    generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
                 }
 
-                emitLine(indentForDepth(blockDepth) + "} else if (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+                queueGeneratedLine(indentForDepth(blockDepth) + "} else if (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++blockDepth;
                 blockKinds.push_back("else if");
                 canAttachElse = false;
                 continue;
             }
 
-            emitLine(indentForDepth(blockDepth) + "}", lineNumber);
+            queueGeneratedLine(indentForDepth(blockDepth) + "}", lineNumber);
             recordSourceError(inputFile, lineNumber, statementStartColumn + 1, "expected else, else if, or end of statement after '}'", sourceLines);
             continue;
         }
@@ -500,7 +496,7 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            emitLine(indentForDepth(blockDepth) + "else {" + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(indentForDepth(blockDepth) + "else {" + (hasComment ? " " + commentText : ""), lineNumber);
             ++blockDepth;
             blockKinds.push_back("else");
             canAttachElse = false;
@@ -552,7 +548,7 @@ int main(int argc, char* argv[]) {
                     continue;
                 }
 
-                if (!isImplicitlyConvertible(condition.type, CpppType::Bool)) {
+                if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
                     recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(forHeader.conditionOffset), "for condition must be bool", sourceLines);
                     ++blockDepth;
                     blockKinds.push_back("for");
@@ -561,8 +557,8 @@ int main(int argc, char* argv[]) {
                 }
 
                 generatedCondition = condition.generatedExpression;
-                if (condition.type != CpppType::Bool) {
-                    generatedCondition = castExpressionTo(generatedCondition, CpppType::Bool);
+                if (condition.type != PrimitiveType::Bool) {
+                    generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
                 }
             }
 
@@ -577,7 +573,7 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            emitLine(indentForDepth(blockDepth) + "for (" + generatedInitializer + "; " + generatedCondition + "; " + generatedIteration + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(indentForDepth(blockDepth) + "for (" + generatedInitializer + "; " + generatedCondition + "; " + generatedIteration + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
             ++blockDepth;
             blockKinds.push_back("for");
             canAttachElse = false;
@@ -619,9 +615,9 @@ int main(int argc, char* argv[]) {
             const std::string indexName = "__cppp_rep_" + std::to_string(repLoopIndex);
             const std::string limitName = "__cppp_rep_limit_" + std::to_string(repLoopIndex);
             ++repLoopIndex;
-            emitLine(
+            queueGeneratedLine(
                 indentForDepth(blockDepth) +
-                "for (long long " + indexName + " = 0, " + limitName + " = " + castExpressionTo(count.generatedExpression, CpppType::Int) +
+                "for (long long " + indexName + " = 0, " + limitName + " = " + castExpressionTo(count.generatedExpression, count.type, PrimitiveType::Int) +
                 "; " + indexName + " < " + limitName + "; ++" + indexName + ") {" +
                 (hasComment ? " " + commentText : ""),
                 lineNumber
@@ -658,8 +654,11 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            sourceRanges[generatedLine + 1] = typeResult.sourceRanges;
-            emitLine(indentGeneratedStatement(typeResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(
+                indentGeneratedStatement(typeResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                typeResult.sourceRanges
+            );
             continue;
         }
 
@@ -669,8 +668,11 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            sourceRanges[generatedLine + 1] = assignmentResult.sourceRanges;
-            emitLine(indentGeneratedStatement(assignmentResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(
+                indentGeneratedStatement(assignmentResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                assignmentResult.sourceRanges
+            );
             continue;
         }
 
@@ -687,7 +689,7 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            emitLine(indentForDepth(blockDepth) + expression.generatedExpression + ";" + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(indentForDepth(blockDepth) + expression.generatedExpression + ";" + (hasComment ? " " + commentText : ""), lineNumber);
             continue;
         }
 
@@ -697,8 +699,11 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            sourceRanges[generatedLine + 1] = describeResult.sourceRanges;
-            emitLine(indentGeneratedStatement(describeResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+            queueGeneratedLine(
+                indentGeneratedStatement(describeResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                describeResult.sourceRanges
+            );
             continue;
         }
 
@@ -707,8 +712,11 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        sourceRanges[generatedLine + 1] = printResult.sourceRanges;
-        emitLine(indentGeneratedStatement(printResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""), lineNumber);
+        queueGeneratedLine(
+            indentGeneratedStatement(printResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""),
+            lineNumber,
+            printResult.sourceRanges
+        );
     }
 
     if (blockDepth > 0) {
@@ -719,6 +727,36 @@ int main(int argc, char* argv[]) {
         printRecordedSourceErrors();
         clearRecordedSourceErrors();
         return 1;
+    }
+
+    std::string generatedProgramText;
+    for (const GeneratedLine& line : generatedBodyLines) {
+        generatedProgramText += line.text;
+        generatedProgramText.push_back('\n');
+    }
+
+    emitLine("#include <bits/stdc++.h>");
+    emitLine("using namespace std;");
+    emitLine("");
+    const std::vector<std::string> preambleLines = shouldSubmit ?
+        typeSupportPreambleForSubmit(generatedProgramText) :
+        typeSupportPreamble();
+    for (const std::string& preambleLine : preambleLines) {
+        emitLine(preambleLine);
+    }
+    emitLine("int main() {");
+    emitLine("    ios::sync_with_stdio(false);");
+    emitLine("    cin.tie(nullptr);");
+    emitLine("");
+    if (shouldRun) {
+        emitLine("    try {");
+    }
+
+    for (const GeneratedLine& line : generatedBodyLines) {
+        if (!line.sourceRanges.empty()) {
+            sourceRanges[generatedLine + 1] = line.sourceRanges;
+        }
+        emitLine(line.text, line.sourceLine);
     }
 
     emitLine("    return 0;");

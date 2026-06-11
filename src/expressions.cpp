@@ -4,7 +4,7 @@ namespace {
 struct ParsedExpression {
     bool ok;
     std::string text;
-    CpppType type;
+    Type type;
     bool explicitCast;
     int sourceColumn;
     bool mutableValue;
@@ -23,7 +23,7 @@ public:
         const std::string& expressionText,
         int expressionColumn,
         const std::map<int, std::string>& sourceLines,
-        const std::map<std::string, CpppType>& declaredVariables,
+        const std::map<std::string, Type>& declaredVariables,
         bool emitRuntimeChecks
     ) :
         inputFile(inputFile),
@@ -39,18 +39,18 @@ public:
         for (const Token& token : tokens) {
             if (isUnterminatedQuotedToken(token)) {
                 report(token, token.kind == TokenKind::Char ? "unterminated char literal" : "unterminated string literal");
-                return {false, "", CpppType::Unknown, false, {}};
+                return {false, "", PrimitiveType::Unknown, false, {}};
             }
         }
 
         const ParsedExpression expression = parseExpression();
         if (!expression.ok) {
-            return {false, "", CpppType::Unknown, false, {}};
+            return {false, "", PrimitiveType::Unknown, false, {}};
         }
 
         if (!atEnd()) {
             report(peek(), "unexpected token in expression");
-            return {false, "", CpppType::Unknown, false, {}};
+            return {false, "", PrimitiveType::Unknown, false, {}};
         }
 
         return {
@@ -73,7 +73,7 @@ private:
     const std::string& expressionText;
     int expressionColumn;
     const std::map<int, std::string>& sourceLines;
-    const std::map<std::string, CpppType>& declaredVariables;
+    const std::map<std::string, Type>& declaredVariables;
     bool emitRuntimeChecks;
     std::vector<Token> tokens;
     size_t current = 0;
@@ -164,11 +164,11 @@ private:
 
             if (!isValueType(expression.type) || !isValueType(right.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + castExpressionTo(expression.text, CpppType::Bool) + " " + op.text + " " + castExpressionTo(right.text, CpppType::Bool) + ")";
-            expression.type = CpppType::Bool;
+            expression.text = "(" + castExpressionTo(expression.text, expression.type, PrimitiveType::Bool) + " " + op.text + " " + castExpressionTo(right.text, right.type, PrimitiveType::Bool) + ")";
+            expression.type = PrimitiveType::Bool;
             expression.explicitCast = false;
         }
 
@@ -191,11 +191,11 @@ private:
 
             if (!isValueType(expression.type) || !isValueType(right.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            expression.text = "(" + castExpressionTo(expression.text, CpppType::Bool) + " " + op.text + " " + castExpressionTo(right.text, CpppType::Bool) + ")";
-            expression.type = CpppType::Bool;
+            expression.text = "(" + castExpressionTo(expression.text, expression.type, PrimitiveType::Bool) + " " + op.text + " " + castExpressionTo(right.text, right.type, PrimitiveType::Bool) + ")";
+            expression.type = PrimitiveType::Bool;
             expression.explicitCast = false;
         }
 
@@ -218,15 +218,15 @@ private:
 
             if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             }
-            expression.type = CpppType::Int;
+            expression.type = PrimitiveType::Int;
             expression.explicitCast = false;
         }
 
@@ -249,15 +249,15 @@ private:
 
             if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             }
-            expression.type = CpppType::Int;
+            expression.type = PrimitiveType::Int;
             expression.explicitCast = false;
         }
 
@@ -280,15 +280,15 @@ private:
 
             if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             }
-            expression.type = CpppType::Int;
+            expression.type = PrimitiveType::Int;
             expression.explicitCast = false;
         }
 
@@ -311,15 +311,15 @@ private:
 
             if (!isComparable(expression.type, right.type)) {
                 report(op, "cannot compare " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             }
-            expression.type = CpppType::Bool;
+            expression.type = PrimitiveType::Bool;
             expression.explicitCast = false;
         }
 
@@ -342,15 +342,15 @@ private:
 
             if (!isComparable(expression.type, right.type)) {
                 report(op, "cannot compare " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             }
-            expression.type = CpppType::Bool;
+            expression.type = PrimitiveType::Bool;
             expression.explicitCast = false;
         }
 
@@ -373,15 +373,15 @@ private:
 
             if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             }
-            expression.type = CpppType::Int;
+            expression.type = PrimitiveType::Int;
             expression.explicitCast = false;
         }
 
@@ -402,15 +402,15 @@ private:
                 return right;
             }
 
-            const CpppType leftType = expression.type;
-            const CpppType rightType = right.type;
+            const Type leftType = expression.type;
+            const Type rightType = right.type;
             expression.type = binaryResultType(leftType, rightType, op.text);
             expression.explicitCast = false;
-            if (expression.type == CpppType::Unknown) {
+            if (expression.type == PrimitiveType::Unknown) {
                 report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
@@ -434,15 +434,15 @@ private:
                 return right;
             }
 
-            const CpppType leftType = expression.type;
-            const CpppType rightType = right.type;
+            const Type leftType = expression.type;
+            const Type rightType = right.type;
             expression.type = binaryResultType(leftType, rightType, op.text);
             expression.explicitCast = false;
-            if (expression.type == CpppType::Unknown) {
+            if (expression.type == PrimitiveType::Unknown) {
                 report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
-            if (emitRuntimeChecks && expression.type == CpppType::Int) {
+            if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
                 expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
             } else {
                 expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
@@ -458,19 +458,19 @@ private:
             ++current;
             if (!match(TokenKind::Identifier)) {
                 report(op, "expected variable after '" + op.text + "'");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             const Token& identifier = previous();
             const auto variable = declaredVariables.find(identifier.text);
             if (variable == declaredVariables.end()) {
                 report(identifier, "use of undeclared variable '" + identifier.text + "'");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             if (!isIncrementableType(variable->second)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(variable->second));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             return {true, "(" + op.text + identifier.text + ")", variable->second, false, absoluteColumn(op), false};
@@ -487,15 +487,15 @@ private:
             if (op.text == "!") {
                 if (!isValueType(right.type)) {
                     report(op, "cannot use '!' with " + cpppTypeName(right.type));
-                    return {false, "", CpppType::Unknown, false, 0, false};
+                    return {false, "", PrimitiveType::Unknown, false, 0, false};
                 }
 
-                return {true, "(!" + castExpressionTo(right.text, CpppType::Bool) + ")", CpppType::Bool, false, absoluteColumn(op), false};
+                return {true, "(!" + castExpressionTo(right.text, right.type, PrimitiveType::Bool) + ")", PrimitiveType::Bool, false, absoluteColumn(op), false};
             }
 
             if (!isNumericType(right.type)) {
                 report(op, "cannot use unary '" + op.text + "' with " + cpppTypeName(right.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             return {true, "(" + op.text + right.text + ")", right.type, false, absoluteColumn(op), false};
@@ -515,12 +515,12 @@ private:
             ++current;
             if (!expression.mutableValue) {
                 report(op, "expected variable before '" + op.text + "'");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             if (!isIncrementableType(expression.type)) {
                 report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type));
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             expression.text = "(" + expression.text + op.text + ")";
@@ -546,10 +546,10 @@ private:
                 return expression;
             }
 
-            const CpppType targetType = declaredTypeForName(typeToken.text);
+            const Type targetType = declaredTypeForName(typeToken.text);
             return {
                 true,
-                castExpressionTo(expression.text, targetType),
+                castExpressionTo(expression.text, expression.type, targetType),
                 targetType,
                 true,
                 absoluteColumn(typeToken),
@@ -560,18 +560,18 @@ private:
         if (match(TokenKind::Identifier)) {
             const Token& identifier = previous();
             if (identifier.text == "true" || identifier.text == "false") {
-                return {true, identifier.text, CpppType::Bool, false, absoluteColumn(identifier), false};
+                return {true, identifier.text, PrimitiveType::Bool, false, absoluteColumn(identifier), false};
             }
 
             if (identifier.text == "input") {
                 reportInputUsageError(identifier);
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             const auto variable = declaredVariables.find(identifier.text);
             if (variable == declaredVariables.end()) {
                 report(identifier, "use of undeclared variable '" + identifier.text + "'");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             return {true, identifier.text, variable->second, false, absoluteColumn(identifier), true};
@@ -579,22 +579,22 @@ private:
 
         if (match(TokenKind::Integer)) {
             const Token& literal = previous();
-            return {true, literal.text, CpppType::Int, false, absoluteColumn(literal), false};
+            return {true, literal.text, PrimitiveType::Int, false, absoluteColumn(literal), false};
         }
 
         if (match(TokenKind::Float)) {
             const Token& literal = previous();
-            return {true, literal.text, CpppType::Float, false, absoluteColumn(literal), false};
+            return {true, literal.text, PrimitiveType::Float, false, absoluteColumn(literal), false};
         }
 
         if (match(TokenKind::String)) {
             const Token& literal = previous();
-            return {true, literal.text, CpppType::Unknown, false, absoluteColumn(literal), false};
+            return {true, literal.text, PrimitiveType::Unknown, false, absoluteColumn(literal), false};
         }
 
         if (match(TokenKind::Char)) {
             const Token& literal = previous();
-            return {true, "CPPPChar(" + literal.text + ")", CpppType::Char, false, absoluteColumn(literal), false};
+            return {true, "CPPPChar(" + literal.text + ")", PrimitiveType::Char, false, absoluteColumn(literal), false};
         }
 
         if (match(TokenKind::LeftParen)) {
@@ -606,58 +606,58 @@ private:
 
             if (!match(TokenKind::RightParen)) {
                 report(leftParen, "unclosed parenthesis in expression");
-                return {false, "", CpppType::Unknown, false, 0, false};
+                return {false, "", PrimitiveType::Unknown, false, 0, false};
             }
 
             return {true, "(" + expression.text + ")", expression.type, expression.explicitCast, absoluteColumn(leftParen), false};
         }
 
         report(peek(), "expected expression");
-        return {false, "", CpppType::Unknown, false, 0, false};
+        return {false, "", PrimitiveType::Unknown, false, 0, false};
     }
 
     bool isTypeName(const std::string& name) const {
-        return declaredTypeForName(name) != CpppType::Unknown;
+        return declaredTypeForName(name) != PrimitiveType::Unknown;
     }
 
-    CpppType binaryResultType(CpppType left, CpppType right, const std::string& op) const {
+    Type binaryResultType(Type left, Type right, const std::string& op) const {
         if (!isNumericType(left) || !isNumericType(right)) {
-            return CpppType::Unknown;
+            return PrimitiveType::Unknown;
         }
 
         if (op == "%" && (isFloatType(left) || isFloatType(right))) {
-            return CpppType::Unknown;
+            return PrimitiveType::Unknown;
         }
 
-        if (left == CpppType::Float || right == CpppType::Float) {
-            return CpppType::Float;
+        if (left == PrimitiveType::Float || right == PrimitiveType::Float) {
+            return PrimitiveType::Float;
         }
 
-        return CpppType::Int;
+        return PrimitiveType::Int;
     }
 
-    bool isValueType(CpppType type) const {
-        return type != CpppType::Unknown;
+    bool isValueType(Type type) const {
+        return type != PrimitiveType::Unknown;
     }
 
-    bool isNumericType(CpppType type) const {
-        return type == CpppType::Bool ||
-            type == CpppType::Char ||
-            type == CpppType::Int ||
-            type == CpppType::Float;
+    bool isNumericType(Type type) const {
+        return type == PrimitiveType::Bool ||
+            type == PrimitiveType::Char ||
+            type == PrimitiveType::Int ||
+            type == PrimitiveType::Float;
     }
 
-    bool isBitwiseType(CpppType type) const {
-        return type == CpppType::Bool || type == CpppType::Char || type == CpppType::Int;
+    bool isBitwiseType(Type type) const {
+        return type == PrimitiveType::Bool || type == PrimitiveType::Char || type == PrimitiveType::Int;
     }
 
-    bool isIncrementableType(CpppType type) const {
-        return type == CpppType::Char ||
-            type == CpppType::Int ||
-            type == CpppType::Float;
+    bool isIncrementableType(Type type) const {
+        return type == PrimitiveType::Char ||
+            type == PrimitiveType::Int ||
+            type == PrimitiveType::Float;
     }
 
-    bool isComparable(CpppType left, CpppType right) const {
+    bool isComparable(Type left, Type right) const {
         if (!isValueType(left) || !isValueType(right)) {
             return false;
         }
@@ -665,8 +665,8 @@ private:
         return true;
     }
 
-    bool isFloatType(CpppType type) const {
-        return type == CpppType::Float;
+    bool isFloatType(Type type) const {
+        return type == PrimitiveType::Float;
     }
 
     std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
@@ -723,79 +723,113 @@ private:
 };
 }
 
-std::string cpppTypeName(CpppType type) {
-    switch (type) {
-        case CpppType::Bool:
+int primitiveArity(PrimitiveType primitive) {
+    switch (primitive) {
+        case PrimitiveType::Bool:
+        case PrimitiveType::Char:
+        case PrimitiveType::Int:
+        case PrimitiveType::Float:
+            return 0;
+        case PrimitiveType::Unknown:
+            return 0;
+    }
+
+    return 0;
+}
+
+std::string cpppTypeName(const Type& type) {
+    switch (type.primitive) {
+        case PrimitiveType::Bool:
             return "bool";
-        case CpppType::Char:
+        case PrimitiveType::Char:
             return "char";
-        case CpppType::Int:
+        case PrimitiveType::Int:
             return "int";
-        case CpppType::Float:
+        case PrimitiveType::Float:
             return "float";
-        case CpppType::Unknown:
+        case PrimitiveType::Unknown:
             return "unknown";
     }
 
     return "unknown";
 }
 
-bool isImplicitlyConvertible(CpppType from, CpppType to) {
+bool isImplicitlyConvertible(const Type& from, const Type& to) {
+    if (!from.subtypes.empty() || !to.subtypes.empty()) {
+        return from == to;
+    }
+
     if (from == to) {
         return true;
     }
 
-    if (from == CpppType::Bool) {
-        return to == CpppType::Char || to == CpppType::Int || to == CpppType::Float;
+    if (from == PrimitiveType::Bool) {
+        return to == PrimitiveType::Char || to == PrimitiveType::Int || to == PrimitiveType::Float;
     }
 
-    if (from == CpppType::Char) {
-        return to == CpppType::Bool || to == CpppType::Int || to == CpppType::Float;
+    if (from == PrimitiveType::Char) {
+        return to == PrimitiveType::Bool || to == PrimitiveType::Int || to == PrimitiveType::Float;
     }
 
-    if (from == CpppType::Int) {
-        return to == CpppType::Bool || to == CpppType::Float;
+    if (from == PrimitiveType::Int) {
+        return to == PrimitiveType::Bool || to == PrimitiveType::Float;
     }
 
-    if (from == CpppType::Float) {
-        return to == CpppType::Bool;
+    if (from == PrimitiveType::Float) {
+        return to == PrimitiveType::Bool;
     }
 
     return false;
 }
 
-std::string castExpressionTo(const std::string& expression, CpppType to) {
-    switch (to) {
-        case CpppType::Bool:
+std::string castExpressionTo(const std::string& expression, const Type& to) {
+    return castExpressionTo(expression, PrimitiveType::Unknown, to);
+}
+
+std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to) {
+    switch (to.primitive) {
+        case PrimitiveType::Bool:
+            switch (from.primitive) {
+                case PrimitiveType::Bool:
+                    return "CPPPToBoolBool(" + expression + ")";
+                case PrimitiveType::Char:
+                    return "CPPPToBoolChar(" + expression + ")";
+                case PrimitiveType::Int:
+                    return "CPPPToBoolInt(" + expression + ")";
+                case PrimitiveType::Float:
+                    return "CPPPToBoolFloat(" + expression + ")";
+                case PrimitiveType::Unknown:
+                    return "CPPPToBool(" + expression + ")";
+            }
             return "CPPPToBool(" + expression + ")";
-        case CpppType::Char:
+        case PrimitiveType::Char:
             return "CPPPChar(static_cast<char>(" + expression + "))";
-        case CpppType::Int:
+        case PrimitiveType::Int:
             return "static_cast<long long>(" + expression + ")";
-        case CpppType::Float:
+        case PrimitiveType::Float:
             return "static_cast<long double>(" + expression + ")";
-        case CpppType::Unknown:
+        case PrimitiveType::Unknown:
             return expression;
     }
 
     return expression;
 }
 
-CpppType declaredTypeForName(const std::string& name) {
+Type declaredTypeForName(const std::string& name) {
     if (name == "bool") {
-        return CpppType::Bool;
+        return PrimitiveType::Bool;
     }
     if (name == "char") {
-        return CpppType::Char;
+        return PrimitiveType::Char;
     }
     if (name == "int") {
-        return CpppType::Int;
+        return PrimitiveType::Int;
     }
     if (name == "float") {
-        return CpppType::Float;
+        return PrimitiveType::Float;
     }
 
-    return CpppType::Unknown;
+    return PrimitiveType::Unknown;
 }
 
 bool isInputCall(const std::vector<Token>& tokens) {
@@ -807,17 +841,17 @@ bool isInputCall(const std::vector<Token>& tokens) {
         tokens[3].kind == TokenKind::EndOfFile;
 }
 
-std::string inputFunctionForType(CpppType type) {
-    switch (type) {
-        case CpppType::Bool:
+std::string inputFunctionForType(const Type& type) {
+    switch (type.primitive) {
+        case PrimitiveType::Bool:
             return "CPPPInputBool()";
-        case CpppType::Char:
+        case PrimitiveType::Char:
             return "CPPPInputChar()";
-        case CpppType::Int:
+        case PrimitiveType::Int:
             return "CPPPInputInt()";
-        case CpppType::Float:
+        case PrimitiveType::Float:
             return "CPPPInputFloat()";
-        case CpppType::Unknown:
+        case PrimitiveType::Unknown:
             return "";
     }
 
@@ -830,7 +864,7 @@ ExpressionEmitResult emitExpression(
     const std::string& expressionText,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables,
+    const std::map<std::string, Type>& declaredVariables,
     bool emitRuntimeChecks
 ) {
     ExpressionParser parser(inputFile, lineNumber, expressionText, expressionColumn, sourceLines, declaredVariables, emitRuntimeChecks || expressionRuntimeChecksEnabled());

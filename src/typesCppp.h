@@ -14,7 +14,16 @@ struct TypeEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+struct RuntimeHelper {
+    std::string name;
+    std::vector<std::string> code;
+    std::vector<std::string> deps;
+    std::vector<std::string> triggers;
+};
+
+std::vector<RuntimeHelper> runtimeHelpers();
 std::vector<std::string> typeSupportPreamble();
+std::vector<std::string> typeSupportPreambleForSubmit(const std::string& generatedProgramText);
 
 TypeEmitResult emitTypeDeclaration(
     const std::string& inputFile,
@@ -22,5 +31,5 @@ TypeEmitResult emitTypeDeclaration(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    std::map<std::string, CpppType>& declaredVariables
+    std::map<std::string, Type>& declaredVariables
 );

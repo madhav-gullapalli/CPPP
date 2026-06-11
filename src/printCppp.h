@@ -19,7 +19,7 @@ PrintEmitResult emitPrintStatement(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables
 );
 
 PrintEmitResult emitDescribeStatement(
@@ -28,5 +28,5 @@ PrintEmitResult emitDescribeStatement(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables
 );

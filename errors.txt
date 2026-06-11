@@ -31,6 +31,17 @@ unsupported statement
 Primitive type errors
 ---------------------
 
+primitive type tree
+  CP++ stores types internally as a primitive root with a list of subtype
+  children. The only user-facing roots currently accepted are int, float, char,
+  and bool, and each currently expects zero subtypes.
+
+  Example:
+    int x;
+    float y;
+    char c;
+    bool ok;
+
 expected variable name after <type>
   A primitive declaration must provide a valid identifier after the type.
 
@@ -106,6 +117,17 @@ removed bigint and bigfloat types
 
   Diagnostic:
     error: bigint has been removed from CP++; use int or float instead
+
+primitive expects 0 subtypes
+  Generic syntax is not supported on current primitive CP++ types. The internal
+  type tree can represent subtype children for future work, but int, float,
+  char, and bool currently have arity 0.
+
+  Example:
+    int<int> x;
+
+  Diagnostic:
+    error: int expects 0 subtypes
 
 char values must be a single character in single quotes
   char literals must use single quotes and contain exactly one character.
@@ -656,6 +678,16 @@ illegal operation on type
 
 Runtime errors
 --------------
+
+submit helper pruning
+  In --submit mode, CP++ now emits only the generated runtime/helper functions
+  that the translated program actually references. If a program only needs
+  int input and plain printing, unrelated char, float, bool-input, and other
+  unused helpers are omitted from the generated C++.
+
+  Example:
+    int x = input();
+    print(x);
 
 runtime diagnostic model
   CP++ has two runtime-oriented compilation targets. --run emits checked C++

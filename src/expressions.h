@@ -6,9 +6,10 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
-enum class CpppType {
+enum class PrimitiveType {
     Unknown,
     Bool,
     Char,
@@ -16,20 +17,49 @@ enum class CpppType {
     Float
 };
 
+struct Type {
+    PrimitiveType primitive = PrimitiveType::Unknown;
+    std::vector<Type> subtypes;
+
+    Type() = default;
+    Type(PrimitiveType primitive) : primitive(primitive) {}
+    Type(PrimitiveType primitive, std::vector<Type> subtypes) :
+        primitive(primitive),
+        subtypes(std::move(subtypes)) {}
+};
+
+inline bool operator==(const Type& left, const Type& right) {
+    return left.primitive == right.primitive && left.subtypes == right.subtypes;
+}
+
+inline bool operator!=(const Type& left, const Type& right) {
+    return !(left == right);
+}
+
+inline bool operator==(const Type& left, PrimitiveType right) {
+    return left.primitive == right && left.subtypes.empty();
+}
+
+inline bool operator!=(const Type& left, PrimitiveType right) {
+    return !(left == right);
+}
+
 struct ExpressionEmitResult {
     bool ok;
     std::string generatedExpression;
-    CpppType type;
+    Type type;
     bool explicitCast;
     std::vector<SourceRange> sourceRanges;
 };
 
-std::string cpppTypeName(CpppType type);
-bool isImplicitlyConvertible(CpppType from, CpppType to);
-std::string castExpressionTo(const std::string& expression, CpppType to);
-CpppType declaredTypeForName(const std::string& name);
+int primitiveArity(PrimitiveType primitive);
+std::string cpppTypeName(const Type& type);
+bool isImplicitlyConvertible(const Type& from, const Type& to);
+std::string castExpressionTo(const std::string& expression, const Type& to);
+std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to);
+Type declaredTypeForName(const std::string& name);
 bool isInputCall(const std::vector<Token>& tokens);
-std::string inputFunctionForType(CpppType type);
+std::string inputFunctionForType(const Type& type);
 void setExpressionRuntimeChecksEnabled(bool enabled);
 
 ExpressionEmitResult emitExpression(
@@ -38,7 +68,7 @@ ExpressionEmitResult emitExpression(
     const std::string& expressionText,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, CpppType>& declaredVariables,
+    const std::map<std::string, Type>& declaredVariables,
     bool emitRuntimeChecks = false
 );
 
