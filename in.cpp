@@ -1,7 +1,4 @@
-#include <cmath>
-#include <iostream>
-#include <string>
-#include <tuple>
+#include <bits/stdc++.h>
 using namespace std;
 
 struct CPPPChar {

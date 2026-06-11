@@ -262,10 +262,7 @@ int main(int argc, char* argv[]) {
         }
     };
 
-    emitLine("#include <cmath>");
-    emitLine("#include <iostream>");
-    emitLine("#include <string>");
-    emitLine("#include <tuple>");
+    emitLine("#include <bits/stdc++.h>");
     emitLine("using namespace std;");
     emitLine("");
     for (const std::string& preambleLine : typeSupportPreamble()) {
