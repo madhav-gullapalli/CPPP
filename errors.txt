@@ -98,25 +98,14 @@ integer literal overflows CP++ int
   Diagnostic:
     error: integer literal overflows CP++ int
 
-bigint requires an integer literal
-  bigint accepts arbitrary-size integer literals and arithmetic expressions,
-  but not floating-point literals.
+removed bigint and bigfloat types
+  bigint and bigfloat have been removed from CP++. Use int or float instead.
 
   Example:
-    bigint x = 12.34;
+    bigint x = 123;
 
   Diagnostic:
-    error: bigint requires an integer literal
-
-bigfloat requires a floating-point literal
-  bigfloat accepts arbitrary-size floating-point literals and arithmetic
-  expressions.
-
-  Example:
-    bigfloat x = 123;
-
-  Diagnostic:
-    error: bigfloat requires a floating-point literal
+    error: bigint has been removed from CP++; use int or float instead
 
 char values must be a single character in single quotes
   char literals must use single quotes and contain exactly one character.
@@ -249,6 +238,12 @@ print end option
     print("hi", end = " ");
     print("hi", end = flush);
 
+empty print
+  print() is allowed and emits a single newline.
+
+  Example:
+    print();
+
 describe
   describe prints the variable name followed by its value.
 
@@ -316,6 +311,27 @@ expected expression after assignment
   Diagnostic:
     error: expected expression after assignment
 
+multi-declaration requires the same number of values as variables
+  A comma-separated declaration with comma-separated initializers must provide
+  exactly one value for each declared variable.
+
+  Example:
+    int a,b = 1,2,3;
+
+  Diagnostic:
+    error: multi-declaration requires the same number of values as variables
+
+multi-assignment requires the same number of values as targets
+  A comma-separated assignment must provide exactly one value for each target,
+  unless the right side is input(), which reads one value per target.
+
+  Example:
+    int a,b;
+    a,b = 1,2,3;
+
+  Diagnostic:
+    error: multi-assignment requires the same number of values as targets
+
 cannot implicitly convert <from> to <to>
   Numeric narrowing conversions and bigint/float branch conversions require
   an explicit cast.
@@ -350,10 +366,21 @@ boolean operators
   Example:
     bool ok = true && !false;
 
+compound assignment operators
+  CP++ supports compound assignment forms for supported binary operators,
+  including +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=, &&=, and ||=.
+
+  Example:
+    int flags = 1;
+    flags <<= 3;
+    flags ^= 2;
+    bool ok = true;
+    ok &&= flags > 0;
+
 increment and decrement operators
   ++ and -- are supported in prefix and postfix form for mutable char, int,
-  bigint, float, and bigfloat variables. They can be used as statements or
-  inside expressions, including if and while conditions.
+  and float variables. They can be used as statements or inside expressions,
+  including if and while conditions.
 
   Example:
     int n = 3;
@@ -364,17 +391,14 @@ increment and decrement operators
     ++n;
 
 comparison operators
-  <, <=, >, >=, ==, and != are supported for int, float, bigint, bigfloat,
-  char, and bool values. int and float values can be compared with each
-  other. bigint can be compared with integer-like values, but not with float
-  or bigfloat values.
+  <, <=, >, >=, ==, and != are supported for int, float, char, and bool
+  values. int and float values can be compared with each other.
 
   Example:
     bool less = 1 < 2;
     bool same = 'A' == 'A';
-    bigint a = 10;
-    bigint b = 11;
-    bool bigLess = a < b;
+    float f = 1.5;
+    bool lessFloat = f < 2.0;
 
 cannot use '<operator>' with <left> and <right>
   An operator was used with operand types that CP++ does not support.
@@ -419,12 +443,10 @@ cannot compare <left> and <right>
   The two operand types cannot be compared by CP++.
 
   Example:
-    bigint big = 10;
-    float f = 1.2;
-    bool bad = big < f;
+    bool bad = "x" < 2;
 
   Diagnostic:
-    error: cannot compare bigint and float
+    error: cannot compare unknown and int
 
 Control flow
 ------------
@@ -631,3 +653,112 @@ illegal operation on type
   
   Diagnostic:
     error: cannot add dissimilar types.
+
+Runtime errors
+--------------
+
+runtime diagnostic model
+  When run with --run, CP++ compiles the generated C++ normally, without UBSan
+  or any other sanitizer flags. The generated C++ keeps ordinary arithmetic
+  expressions such as / and % as ordinary C++ expressions. CP++ redirects the
+  generated program's stderr to a runtime log, reads that log after a failing
+  run, and prints a readable CP++ runtime diagnostic to stdout.
+
+  Example:
+    int total=18;
+    int zero=0;
+    int x=total/zero;
+
+  Diagnostic:
+    error: runtime error: division by zero
+
+division by zero
+  Division by zero is emitted as ordinary C++. If the platform reports the
+  failure on stderr, CP++ translates the runtime log to a CP++ diagnostic. If
+  the platform exits without stderr text, CP++ still reports a readable runtime
+  failure attached to the most likely arithmetic operation in the source program.
+
+  Example:
+    int numerator=12;
+    int denominator=0;
+    int answer=numerator/denominator;
+
+  Diagnostic:
+    error: runtime error: division by zero
+
+modulo by zero
+  Modulo by zero is emitted as ordinary C++ and translated from the runtime
+  stderr log when the platform reports it.
+
+  Example:
+    int x = 4 % 0;
+
+  Diagnostic:
+    error: runtime error: modulo by zero
+
+integer overflow
+  If the runtime reports integer overflow on stderr, CP++ translates that log
+  into a readable integer overflow diagnostic.
+
+  Example:
+    int x = 9223372036854775807;
+    x = x + 1;
+
+  Diagnostic:
+    error: runtime error: integer overflow
+
+Whitespace-insensitive parsing
+------------------------------
+
+lexer whitespace
+  The lexer skips whitespace and does not emit whitespace tokens. Parser
+  decisions should be made from tokens, not from the amount of space between
+  tokens.
+
+  Example:
+    int x=8;
+    int y=2;
+    int z=(x+y)*3/2%7;
+    print(z);
+
+for-header semicolons
+  Semicolons inside for(...) headers are part of the header, not statement
+  separators. This works even when the header has no spaces.
+
+  Example:
+    for(int i=0;i<3;i++){
+    print(i);
+    }
+
+block brace whitespace
+  Control-flow opening braces may appear on the same line as the header or on
+  their own line. Empty blocks such as if(true){} are accepted.
+
+  Example:
+    if(true){}
+    while(n<2)
+    {
+    n++;
+    }
+
+empty condition
+  Flexible block brace placement does not make an empty condition valid.
+
+  Example:
+    if()
+    {
+    print(1);
+    }
+
+  Diagnostic:
+    error: expected condition
+
+Multiple statements per line
+----------------------------
+
+semicolon-separated statements
+  Multiple semicolon-terminated statements may appear on the same physical
+  source line and are lowered as separate C++ statements.
+
+  Example:
+    int a = 0; int b = 1; print(a,b);

@@ -152,7 +152,24 @@ std::vector<Token> tokenize(const std::string& source) {
             continue;
         }
 
-        if ((ch == '<' && (scanner.peekNext() == '<' || scanner.peekNext() == '=')) ||
+        const char third = scanner.index + 2 < scanner.source.size() ? scanner.source[scanner.index + 2] : '\0';
+        if (((ch == '<' && scanner.peekNext() == '<') ||
+             (ch == '>' && scanner.peekNext() == '>') ||
+             (ch == '&' && scanner.peekNext() == '&') ||
+             (ch == '|' && scanner.peekNext() == '|')) &&
+            third == '=') {
+            std::string text;
+            text += scanner.advance();
+            text += scanner.advance();
+            text += scanner.advance();
+            tokens.push_back(makeToken(TokenKind::Operator, text, startLine, startColumn, scanner.line, scanner.column - 1));
+            continue;
+        }
+
+        if ((scanner.peekNext() == '=' &&
+                (ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '%' ||
+                 ch == '<' || ch == '>' || ch == '&' || ch == '|' || ch == '^')) ||
+            (ch == '<' && (scanner.peekNext() == '<' || scanner.peekNext() == '=')) ||
             (ch == '>' && (scanner.peekNext() == '>' || scanner.peekNext() == '=')) ||
             (ch == '=' && scanner.peekNext() == '=') ||
             (ch == '!' && scanner.peekNext() == '=') ||

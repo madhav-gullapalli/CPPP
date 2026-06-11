@@ -1,4 +1,4 @@
 int n = input();
-while(n--){
-    print(n);
-}
+int a = 100000/(n-2);
+if(n%2 || n==2 || a == 1000){print("No");}
+else{print("Yes");}

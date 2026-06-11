@@ -13,9 +13,7 @@ enum class CpppType {
     Bool,
     Char,
     Int,
-    BigInt,
-    Float,
-    BigFloat
+    Float
 };
 
 struct ExpressionEmitResult {

@@ -78,14 +78,6 @@ bool isUnterminatedQuotedToken(const Token& token) {
     return token.text.size() < 2 || token.text.front() != token.text.back();
 }
 
-bool isValueToken(const Token& token) {
-    return token.kind == TokenKind::Identifier ||
-        token.kind == TokenKind::Integer ||
-        token.kind == TokenKind::Float ||
-        token.kind == TokenKind::String ||
-        token.kind == TokenKind::Char;
-}
-
 bool isEndOption(const PrintArgument& argument) {
     return argument.tokens.size() == 3 &&
         argument.tokens[0].kind == TokenKind::Identifier &&
@@ -159,6 +151,10 @@ PrintEmitResult emitPrintStatement(
         }
     }
 
+    if (tokens.size() == 1 && tokens[0].kind == TokenKind::EndOfFile) {
+        return {true, "    cout << '\\n';", {}};
+    }
+
     const std::vector<PrintArgument> arguments = splitPrintArguments(printArguments, tokens, argumentsStartColumn);
 
     if (arguments.empty() || std::any_of(arguments.begin(), arguments.end(), [](const PrintArgument& arg) {
@@ -171,15 +167,6 @@ PrintEmitResult emitPrintStatement(
     std::string generatedEnd = " << '\\n'";
     size_t printableArgumentCount = arguments.size();
     for (size_t i = 0; i < arguments.size(); ++i) {
-        for (size_t tokenIndex = 1; tokenIndex < arguments[i].tokens.size(); ++tokenIndex) {
-            const Token& previous = arguments[i].tokens[tokenIndex - 1];
-            const Token& current = arguments[i].tokens[tokenIndex];
-            if (isValueToken(previous) && isValueToken(current) && current.span.startColumn > previous.span.endColumn + 1) {
-                recordSourceError(inputFile, lineNumber, arguments[i].column + current.span.startColumn - 1, "expected ',' between print arguments", sourceLines);
-                return {false, "", {}};
-            }
-        }
-
         if (isEndOption(arguments[i])) {
             if (i != arguments.size() - 1) {
                 recordSourceError(inputFile, lineNumber, arguments[i].column, "end must be the final print option", sourceLines);

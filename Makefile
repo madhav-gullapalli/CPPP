@@ -26,8 +26,8 @@ transpile: $(COMPILER)
 compile: $(COMPILER)
 	$(COMPILER) --cppp $(INPUT) --compile
 
-run: compile
-	$(PROGRAM)
+run: $(COMPILER)
+	$(COMPILER) --cppp $(INPUT) --run
 
 clean:
 	if exist "$(BUILD_DIR)" rmdir /s /q "$(BUILD_DIR)"

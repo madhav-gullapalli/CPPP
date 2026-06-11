@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
 
 #include "assignmentCppp.h"
 #include "controlFlow.h"
@@ -33,13 +38,16 @@ static std::string stripGeneratedStatement(const std::string& generatedStatement
     return text;
 }
 
+struct SourceFragment {
+    int lineNumber;
+    std::string text;
+};
+
 static bool isRepCountType(CpppType type) {
     return type == CpppType::Bool ||
         type == CpppType::Char ||
         type == CpppType::Int ||
-        type == CpppType::BigInt ||
-        type == CpppType::Float ||
-        type == CpppType::BigFloat;
+        type == CpppType::Float;
 }
 
 static size_t findLineCommentStart(const std::string& text) {
@@ -78,30 +86,136 @@ static size_t findLineCommentStart(const std::string& text) {
     return std::string::npos;
 }
 
+static std::vector<std::string> splitSemicolonStatements(const std::string& line) {
+    const size_t commentStart = findLineCommentStart(line);
+    const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
+    const std::string commentText = commentStart == std::string::npos ? "" : line.substr(commentStart);
+    std::vector<std::string> fragments;
+    bool inString = false;
+    bool inChar = false;
+    bool escaped = false;
+    int parenDepth = 0;
+    size_t start = 0;
+
+    for (size_t i = 0; i < codeText.size(); ++i) {
+        const char ch = codeText[i];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if ((inString || inChar) && ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (!inChar && ch == '"') {
+            inString = !inString;
+            continue;
+        }
+        if (!inString && ch == '\'') {
+            inChar = !inChar;
+            continue;
+        }
+        if (!inString && !inChar && ch == '(') {
+            ++parenDepth;
+            continue;
+        }
+        if (!inString && !inChar && ch == ')' && parenDepth > 0) {
+            --parenDepth;
+            continue;
+        }
+        if (!inString && !inChar && ch == '{' && parenDepth == 0) {
+            fragments.push_back(std::string(start, ' ') + codeText.substr(start, i - start + 1));
+            start = i + 1;
+            continue;
+        }
+        if (!inString && !inChar && ch == '}' && parenDepth == 0) {
+            if (i > start) {
+                fragments.push_back(std::string(start, ' ') + codeText.substr(start, i - start));
+            }
+            fragments.push_back(std::string(i, ' ') + codeText.substr(i, 1));
+            start = i + 1;
+            continue;
+        }
+        if (!inString && !inChar && ch == ';' && parenDepth == 0) {
+            fragments.push_back(std::string(start, ' ') + codeText.substr(start, i - start + 1));
+            start = i + 1;
+        }
+    }
+
+    std::string remainder = start < codeText.size() ? std::string(start, ' ') + codeText.substr(start) : "";
+    if (!commentText.empty()) {
+        if (trim(remainder).empty()) {
+            remainder = std::string(commentStart, ' ') + commentText;
+        } else {
+            remainder += commentText;
+        }
+    }
+    if (!trim(remainder).empty() || fragments.empty()) {
+        fragments.push_back(remainder);
+    }
+    return fragments;
+}
+
+static std::vector<SourceFragment> attachDetachedOpeningBraces(const std::vector<SourceFragment>& fragments) {
+    std::vector<SourceFragment> attached;
+    for (const SourceFragment& fragment : fragments) {
+        if (trim(fragment.text) == "{" && !attached.empty()) {
+            attached.back().text += " {";
+            continue;
+        }
+
+        attached.push_back(fragment);
+    }
+
+    return attached;
+}
+
 static std::string quotePath(const std::string& path) {
     return "\"" + path + "\"";
 }
 
-static std::string executablePathFor(const std::string& inputFile, const std::string& extension) {
-    const size_t slash = inputFile.find_last_of("\\/");
-    const std::string directory = slash == std::string::npos ? "" : inputFile.substr(0, slash + 1);
-    const std::string baseName = inputFile.substr(
-        slash == std::string::npos ? 0 : slash + 1,
-        inputFile.size() - (slash == std::string::npos ? 0 : slash + 1) - extension.size()
-    );
+static std::string commandPathFor(const std::string& path) {
+#ifdef _WIN32
+    if (path.size() >= 2 && path[1] == ':') {
+        return path;
+    }
+    if (!path.empty() && (path[0] == '\\' || path[0] == '/')) {
+        return path;
+    }
+    return ".\\" + path;
+#else
+    return path;
+#endif
+}
 
-    return directory + "build\\" + baseName + ".exe";
+static std::string executablePathFor(const std::string& inputFile, const std::string& extension) {
+    const std::filesystem::path inputPath(inputFile);
+    const std::filesystem::path directory = inputPath.parent_path();
+    const std::string baseName = inputFile.substr(
+        inputFile.find_last_of("\\/") == std::string::npos ? 0 : inputFile.find_last_of("\\/") + 1,
+        inputFile.size() - (inputFile.find_last_of("\\/") == std::string::npos ? 0 : inputFile.find_last_of("\\/") + 1) - extension.size()
+    );
+#ifdef _WIN32
+    const std::string executableName = baseName + ".exe";
+#else
+    const std::string executableName = baseName;
+#endif
+
+    return (directory / "build" / executableName).string();
 }
 
 int main(int argc, char* argv[]) {
     if ((argc != 3 && argc != 4) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile]\n";
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run]\n";
         return 1;
     }
     clearRecordedSourceErrors();
 
-    const bool shouldCompile = argc == 4;
-    if (shouldCompile && std::string(argv[3]) != "--compile") {
+    const bool hasAction = argc == 4;
+    const std::string action = hasAction ? std::string(argv[3]) : "";
+    const bool shouldCompile = action == "--compile" || action == "--run";
+    const bool shouldRun = action == "--run";
+    if (hasAction && !shouldCompile) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
         return 1;
     }
@@ -148,7 +262,10 @@ int main(int argc, char* argv[]) {
         }
     };
 
-    emitLine("#include <bits/stdc++.h>");
+    emitLine("#include <cmath>");
+    emitLine("#include <iostream>");
+    emitLine("#include <string>");
+    emitLine("#include <tuple>");
     emitLine("using namespace std;");
     emitLine("");
     for (const std::string& preambleLine : typeSupportPreamble()) {
@@ -159,11 +276,22 @@ int main(int argc, char* argv[]) {
     emitLine("    cin.tie(nullptr);");
     emitLine("");
 
-    std::string line;
+    std::vector<SourceFragment> sourceFragments;
+    std::string rawLine;
+    int rawLineNumber = 0;
+    while (std::getline(input, rawLine)) {
+        ++rawLineNumber;
+        sourceLines[rawLineNumber] = rawLine;
+        for (const std::string& fragment : splitSemicolonStatements(rawLine)) {
+            sourceFragments.push_back({rawLineNumber, fragment});
+        }
+    }
+    sourceFragments = attachDetachedOpeningBraces(sourceFragments);
+
     int lineNumber = 0;
-    while (std::getline(input, line)) {
-        ++lineNumber;
-        sourceLines[lineNumber] = line;
+    for (const SourceFragment& fragment : sourceFragments) {
+        lineNumber = fragment.lineNumber;
+        const std::string& line = fragment.text;
         const size_t commentStart = findLineCommentStart(line);
         const std::string commentText = commentStart == std::string::npos ? "" : trim(line.substr(commentStart));
         const bool hasComment = !commentText.empty();
@@ -608,6 +736,18 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Built " << executableFile << '\n';
+
+        if (shouldRun) {
+            const std::string runtimeLogFile = outputFile + ".runtime.log";
+            const std::string runCommand = commandPathFor(executableFile) + " 2> " + quotePath(runtimeLogFile);
+            const int runResult = std::system(runCommand.c_str());
+            if (runResult != 0) {
+                if (!printRuntimeErrors(inputFile, runtimeLogFile, sourceLines, cppToCpppLine)) {
+                    std::cout << "CP++ runtime error: generated program exited with status " << runResult << '\n';
+                }
+                return 1;
+            }
+        }
     }
 
     return 0;

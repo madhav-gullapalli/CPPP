@@ -38,3 +38,10 @@ void printCompileErrors(
     const std::map<int, int>& cppToCpppLine,
     const std::map<int, std::vector<SourceRange>>& sourceRanges
 );
+
+bool printRuntimeErrors(
+    const std::string& sourceFile,
+    const std::string& logFile,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<int, int>& cppToCpppLine
+);

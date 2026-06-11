@@ -372,13 +372,13 @@ private:
 
             const CpppType leftType = expression.type;
             const CpppType rightType = right.type;
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             expression.type = binaryResultType(leftType, rightType, op.text);
             expression.explicitCast = false;
             if (expression.type == CpppType::Unknown) {
                 report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
+            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
         }
 
         return expression;
@@ -400,13 +400,13 @@ private:
 
             const CpppType leftType = expression.type;
             const CpppType rightType = right.type;
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
             expression.type = binaryResultType(leftType, rightType, op.text);
             expression.explicitCast = false;
             if (expression.type == CpppType::Unknown) {
                 report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
                 return {false, "", CpppType::Unknown, false, 0, false};
             }
+            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
         }
 
         return expression;
@@ -589,21 +589,8 @@ private:
             return CpppType::Unknown;
         }
 
-        if ((isBigIntType(left) && isFloatType(right)) ||
-            (isFloatType(left) && isBigIntType(right))) {
-            return CpppType::Unknown;
-        }
-
-        if (left == CpppType::BigFloat || right == CpppType::BigFloat) {
-            return CpppType::BigFloat;
-        }
-
         if (left == CpppType::Float || right == CpppType::Float) {
             return CpppType::Float;
-        }
-
-        if (left == CpppType::BigInt || right == CpppType::BigInt) {
-            return CpppType::BigInt;
         }
 
         return CpppType::Int;
@@ -617,9 +604,7 @@ private:
         return type == CpppType::Bool ||
             type == CpppType::Char ||
             type == CpppType::Int ||
-            type == CpppType::BigInt ||
-            type == CpppType::Float ||
-            type == CpppType::BigFloat;
+            type == CpppType::Float;
     }
 
     bool isBitwiseType(CpppType type) const {
@@ -629,9 +614,7 @@ private:
     bool isIncrementableType(CpppType type) const {
         return type == CpppType::Char ||
             type == CpppType::Int ||
-            type == CpppType::BigInt ||
-            type == CpppType::Float ||
-            type == CpppType::BigFloat;
+            type == CpppType::Float;
     }
 
     bool isComparable(CpppType left, CpppType right) const {
@@ -639,20 +622,13 @@ private:
             return false;
         }
 
-        if (isBigIntType(left) || isBigIntType(right)) {
-            return !isFloatType(left) && !isFloatType(right);
-        }
-
         return true;
     }
 
-    bool isBigIntType(CpppType type) const {
-        return type == CpppType::BigInt;
+    bool isFloatType(CpppType type) const {
+        return type == CpppType::Float;
     }
 
-    bool isFloatType(CpppType type) const {
-        return type == CpppType::Float || type == CpppType::BigFloat;
-    }
 };
 }
 
@@ -664,12 +640,8 @@ std::string cpppTypeName(CpppType type) {
             return "char";
         case CpppType::Int:
             return "int";
-        case CpppType::BigInt:
-            return "bigint";
         case CpppType::Float:
             return "float";
-        case CpppType::BigFloat:
-            return "bigfloat";
         case CpppType::Unknown:
             return "unknown";
     }
@@ -683,26 +655,18 @@ bool isImplicitlyConvertible(CpppType from, CpppType to) {
     }
 
     if (from == CpppType::Bool) {
-        return to == CpppType::Char || to == CpppType::Int || to == CpppType::BigInt || to == CpppType::Float || to == CpppType::BigFloat;
+        return to == CpppType::Char || to == CpppType::Int || to == CpppType::Float;
     }
 
     if (from == CpppType::Char) {
-        return to == CpppType::Bool || to == CpppType::Int || to == CpppType::BigInt || to == CpppType::Float || to == CpppType::BigFloat;
+        return to == CpppType::Bool || to == CpppType::Int || to == CpppType::Float;
     }
 
     if (from == CpppType::Int) {
-        return to == CpppType::Bool || to == CpppType::BigInt || to == CpppType::Float || to == CpppType::BigFloat;
-    }
-
-    if (from == CpppType::BigInt) {
-        return to == CpppType::Bool;
+        return to == CpppType::Bool || to == CpppType::Float;
     }
 
     if (from == CpppType::Float) {
-        return to == CpppType::Bool || to == CpppType::BigFloat;
-    }
-
-    if (from == CpppType::BigFloat) {
         return to == CpppType::Bool;
     }
 
@@ -717,10 +681,7 @@ std::string castExpressionTo(const std::string& expression, CpppType to) {
             return "CPPPChar(static_cast<char>(" + expression + "))";
         case CpppType::Int:
             return "static_cast<long long>(" + expression + ")";
-        case CpppType::BigInt:
-            return "CPPPBigInt(static_cast<long long>(" + expression + "))";
         case CpppType::Float:
-        case CpppType::BigFloat:
             return "static_cast<long double>(" + expression + ")";
         case CpppType::Unknown:
             return expression;
@@ -739,14 +700,8 @@ CpppType declaredTypeForName(const std::string& name) {
     if (name == "int") {
         return CpppType::Int;
     }
-    if (name == "bigint" || name == "Bigint") {
-        return CpppType::BigInt;
-    }
     if (name == "float") {
         return CpppType::Float;
-    }
-    if (name == "bigfloat" || name == "BigFloat") {
-        return CpppType::BigFloat;
     }
 
     return CpppType::Unknown;
@@ -769,10 +724,7 @@ std::string inputFunctionForType(CpppType type) {
             return "CPPPInputChar()";
         case CpppType::Int:
             return "CPPPInputInt()";
-        case CpppType::BigInt:
-            return "CPPPInputBigInt()";
         case CpppType::Float:
-        case CpppType::BigFloat:
             return "CPPPInputFloat()";
         case CpppType::Unknown:
             return "";
