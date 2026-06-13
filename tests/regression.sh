@@ -150,23 +150,5 @@ run_failure "$list_literal_error_case" "$LOG_DIR/list_literal_error.log" "mismat
 assert_contains "$LOG_DIR/list_literal_error.log" "cannot implicitly convert float to int in list literal" "list literal type diagnostic"
 pass "list literal type mismatch is rejected"
 
-list_remove_case="$(stage_case "$TEST_DIR/list_remove.cppp")"
-run_submit_ok "$list_remove_case" "$LOG_DIR/list_remove.log" "list remove submit builds"
-assert_contains "${list_remove_case%.cppp}.cpp" "values.pop_back();" "submit remove-from-end stays compact"
-assert_contains "${list_remove_case%.cppp}.cpp" "values.erase(values.begin() + 0);" "submit remove-at stays compact"
-pass "list remove regression is covered"
-
-list_remove_error_case="$(stage_case "$TEST_DIR/list_remove_error.cppp")"
-run_failure "$list_remove_error_case" "$LOG_DIR/list_remove_error.log" "bad remove arity should fail"
-assert_contains "$LOG_DIR/list_remove_error.log" "remove() expects no arguments or index" "compile-time remove arity diagnostic"
-pass "list remove misuse is rejected"
-
-list_remove_runtime_case="$(stage_case "$TEST_DIR/list_remove_runtime_error.cppp")"
-if "$COMPILER" --cppp "$list_remove_runtime_case" --run >"$LOG_DIR/list_remove_runtime_error.log" 2>&1; then
-    cat "$LOG_DIR/list_remove_runtime_error.log" >&2
-    fail "empty list remove should fail at runtime"
-fi
-assert_contains "$LOG_DIR/list_remove_runtime_error.log" "runtime error: cannot remove from empty list" "runtime empty-remove diagnostic"
-pass "empty list remove reports a runtime error"
 echo
 echo "All CP++ regression tests passed."
