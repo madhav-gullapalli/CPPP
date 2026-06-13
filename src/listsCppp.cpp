@@ -1,0 +1,359 @@
+#include "listsCppp.h"
+
+#include "tokenizer.h"
+
+namespace {
+std::string trim(const std::string& text) {
+    const size_t start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return "";
+    }
+
+    const size_t end = text.find_last_not_of(" \t\r\n");
+    return text.substr(start, end - start + 1);
+}
+
+struct ListArgument {
+    std::string text;
+    int column;
+};
+
+std::vector<ListArgument> splitListArguments(const std::string& text, int startColumn) {
+    std::vector<ListArgument> arguments;
+    const std::vector<Token> tokens = tokenize(text);
+    int parenDepth = 0;
+    size_t argumentStartIndex = 0;
+    int argumentStartColumn = startColumn;
+
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::EndOfFile) {
+            break;
+        }
+
+        if (token.kind == TokenKind::LeftParen) {
+            ++parenDepth;
+        } else if (token.kind == TokenKind::RightParen && parenDepth > 0) {
+            --parenDepth;
+        } else if (token.kind == TokenKind::Comma && parenDepth == 0) {
+            const size_t endIndex = static_cast<size_t>(token.span.startColumn - 1);
+            const std::string rawArgument = text.substr(argumentStartIndex, endIndex - argumentStartIndex);
+            const std::string argumentText = trim(rawArgument);
+            const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
+            arguments.push_back({
+                argumentText,
+                trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart)
+            });
+            argumentStartIndex = static_cast<size_t>(token.span.endColumn);
+            argumentStartColumn = startColumn + token.span.endColumn;
+        }
+    }
+
+    const std::string rawArgument = text.substr(argumentStartIndex);
+    const std::string argumentText = trim(rawArgument);
+    const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
+    arguments.push_back({
+        argumentText,
+        trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart)
+    });
+    return arguments;
+}
+}
+
+std::vector<RuntimeHelper> listRuntimeHelpers() {
+    return {
+        {
+            "CPPPListInsert",
+            {
+                "template <typename T, typename U>",
+                "void CPPPListInsert(vector<T>& list, const U& value, long long index, int line, int column) {",
+                "    if (index < 0 || index > static_cast<long long>(list.size())) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
+                "    }",
+                "    list.insert(list.begin() + static_cast<typename vector<T>::difference_type>(index), value);",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListInsert("}
+        },
+        {
+            "CPPPListPop",
+            {
+                "template <typename T>",
+                "T CPPPListPop(vector<T>& list, int line, int column) {",
+                "    if (list.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot remove from empty list\");",
+                "    }",
+                "    T value = list.back();",
+                "    list.pop_back();",
+                "    return value;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListPop("}
+        },
+        {
+            "CPPPListRemoveAt",
+            {
+                "template <typename T>",
+                "T CPPPListRemoveAt(vector<T>& list, long long index, int line, int column) {",
+                "    if (index < 0 || index >= static_cast<long long>(list.size())) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
+                "    }",
+                "    auto iterator = list.begin() + static_cast<typename vector<T>::difference_type>(index);",
+                "    T value = *iterator;",
+                "    list.erase(iterator);",
+                "    return value;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListRemoveAt("}
+        },
+        {
+            "CPPPListAt",
+            {
+                "template <typename T>",
+                "const T& CPPPListAt(const vector<T>& list, long long index, int line, int column) {",
+                "    if (index < 0 || index >= static_cast<long long>(list.size())) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
+                "    }",
+                "    return list[static_cast<typename vector<T>::difference_type>(index)];",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListAt("}
+        }
+    };
+}
+
+ListEmitResult emitListStatement(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& statementBody,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks
+) {
+    const std::vector<Token> tokens = tokenize(statementBody);
+    if (tokens.size() < 6 ||
+        tokens[0].kind != TokenKind::Identifier ||
+        tokens[1].kind != TokenKind::Operator || tokens[1].text != "." ||
+        tokens[2].kind != TokenKind::Identifier || (tokens[2].text != "add" && tokens[2].text != "remove") ||
+        tokens[3].kind != TokenKind::LeftParen ||
+        tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
+        tokens.back().kind != TokenKind::EndOfFile) {
+        return {false, true, "", {}};
+    }
+
+    const bool isAdd = tokens[2].text == "add";
+    const std::string actionName = isAdd ? "add" : "remove";
+
+    const std::string variableName = tokens[0].text;
+    const auto variable = declaredVariables.find(variableName);
+    if (variable == declaredVariables.end()) {
+        recordSourceError(inputFile, lineNumber, tokens[0].span.startColumn, "use of undeclared variable '" + variableName + "'", sourceLines);
+        return {true, false, "", {}};
+    }
+
+    if (variable->second.primitive != PrimitiveType::List || variable->second.subtypes.size() != 1) {
+        recordSourceError(inputFile, lineNumber, tokens[2].span.startColumn, actionName + "() can only be used on List values", sourceLines);
+        return {true, false, "", {}};
+    }
+
+    const Token& leftParen = tokens[3];
+    const Token& rightParen = tokens[tokens.size() - 2];
+    const std::string argumentsText = statementBody.substr(
+        static_cast<size_t>(leftParen.span.endColumn),
+        static_cast<size_t>(rightParen.span.startColumn - leftParen.span.endColumn - 1)
+    );
+    const int argumentsStartColumn = leftParen.span.endColumn + 1;
+    const std::vector<ListArgument> arguments = splitListArguments(argumentsText, argumentsStartColumn);
+
+    const Type elementType = variable->second.subtypes[0];
+
+    if (isAdd) {
+        if (arguments.size() == 1 && arguments[0].text.empty()) {
+            recordSourceError(inputFile, lineNumber, argumentsStartColumn, "add() expects value or value, index", sourceLines);
+            return {true, false, "", {}};
+        }
+
+        if (arguments.size() != 1 && arguments.size() != 2) {
+            recordSourceError(inputFile, lineNumber, argumentsStartColumn, "add() expects value or value, index", sourceLines);
+            return {true, false, "", {}};
+        }
+
+        for (const ListArgument& argument : arguments) {
+            if (argument.text.empty()) {
+                recordSourceError(inputFile, lineNumber, argument.column, "add() argument cannot be empty", sourceLines);
+                return {true, false, "", {}};
+            }
+        }
+
+        const ExpressionEmitResult value = emitExpression(
+            inputFile,
+            lineNumber,
+            arguments[0].text,
+            arguments[0].column,
+            sourceLines,
+            declaredVariables
+        );
+        if (!value.ok) {
+            return {true, false, "", {}};
+        }
+
+        if (!value.explicitCast && !isImplicitlyConvertible(value.type, elementType)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                arguments[0].column,
+                "cannot add " + cpppTypeName(value.type) + " to " + cpppTypeName(variable->second),
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        std::string emittedValue = value.generatedExpression;
+        if (!isImplicitlyConvertible(value.type, elementType) || value.type != elementType) {
+            emittedValue = castExpressionTo(emittedValue, value.type, elementType);
+        }
+
+        if (arguments.size() == 1) {
+            return {
+                true,
+                true,
+                "    " + variableName + ".push_back(" + emittedValue + ");",
+                {{
+                    lineNumber,
+                    tokens[0].span.startColumn,
+                    5,
+                    5 + static_cast<int>(variableName.size()) - 1
+                }}
+            };
+        }
+
+        const ExpressionEmitResult index = emitExpression(
+            inputFile,
+            lineNumber,
+            arguments[1].text,
+            arguments[1].column,
+            sourceLines,
+            declaredVariables
+        );
+        if (!index.ok) {
+            return {true, false, "", {}};
+        }
+
+        if (!index.explicitCast && !isImplicitlyConvertible(index.type, PrimitiveType::Int)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                arguments[1].column,
+                "list index must be int",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        std::string emittedIndex = index.generatedExpression;
+        if (!isImplicitlyConvertible(index.type, PrimitiveType::Int) || index.type != PrimitiveType::Int) {
+            emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
+        }
+
+        const std::string generatedStatement = emitRuntimeChecks
+            ? "    CPPPListInsert(" + variableName + ", " + emittedValue + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[1].column) + ");"
+            : "    " + variableName + ".insert(" + variableName + ".begin() + " + emittedIndex + ", " + emittedValue + ");";
+
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                tokens[0].span.startColumn,
+                5,
+                5 + static_cast<int>(variableName.size()) - 1
+            }}
+        };
+    }
+
+    if (arguments.size() == 1 && arguments[0].text.empty()) {
+        const std::string generatedStatement = emitRuntimeChecks
+            ? "    CPPPListPop(" + variableName + ", " + std::to_string(lineNumber) + ", " + std::to_string(tokens[2].span.startColumn) + ");"
+            : "    " + variableName + ".pop_back();";
+
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                tokens[0].span.startColumn,
+                5,
+                5 + static_cast<int>(variableName.size()) - 1
+            }}
+        };
+    }
+
+    if (arguments.size() != 1) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            argumentsStartColumn,
+            "remove() expects no arguments or index",
+            sourceLines
+        );
+        return {true, false, "", {}};
+    }
+
+    if (arguments[0].text.empty()) {
+        recordSourceError(inputFile, lineNumber, arguments[0].column, "remove() argument cannot be empty", sourceLines);
+        return {true, false, "", {}};
+    }
+
+    const ExpressionEmitResult index = emitExpression(
+        inputFile,
+        lineNumber,
+        arguments[0].text,
+        arguments[0].column,
+        sourceLines,
+        declaredVariables
+    );
+    if (!index.ok) {
+        return {true, false, "", {}};
+    }
+
+    if (!index.explicitCast && !isImplicitlyConvertible(index.type, PrimitiveType::Int)) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            arguments[0].column,
+            "list index must be int",
+            sourceLines
+        );
+        return {true, false, "", {}};
+    }
+
+    std::string emittedIndex = index.generatedExpression;
+    if (!isImplicitlyConvertible(index.type, PrimitiveType::Int) || index.type != PrimitiveType::Int) {
+        emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
+    }
+
+    const std::string generatedStatement = emitRuntimeChecks
+        ? "    CPPPListRemoveAt(" + variableName + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"
+        : "    " + variableName + ".erase(" + variableName + ".begin() + " + emittedIndex + ");";
+
+    return {
+        true,
+        true,
+        generatedStatement,
+        {{
+            lineNumber,
+            tokens[0].span.startColumn,
+            5,
+            5 + static_cast<int>(variableName.size()) - 1
+        }}
+    };
+}

@@ -233,8 +233,21 @@ AssignmentEmitResult emitAssignmentStatement(
         static_cast<size_t>(expressionEndColumn - expressionStartColumn + 1)
     );
     const std::vector<Token> expressionTokens = tokenize(expressionText);
-    if (simpleAssignment && isInputCall(expressionTokens)) {
-        const std::string generatedStatement = "    " + variableName + " = " + inputFunctionForType(targetType) + ";";
+    std::string inputExpression;
+    std::vector<InputArgument> inputArguments;
+    if (simpleAssignment && parseInputCall(expressionText, expressionStartColumn, inputArguments)) {
+        if (!emitInputCallForType(
+                inputFile,
+                lineNumber,
+                expressionText,
+                expressionStartColumn,
+                targetType,
+                sourceLines,
+                declaredVariables,
+                inputExpression)) {
+            return {true, false, "", {}};
+        }
+        const std::string generatedStatement = "    " + variableName + " = " + inputExpression + ";";
         return {
             true,
             true,

@@ -13,6 +13,8 @@ enum class TokenKind {
     SingleQuote,
     LeftParen,
     RightParen,
+    LeftBracket,
+    RightBracket,
     Comma,
     Semicolon,
     Equals,

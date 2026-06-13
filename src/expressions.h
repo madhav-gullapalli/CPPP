@@ -14,7 +14,8 @@ enum class PrimitiveType {
     Bool,
     Char,
     Int,
-    Float
+    Float,
+    List
 };
 
 struct Type {
@@ -52,6 +53,11 @@ struct ExpressionEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+struct InputArgument {
+    std::string text;
+    int column;
+};
+
 int primitiveArity(PrimitiveType primitive);
 std::string cpppTypeName(const Type& type);
 bool isImplicitlyConvertible(const Type& from, const Type& to);
@@ -60,6 +66,17 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
 Type declaredTypeForName(const std::string& name);
 bool isInputCall(const std::vector<Token>& tokens);
 std::string inputFunctionForType(const Type& type);
+bool parseInputCall(const std::string& text, int startColumn, std::vector<InputArgument>& arguments);
+bool emitInputCallForType(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& inputText,
+    int inputColumn,
+    const Type& targetType,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    std::string& emittedExpression
+);
 void setExpressionRuntimeChecksEnabled(bool enabled);
 
 ExpressionEmitResult emitExpression(

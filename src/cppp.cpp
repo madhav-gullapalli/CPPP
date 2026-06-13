@@ -9,6 +9,7 @@
 #include "controlFlow.h"
 #include "errors.h"
 #include "expressions.h"
+#include "listsCppp.h"
 #include "printCppp.h"
 #include "typesCppp.h"
 
@@ -612,16 +613,28 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            const std::string indexName = "__cppp_rep_" + std::to_string(repLoopIndex);
-            const std::string limitName = "__cppp_rep_limit_" + std::to_string(repLoopIndex);
-            ++repLoopIndex;
-            queueGeneratedLine(
-                indentForDepth(blockDepth) +
-                "for (long long " + indexName + " = 0, " + limitName + " = " + castExpressionTo(count.generatedExpression, count.type, PrimitiveType::Int) +
-                "; " + indexName + " < " + limitName + "; ++" + indexName + ") {" +
-                (hasComment ? " " + commentText : ""),
-                lineNumber
-            );
+            if (shouldSubmit) {
+                const std::string indexName = "_" + std::to_string(repLoopIndex);
+                ++repLoopIndex;
+                queueGeneratedLine(
+                    indentForDepth(blockDepth) +
+                    "for (int " + indexName + " = 0; " + indexName + " < " + castExpressionTo(count.generatedExpression, count.type, PrimitiveType::Int) +
+                    "; ++" + indexName + ") {" +
+                    (hasComment ? " " + commentText : ""),
+                    lineNumber
+                );
+            } else {
+                const std::string indexName = "__cppp_rep_" + std::to_string(repLoopIndex);
+                const std::string limitName = "__cppp_rep_limit_" + std::to_string(repLoopIndex);
+                ++repLoopIndex;
+                queueGeneratedLine(
+                    indentForDepth(blockDepth) +
+                    "for (long long " + indexName + " = 0, " + limitName + " = " + castExpressionTo(count.generatedExpression, count.type, PrimitiveType::Int) +
+                    "; " + indexName + " < " + limitName + "; ++" + indexName + ") {" +
+                    (hasComment ? " " + commentText : ""),
+                    lineNumber
+                );
+            }
             ++blockDepth;
             blockKinds.push_back("rep");
             canAttachElse = false;
@@ -672,6 +685,27 @@ int main(int argc, char* argv[]) {
                 indentGeneratedStatement(assignmentResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""),
                 lineNumber,
                 assignmentResult.sourceRanges
+            );
+            continue;
+        }
+
+        const ListEmitResult listResult = emitListStatement(
+            inputFile,
+            lineNumber,
+            statementBody,
+            sourceLines,
+            declaredVariables,
+            !shouldSubmit
+        );
+        if (listResult.matched) {
+            if (!listResult.ok) {
+                continue;
+            }
+
+            queueGeneratedLine(
+                indentGeneratedStatement(listResult.generatedStatement, blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                listResult.sourceRanges
             );
             continue;
         }

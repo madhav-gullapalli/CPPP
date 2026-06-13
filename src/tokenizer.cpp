@@ -193,6 +193,12 @@ std::vector<Token> tokenize(const std::string& source) {
             case ')':
                 kind = TokenKind::RightParen;
                 break;
+            case '[':
+                kind = TokenKind::LeftBracket;
+                break;
+            case ']':
+                kind = TokenKind::RightBracket;
+                break;
             case ',':
                 kind = TokenKind::Comma;
                 break;
@@ -249,6 +255,10 @@ std::string tokenKindName(TokenKind kind) {
             return "LeftParen";
         case TokenKind::RightParen:
             return "RightParen";
+        case TokenKind::LeftBracket:
+            return "LeftBracket";
+        case TokenKind::RightBracket:
+            return "RightBracket";
         case TokenKind::Comma:
             return "Comma";
         case TokenKind::Semicolon:

@@ -21,16 +21,21 @@ $(SRC_DIR)/cppp.cpp \
 $(SRC_DIR)/assignmentCppp.cpp \
 $(SRC_DIR)/controlFlow.cpp \
 $(SRC_DIR)/errors.cpp \
+$(SRC_DIR)/expressionParser.cpp \
 $(SRC_DIR)/expressions.cpp \
+$(SRC_DIR)/listsCppp.cpp \
 $(SRC_DIR)/printCppp.cpp \
 $(SRC_DIR)/tokenizer.cpp \
+$(SRC_DIR)/typeDeclarations.cpp \
 $(SRC_DIR)/typesCppp.cpp
 
 HEADERS := \
 $(SRC_DIR)/assignmentCppp.h \
 $(SRC_DIR)/controlFlow.h \
 $(SRC_DIR)/errors.h \
+$(SRC_DIR)/expressionParser.h \
 $(SRC_DIR)/expressions.h \
+$(SRC_DIR)/listsCppp.h \
 $(SRC_DIR)/printCppp.h \
 $(SRC_DIR)/tokenizer.h \
 $(SRC_DIR)/typesCppp.h

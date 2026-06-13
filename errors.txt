@@ -33,14 +33,17 @@ Primitive type errors
 
 primitive type tree
   CP++ stores types internally as a primitive root with a list of subtype
-  children. The only user-facing roots currently accepted are int, float, char,
-  and bool, and each currently expects zero subtypes.
+  children. The current user-facing roots are int, float, char, bool, and
+  List<T>. The primitive roots int, float, char, and bool each expect zero
+  subtypes, while List expects exactly one subtype.
 
   Example:
     int x;
     float y;
     char c;
     bool ok;
+    List<int> values;
+    List<List<char>> table;
 
 expected variable name after <type>
   A primitive declaration must provide a valid identifier after the type.
@@ -128,6 +131,233 @@ primitive expects 0 subtypes
 
   Diagnostic:
     error: int expects 0 subtypes
+
+List expects 1 subtype
+  List is a generic type constructor and must include exactly one element type.
+  Write List<int>, List<char>, or a nested form like List<List<int>>.
+
+  Example:
+    List a;
+    List<> b;
+    List<int, int> c;
+
+  Diagnostic:
+    error: List expects 1 subtype like List<int>
+
+List literals
+  A List declaration can be initialized with square-bracket list literal
+  syntax. The declaration's List<T> target decides the element type, so
+  empty literals like [] are allowed when the destination type is known.
+  Nested literals work for nested List types.
+
+  Example:
+    List<bool> even = [true, false, true];
+    List<int> empty = [];
+    List<List<int>> grid = [[1, 2], [3]];
+
+list truthiness
+  List values can be used anywhere CP++ expects a bool. A List is false when
+  empty and true when nonempty. Nonempty list literals such as [1] follow the
+  same rule.
+
+  Example:
+    List<int> values = [1];
+    if (values) {
+        print("nonempty");
+    }
+
+    if ([1]) {
+        print("also nonempty");
+    }
+
+true and false literals
+  true and false are built-in bool literals in expressions and declarations.
+
+  Example:
+    bool ok = true;
+    if (!false) {
+        print(ok);
+    }
+
+empty list literal needs a declared List type
+  [] by itself does not carry an element type. Use it in a declaration with a
+  List<T> target such as List<int> values = [].
+
+  Example:
+    if ([]) {
+        print(1);
+    }
+
+  Diagnostic:
+    error: empty list literal needs a declared List type
+
+list literal elements must have a known CP++ type
+  Each list literal element must be a real CP++ value type such as bool, char,
+  int, float, or another List. Unsupported values like strings are rejected.
+
+  Example:
+    List<int> values = ["x"];
+
+  Diagnostic:
+    error: list literal elements must have a known CP++ type
+
+cannot implicitly convert <from> to <to> in list literal
+  Each list literal element must match the destination List element type, using
+  normal CP++ implicit-conversion rules.
+
+  Example:
+    List<int> values = [1, 2.5];
+
+  Diagnostic:
+    error: cannot implicitly convert float to int in list literal
+
+expected expression after ',' in list literal
+  A comma inside a list literal must be followed by another element.
+
+  Example:
+    List<int> values = [1,];
+
+  Diagnostic:
+    error: expected expression after ',' in list literal
+
+unclosed bracket in list literal
+  A list literal opened with '[' but did not close with ']'.
+
+  Example:
+    List<int> values = [1, 2;
+
+  Diagnostic:
+    error: unclosed bracket in list literal
+
+List values must use a list literal like [1, 2] or another List expression
+  A List declaration cannot be initialized from a non-List scalar value.
+
+  Example:
+    List<int> values = 3;
+
+  Diagnostic:
+    error: List values must use a list literal like [1, 2] or another List expression
+
+List add
+  Lists support add(value) to append at the end and add(value, index) to
+  insert at a specific location. The inserted value must match the List element
+  type, using the same implicit-conversion rules as assignment.
+
+  Example:
+    List<int> values;
+    values.add(1);
+    values.add(2, 0);
+
+cannot add <from> to List<...>
+  The value passed to add(...) must be compatible with the List element type.
+
+  Example:
+    List<int> values;
+    float bad = 1.5;
+    values.add(bad);
+
+  Diagnostic:
+    error: cannot add float to List<int>
+
+List remove
+  Lists support remove() to pop the last element, and remove(index) to remove
+  an element at a specific zero-based index.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values.remove();
+    values.remove(0);
+
+remove() expects no arguments or index
+  remove(...) accepts either no arguments or exactly one index expression.
+
+  Example:
+    List<int> values = [1];
+    values.remove(true, 0);
+
+  Diagnostic:
+    error: remove() expects no arguments or index
+
+list index must be int
+  The second add(...) argument and the remove(index) argument must be int
+  values, or something CP++ can implicitly convert to int.
+
+  Example:
+    List<int> values;
+    values.add(1, 1.5);
+
+  Diagnostic:
+    error: list index must be int
+
+List indexing
+  A List value can be indexed with square brackets using a zero-based int
+  index. In --run mode, CP++ checks that the index is in the range
+  0 <= index < len(list) and reports a readable runtime error if it is not.
+  In submit-style codegen, indexing lowers directly to ordinary C++ vector
+  indexing without a custom runtime check.
+
+  Example:
+    List<int> values;
+    values.add(4);
+    print(values[0]);
+
+len(list)
+  len(list) returns the number of elements in a List as an int.
+
+  Example:
+    List<int> values;
+    print(len(values));
+
+indexing requires a List value
+  Square-bracket indexing can only be used on a List.
+
+  Example:
+    int x = 3;
+    print(x[0]);
+
+  Diagnostic:
+    error: indexing requires a List value
+
+unclosed bracket in list index
+  A list indexing expression opened with '[' but did not close with ']'.
+
+  Example:
+    print(values[0);
+
+  Diagnostic:
+    error: unclosed bracket in list index
+
+len() expects a List value
+  len(...) only accepts a List expression.
+
+  Example:
+    int x = 3;
+    print(len(x));
+
+  Diagnostic:
+    error: len() expects a List value
+
+invalid list index
+  In --run mode, list[index] reports a runtime error when index is negative or
+  greater than or equal to len(list).
+
+  Example:
+    List<int> values;
+    values.add(4);
+    print(values[3]);
+
+  Diagnostic:
+    error: runtime error: invalid list index
+
+cannot remove from empty list
+  In --run mode, remove() reports a runtime error when the List is empty.
+
+  Example:
+    List<int> values = [];
+    values.remove();
+
+  Diagnostic:
+    error: runtime error: cannot remove from empty list
 
 char values must be a single character in single quotes
   char literals must use single quotes and contain exactly one character.
@@ -656,6 +886,55 @@ input() can only be used as the entire value in an assignment or declaration
 
   Diagnostic:
     error: input() can only be used as the entire value in an assignment or declaration
+
+list input
+  List targets can read directly from input by giving one size per List
+  dimension. CP++ reads elements in row-major order into the requested shape.
+  Size expressions can be integer literals or int-compatible variables.
+
+  Example:
+    List<int> line = input(4);
+    int rows = 2;
+    int cols = 3;
+    List<List<int>> grid = input(rows, cols);
+
+input(count) is only supported for List targets
+  Size arguments belong to List input. Scalar targets still use plain input().
+
+  Example:
+    int x = input(3);
+
+  Diagnostic:
+    error: input(count) is only supported for List targets
+
+List input needs one size per List dimension, like input(4) or input(rows, cols)
+  A List input call must specify the shape it should read.
+
+  Example:
+    List<int> values = input();
+
+  Diagnostic:
+    error: List input needs one size per List dimension, like input(4) or input(rows, cols)
+
+List input needs exactly <n> size arguments
+  The number of input sizes must match the number of nested List dimensions.
+
+  Example:
+    List<List<int>> grid = input(3);
+
+  Diagnostic:
+    error: List input needs exactly 2 size arguments
+
+input() size must be int
+  Each List input size must be an int value or something CP++ can implicitly
+  convert to int.
+
+  Example:
+    float n = 2.5;
+    List<int> values = input(n);
+
+  Diagnostic:
+    error: input() size must be int
 
 multi-assignment requires input()
   A comma-separated assignment can only read multiple values with input().
