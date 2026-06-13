@@ -1,0 +1,2 @@
+tests/tmp/cases/bad_generic.cppp:1:4: error: int expects 0 subtypes
+int<int> x;

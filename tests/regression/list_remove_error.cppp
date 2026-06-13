@@ -1,0 +1,3 @@
+List<int> values = [1];
+
+values.remove(true, 0);

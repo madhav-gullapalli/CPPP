@@ -1,0 +1,6 @@
+List<int> values = [1, 2, 3];
+
+values.remove();
+values.remove(0);
+
+print(len(values), values[0]);
