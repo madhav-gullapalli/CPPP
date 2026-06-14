@@ -1,0 +1,2 @@
+tests/tmp/cases/expression_error.cppp:2:13: error: cannot use '&' with float and int
+int bad = f & 3;

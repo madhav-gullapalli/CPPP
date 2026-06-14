@@ -1,0 +1,2 @@
+float f = 1.2;
+int bad = f & 3;
