@@ -599,7 +599,7 @@ private:
             if (emitRuntimeChecks) {
                 return "CPPPListMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
-            return "(*min_element((" + list + ").begin(), (" + list + ").end()))";
+            return "([&]() { auto __cppp_list = " + list + "; return *min_element(__cppp_list.begin(), __cppp_list.end()); }())";
         }
 
         if (expr.callee == "max") {
@@ -607,14 +607,14 @@ private:
             if (emitRuntimeChecks) {
                 return "CPPPListMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
-            return "(*max_element((" + list + ").begin(), (" + list + ").end()))";
+            return "([&]() { auto __cppp_list = " + list + "; return *max_element(__cppp_list.begin(), __cppp_list.end()); }())";
         }
 
         if (expr.callee == "sum") {
             const std::string list = generate(*expr.arguments[0]);
             const Type elementType = expr.arguments[0]->inferredType.subtypes[0];
             const std::string initial = elementType == PrimitiveType::Float ? "0.0L" : "0LL";
-            return "accumulate((" + list + ").begin(), (" + list + ").end(), " + initial + ")";
+            return "([&]() { auto __cppp_list = " + list + "; return accumulate(__cppp_list.begin(), __cppp_list.end(), " + initial + "); }())";
         }
 
         return "";

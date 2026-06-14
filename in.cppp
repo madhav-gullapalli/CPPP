@@ -1,4 +1,2 @@
-List<List<int>>A = [[1], [2, 3], [4,5,6]];
-for (List<int> x in A){
-    print(x);
-}
+List<int> empt = [];
+print(min(empt));

@@ -399,6 +399,8 @@ List printing
 
 len(list)
   len(list) returns the number of elements in a List as an int.
+  It accepts any List expression, including list literals and temporary List
+  results.
 
   Example:
     List<int> values;
@@ -408,7 +410,8 @@ min(list), max(list), and sum(list)
   min(list) and max(list) return the smallest or largest element of a List.
   sum(list) adds every element of a numeric List and returns the total. For
   List<float> the result is float; for List<bool>, List<char>, and List<int>
-  the result is int.
+  the result is int. These functions accept List expressions such as list
+  literals and concatenated Lists, not just named variables.
 
   Example:
     List<int> values = [3, 1, 2];
