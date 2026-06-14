@@ -19,5 +19,6 @@ AssignmentEmitResult emitAssignmentStatement(
     int lineNumber,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks = false
 );

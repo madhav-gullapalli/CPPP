@@ -81,6 +81,17 @@ run_submit_ok() {
     fi
 }
 
+run_program_ok() {
+    local source="$1"
+    local log="$2"
+    local label="$3"
+
+    if ! "$COMPILER" --cppp "$source" --run >"$log" 2>&1; then
+        cat "$log" >&2
+        fail "$label"
+    fi
+}
+
 run_failure() {
     local source="$1"
     local log="$2"
@@ -149,6 +160,16 @@ list_literal_error_case="$(stage_case "$TEST_DIR/list_literal_error.cppp")"
 run_failure "$list_literal_error_case" "$LOG_DIR/list_literal_error.log" "mismatched list literal should fail"
 assert_contains "$LOG_DIR/list_literal_error.log" "cannot implicitly convert float to int in list literal" "list literal type diagnostic"
 pass "list literal type mismatch is rejected"
+
+expression_behavior_case="$(stage_case "$TEST_DIR/expression_behavior.cppp")"
+run_program_ok "$expression_behavior_case" "$LOG_DIR/expression_behavior.log" "expression behavior program runs"
+assert_contains "$LOG_DIR/expression_behavior.log" "14 20 9 30 2" "expression behavior output"
+pass "expression precedence, variables, calls, and nested indexing are preserved"
+
+expression_error_case="$(stage_case "$TEST_DIR/expression_error.cppp")"
+run_failure "$expression_error_case" "$LOG_DIR/expression_error.log" "invalid expression types should fail"
+assert_contains "$LOG_DIR/expression_error.log" "cannot use '&' with float and int" "invalid expression type diagnostic"
+pass "invalid expression type errors are preserved"
 
 echo
 echo "All CP++ regression tests passed."

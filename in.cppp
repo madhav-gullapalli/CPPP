@@ -1,12 +1,4 @@
-int t = input();
-rep(t){
-    int n = input();
-    List<int> A = input(n);
-    List<int> B = input(n);
-    int less, more = 0,0;
-    for(int i = 0;i<n;i++){
-        if(A[i]<B[i]){less+= B[i]; less-=A[i];}
-        else{more+=A[i]; more -=B[i];}
-    }
-    print(more+1);
+List<List<int>>A = [[1], [2, 3], [4,5,6]];
+for (List<int> x in A){
+    print(x);
 }

@@ -142,6 +142,30 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             },
             {},
             {"CPPPInputList("}
+        },
+        {
+            "CPPPPrintValue",
+            {
+                "template <typename T>",
+                "void CPPPPrintValue(ostream& output, const T& value) {",
+                "    output << value;",
+                "}",
+                "",
+                "template <typename T>",
+                "void CPPPPrintValue(ostream& output, const vector<T>& values) {",
+                "    output << '[';",
+                "    for (size_t i = 0; i < values.size(); ++i) {",
+                "        if (i > 0) {",
+                "            output << \", \";",
+                "        }",
+                "        CPPPPrintValue(output, values[i]);",
+                "    }",
+                "    output << ']';",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPPrintValue("}
         }
     };
 

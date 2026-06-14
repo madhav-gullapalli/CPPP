@@ -127,6 +127,10 @@ bool parseCallArguments(
     argumentsStartColumn = statementStartColumn + leftParen.span.endColumn;
     return true;
 }
+
+bool isListType(const Type& type) {
+    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
+}
 }
 
 PrintEmitResult emitPrintStatement(
@@ -164,7 +168,7 @@ PrintEmitResult emitPrintStatement(
         return {false, "", {}};
     }
 
-    std::string generatedEnd = " << '\\n'";
+    std::string generatedEnd = "cout << '\\n';";
     size_t printableArgumentCount = arguments.size();
     for (size_t i = 0; i < arguments.size(); ++i) {
         if (isEndOption(arguments[i])) {
@@ -175,9 +179,9 @@ PrintEmitResult emitPrintStatement(
 
             const Token& endValue = arguments[i].tokens[2];
             if (endValue.kind == TokenKind::String || endValue.kind == TokenKind::Char) {
-                generatedEnd = " << " + endValue.text;
+                generatedEnd = "cout << " + endValue.text + ";";
             } else if (endValue.kind == TokenKind::Identifier && endValue.text == "flush") {
-                generatedEnd = " << '\\n' << flush";
+                generatedEnd = "cout << '\\n' << flush;";
             } else {
                 recordSourceError(inputFile, lineNumber, arguments[i].column + endValue.span.startColumn - 1, "print end must be a string, char, or flush", sourceLines);
                 return {false, "", {}};
@@ -212,7 +216,7 @@ PrintEmitResult emitPrintStatement(
         return {false, "", {}};
     }
 
-    std::string generatedStatement = "    cout";
+    std::string generatedStatement = "    ";
     std::vector<SourceRange> ranges;
     for (size_t i = 0; i < printableArgumentCount; ++i) {
         const ExpressionEmitResult expression = emitExpression(
@@ -228,12 +232,22 @@ PrintEmitResult emitPrintStatement(
         }
 
         if (i > 0) {
-            generatedStatement += " << ' '";
+            generatedStatement += "cout << ' '; ";
         }
 
-        generatedStatement += " << ";
+        const bool listArgument = isListType(expression.type);
+        if (listArgument) {
+            generatedStatement += "CPPPPrintValue(cout, ";
+        } else {
+            generatedStatement += "cout << ";
+        }
         const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
         generatedStatement += expression.generatedExpression;
+        if (listArgument) {
+            generatedStatement += "); ";
+        } else {
+            generatedStatement += "; ";
+        }
         ranges.push_back({
             lineNumber,
             arguments[i].column,
@@ -242,7 +256,7 @@ PrintEmitResult emitPrintStatement(
         });
     }
 
-    generatedStatement += generatedEnd + ";";
+    generatedStatement += generatedEnd;
 
     return {true, generatedStatement, ranges};
 }

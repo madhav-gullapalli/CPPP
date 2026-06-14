@@ -278,6 +278,37 @@ remove() expects no arguments or index
   Diagnostic:
     error: remove() expects no arguments or index
 
+List sort and reverse
+  Lists support sort() to sort in place and reverse() to reverse in place.
+  sort() uses the default ordering for the List element type and does not
+  accept a custom comparator.
+
+  Example:
+    List<int> values = [3, 1, 2];
+    values.sort();
+    values.reverse();
+
+sort() does not take arguments
+  sort() only sorts the whole List in place and does not accept arguments.
+
+  Example:
+    List<int> values = [3, 1, 2];
+    values.sort(0);
+
+  Diagnostic:
+    error: sort() does not take arguments
+
+reverse() does not take arguments
+  reverse() only reverses the whole List in place and does not accept
+  arguments.
+
+  Example:
+    List<int> values = [3, 1, 2];
+    values.reverse(0);
+
+  Diagnostic:
+    error: reverse() does not take arguments
+
 list index must be int
   The second add(...) argument and the remove(index) argument must be int
   values, or something CP++ can implicitly convert to int.
@@ -301,12 +332,109 @@ List indexing
     values.add(4);
     print(values[0]);
 
+List assignment
+  List elements can be assigned with square-bracket indexing. This updates the
+  existing element in O(1) time.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[1] = 9;
+
+index assignment requires a List value
+  Square-bracket assignment can only target a List.
+
+  Example:
+    int x = 3;
+    x[0] = 1;
+
+  Diagnostic:
+    error: index assignment requires a List value
+
+List addition
+  CP++ supports `A + B` for List values of the same type. This returns a brand
+  new List containing all elements of A followed by all elements of B, without
+  modifying either input List.
+
+  Example:
+    List<int> a = [1, 2];
+    List<int> b = [3, 4];
+    List<int> both = a + b;
+
+List append assignment
+  CP++ supports `A += B` for List values of the same type. This appends all
+  elements of B onto the end of A in place. `+=` is still an assignment
+  statement, not an expression, so forms like `if (a += b)` are rejected at
+  compile time.
+
+  Example:
+    List<int> a = [1, 2];
+    List<int> b = [3, 4];
+    a += b;
+
+cannot append <from> to <to>
+  List append assignment requires the right side to be a List of the same
+  element type as the left side.
+
+  Example:
+    List<int> a = [1];
+    List<float> b = [2.5];
+    a += b;
+
+  Diagnostic:
+    error: cannot append List<float> to List<int>
+
+List printing
+  print(...) can print List values directly. A printed List uses the same
+  bracketed format as a list literal, and nested Lists print recursively.
+
+  Example:
+    List<int> values = [1, 2];
+    List<List<int>> grid = [[1], [2, 3]];
+    print(values);
+    print(grid);
+
+  Output:
+    [1, 2]
+    [[1], [2, 3]]
+
 len(list)
   len(list) returns the number of elements in a List as an int.
 
   Example:
     List<int> values;
     print(len(values));
+
+min(list), max(list), and sum(list)
+  min(list) and max(list) return the smallest or largest element of a List.
+  sum(list) adds every element of a numeric List and returns the total. For
+  List<float> the result is float; for List<bool>, List<char>, and List<int>
+  the result is int.
+
+  Example:
+    List<int> values = [3, 1, 2];
+    print(min(values), max(values), sum(values));
+
+in operator
+  CP++ supports Python-style membership checks with `value in list`. The
+  result is bool, so it can be printed directly or used in conditions.
+  Empty Lists simply return false.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    if (2 in values) {
+        print("found");
+    }
+
+foreach loops
+  CP++ supports foreach loops with `for (T x in list) { ... }`. The loop
+  variable is declared from the given type and takes each List element value
+  in order. If the List is empty, the loop body is skipped.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    for (int x in values) {
+        print(x);
+    }
 
 indexing requires a List value
   Square-bracket indexing can only be used on a List.
@@ -337,14 +465,82 @@ len() expects a List value
   Diagnostic:
     error: len() expects a List value
 
+min() expects a List value
+  min(...) only accepts one List expression.
+
+  Example:
+    int x = 3;
+    print(min(x));
+
+  Diagnostic:
+    error: min() expects a List value
+
+max() expects a List value
+  max(...) only accepts one List expression.
+
+  Example:
+    int x = 3;
+    print(max(x));
+
+  Diagnostic:
+    error: max() expects a List value
+
+sum() expects a List of numeric values
+  sum(...) accepts List<bool>, List<char>, List<int>, and List<float>. Nested
+  Lists and other nonscalar values are rejected.
+
+  Example:
+    List<List<int>> grid = [[1], [2]];
+    print(sum(grid));
+
+  Diagnostic:
+    error: sum() expects a List of numeric values
+
+right side of 'in' must be a List
+  The membership operator only works with a List on the right side.
+
+  Example:
+    int x = 3;
+    print(1 in x);
+
+  Diagnostic:
+    error: right side of 'in' must be a List
+
+cannot check membership of <from> in <List<...>>
+  The left side of `in` must be implicitly comparable to the List element
+  type. Narrowing conversions still require an explicit cast.
+
+  Example:
+    float needle = 1.5;
+    List<int> values = [1, 2];
+    print(needle in values);
+
+  Diagnostic:
+    error: cannot check membership of float in List<int>
+
+for-in expects a List value
+  A foreach loop must iterate over a List expression.
+
+  Example:
+    int x = 3;
+    for (int value in x) {
+        print(value);
+    }
+
+  Diagnostic:
+    error: for-in expects a List value
+
 invalid list index
-  In --run mode, list[index] reports a runtime error when index is negative or
-  greater than or equal to len(list).
+  In --run mode, list[index] and list[index] = value report a runtime error
+  when index is negative or greater than or equal to len(list).
 
   Example:
     List<int> values;
     values.add(4);
     print(values[3]);
+
+    List<int> other = [1, 2];
+    other[5] = 9;
 
   Diagnostic:
     error: runtime error: invalid list index
@@ -358,6 +554,26 @@ cannot remove from empty list
 
   Diagnostic:
     error: runtime error: cannot remove from empty list
+
+cannot take min of empty list
+  In --run mode, min(list) reports a runtime error when the List is empty.
+
+  Example:
+    List<int> values = [];
+    print(min(values));
+
+  Diagnostic:
+    error: runtime error: cannot take min of empty list
+
+cannot take max of empty list
+  In --run mode, max(list) reports a runtime error when the List is empty.
+
+  Example:
+    List<int> values = [];
+    print(max(values));
+
+  Diagnostic:
+    error: runtime error: cannot take max of empty list
 
 char values must be a single character in single quotes
   char literals must use single quotes and contain exactly one character.
@@ -731,6 +947,19 @@ if, else if, else, while, for, and rep blocks
         print("again");
     }
 
+structured control-flow syntax errors
+  Malformed if, else if, while, rep, for, and for-in headers are reported by
+  their own parsers before the compiler falls back to unrelated declaration or
+  statement errors.
+
+  Example:
+    if true {
+        print(1);
+    }
+
+  Diagnostic:
+    error: expected '(' after if
+
 expected condition
   An if or else if block has an empty condition.
 
@@ -741,6 +970,68 @@ expected condition
 
   Diagnostic:
     error: expected condition
+
+missing '{' after if
+  if headers must end with an opening brace.
+
+  Example:
+    if (true)
+        print(1);
+
+  Diagnostic:
+    error: missing '{' after if
+
+missing '{' after while
+  while headers must end with an opening brace.
+
+  Example:
+    while (true)
+        print(1);
+
+  Diagnostic:
+    error: missing '{' after while
+
+missing '{' after rep
+  rep headers must end with an opening brace.
+
+  Example:
+    rep(3)
+        print(1);
+
+  Diagnostic:
+    error: missing '{' after rep
+
+missing '{' after for loop
+  for and for-in headers must end with an opening brace.
+
+  Example:
+    for (int i = 0; i < 3; i++)
+        print(i);
+
+  Diagnostic:
+    error: missing '{' after for loop
+
+for loop must use syntax for (init; condition; step)
+  A classic for loop needs exactly two top-level semicolons inside the header.
+
+  Example:
+    for (int i = 0 i < 3; i++) {
+        print(i);
+    }
+
+  Diagnostic:
+    error: for loop must use syntax for (init; condition; step)
+
+expected 'in' after loop variable
+  A foreach loop must use `for (T x in list)`.
+
+  Example:
+    for (int x not in values) {
+        print(x);
+    }
+
+  Diagnostic:
+    error: expected 'in' after loop variable
 
 if condition must be bool
   if and else if conditions must produce bool or a value that can be

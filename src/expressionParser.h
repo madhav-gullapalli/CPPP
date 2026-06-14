@@ -1,5 +1,6 @@
 #pragma once
 
+#include "exprAst.h"
 #include "expressions.h"
 
 class ExpressionParser {
@@ -15,17 +16,9 @@ public:
     );
 
     ExpressionEmitResult parse();
+    std::unique_ptr<Expr> parseAst(bool& ok);
 
 private:
-    struct ParsedExpression {
-        bool ok;
-        std::string text;
-        Type type;
-        bool explicitCast;
-        int sourceColumn;
-        bool mutableValue;
-    };
-
     const std::string& inputFile;
     int lineNumber;
     const std::string& expressionText;
@@ -47,35 +40,20 @@ private:
     void report(const Token& token, const std::string& message) const;
     bool reportInputUsageError(const Token& inputToken) const;
 
-    ParsedExpression parseExpression();
-    ParsedExpression parseLogicalOr();
-    ParsedExpression parseLogicalAnd();
-    ParsedExpression parseBitwiseOr();
-    ParsedExpression parseBitwiseXor();
-    ParsedExpression parseBitwiseAnd();
-    ParsedExpression parseEquality();
-    ParsedExpression parseComparison();
-    ParsedExpression parseShift();
-    ParsedExpression parseAdditive();
-    ParsedExpression parseMultiplicative();
-    ParsedExpression parseUnary();
-    ParsedExpression parsePostfix();
-    ParsedExpression parsePrimary();
-    ParsedExpression parseListMethodCall(ParsedExpression expression);
-
     bool isTypeName(const std::string& name) const;
-    Type binaryResultType(Type left, Type right, const std::string& op) const;
-    bool isValueType(Type type) const;
-    bool isNumericType(Type type) const;
-    bool isBitwiseType(Type type) const;
-    bool isIncrementableType(Type type) const;
-    bool isComparable(Type left, Type right) const;
-    bool isFloatType(Type type) const;
-    std::string runtimeErrorThrowExpression(int column, const std::string& message) const;
-    std::string checkedIntegerExpression(
-        const std::string& left,
-        const std::string& right,
-        const std::string& op,
-        int column
-    ) const;
+    std::unique_ptr<Expr> parseExpression(bool& ok);
+    std::unique_ptr<Expr> parseLogicalOr(bool& ok);
+    std::unique_ptr<Expr> parseLogicalAnd(bool& ok);
+    std::unique_ptr<Expr> parseBitwiseOr(bool& ok);
+    std::unique_ptr<Expr> parseBitwiseXor(bool& ok);
+    std::unique_ptr<Expr> parseBitwiseAnd(bool& ok);
+    std::unique_ptr<Expr> parseEquality(bool& ok);
+    std::unique_ptr<Expr> parseComparison(bool& ok);
+    std::unique_ptr<Expr> parseShift(bool& ok);
+    std::unique_ptr<Expr> parseAdditive(bool& ok);
+    std::unique_ptr<Expr> parseMultiplicative(bool& ok);
+    std::unique_ptr<Expr> parseUnary(bool& ok);
+    std::unique_ptr<Expr> parsePostfix(bool& ok);
+    std::unique_ptr<Expr> parsePrimary(bool& ok);
+    std::unique_ptr<Expr> parseListMethodCall(std::unique_ptr<Expr> expression, bool& ok);
 };

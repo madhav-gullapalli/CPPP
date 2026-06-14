@@ -182,6 +182,34 @@ static std::string quotePath(const std::string& path) {
     return "\"" + path + "\"";
 }
 
+static std::string cppStringLiteral(const std::string& text) {
+    std::string escaped = "\"";
+    for (char ch : text) {
+        switch (ch) {
+            case '\\':
+                escaped += "\\\\";
+                break;
+            case '"':
+                escaped += "\\\"";
+                break;
+            case '\n':
+                escaped += "\\n";
+                break;
+            case '\r':
+                escaped += "\\r";
+                break;
+            case '\t':
+                escaped += "\\t";
+                break;
+            default:
+                escaped.push_back(ch);
+                break;
+        }
+    }
+    escaped += "\"";
+    return escaped;
+}
+
 static std::string commandPathFor(const std::string& path) {
 #ifdef _WIN32
     if (path.size() >= 2 && path[1] == ':') {
@@ -261,6 +289,7 @@ int main(int argc, char* argv[]) {
     std::map<std::string, Type> declaredVariables;
     int generatedLine = 0;
     int blockDepth = 0;
+    int suppressedBlockDepth = 0;
     bool canAttachElse = false;
     std::vector<std::string> blockKinds;
     int repLoopIndex = 0;
@@ -301,6 +330,15 @@ int main(int argc, char* argv[]) {
         if (statement.empty()) {
             if (hasComment) {
                 queueGeneratedLine(indentForDepth(blockDepth) + commentText, lineNumber);
+            }
+            continue;
+        }
+
+        if (suppressedBlockDepth > 0 && statement[0] != '}') {
+            if (statement.back() == '{') {
+                ++blockDepth;
+                blockKinds.push_back("suppressed");
+                ++suppressedBlockDepth;
             }
             continue;
         }
@@ -371,7 +409,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, part, sourceLines, declaredVariables);
+            const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, part, sourceLines, declaredVariables, !shouldSubmit);
             if (assignmentResult.matched) {
                 if (!assignmentResult.ok) {
                     return false;
@@ -403,6 +441,10 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
+            const bool closingSuppressed = suppressedBlockDepth > 0;
+            if (closingSuppressed) {
+                --suppressedBlockDepth;
+            }
             --blockDepth;
             const std::string closedBlock = blockKinds.empty() ? "" : blockKinds.back();
             if (!blockKinds.empty()) {
@@ -411,6 +453,14 @@ int main(int argc, char* argv[]) {
             canAttachElse = closedBlock == "if" || closedBlock == "else if";
 
             const std::string afterBrace = trim(statement.substr(1));
+            if (closingSuppressed) {
+                if (!afterBrace.empty() && afterBrace.back() == '{') {
+                    ++blockDepth;
+                    blockKinds.push_back("suppressed");
+                    ++suppressedBlockDepth;
+                }
+                continue;
+            }
             if (afterBrace.empty()) {
                 queueGeneratedLine(indentForDepth(blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
                 continue;
@@ -494,6 +544,7 @@ int main(int argc, char* argv[]) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
                 ++blockDepth;
                 blockKinds.push_back("else");
+                ++suppressedBlockDepth;
                 continue;
             }
 
@@ -504,12 +555,27 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        ConditionParseResult elseIfResult = parseElseIfHeaderDetailed(statement);
+        if (elseIfResult.matched && !elseIfResult.ok) {
+            if (!canAttachElse) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
+            } else {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(elseIfResult.errorOffset), elseIfResult.message, sourceLines);
+            }
+            ++blockDepth;
+            blockKinds.push_back("else if");
+            canAttachElse = false;
+            continue;
+        }
+
         ConditionHeader header;
-        if (parseElseIfHeader(statement, header)) {
+        if (elseIfResult.matched) {
+            header = elseIfResult.header;
             if (!canAttachElse) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
                 ++blockDepth;
                 blockKinds.push_back("else if");
+                ++suppressedBlockDepth;
                 continue;
             }
 
@@ -517,8 +583,120 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        ForParseResult forResult = parseForHeaderDetailed(statement);
         ForHeader forHeader;
-        if (parseForHeader(statement, forHeader)) {
+        const ForEachParseResult forEachResult = parseForEachHeader(statement);
+        if (forEachResult.matched && !forEachResult.ok) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                statementStartColumn + static_cast<int>(forEachResult.errorOffset),
+                forEachResult.message,
+                sourceLines
+            );
+            ++blockDepth;
+            blockKinds.push_back("for");
+            ++suppressedBlockDepth;
+            canAttachElse = false;
+            continue;
+        }
+
+        if (forEachResult.matched) {
+            const ForEachHeader& forEachHeader = forEachResult.header;
+            const TypeEmitResult declarationResult = emitTypeDeclaration(
+                inputFile,
+                lineNumber,
+                line,
+                forEachHeader.declaration,
+                sourceLines,
+                declaredVariables
+            );
+            if (!declarationResult.matched || !declarationResult.ok) {
+                ++blockDepth;
+                blockKinds.push_back("for");
+                ++suppressedBlockDepth;
+                canAttachElse = false;
+                continue;
+            }
+
+            const auto loopVariable = declaredVariables.find(forEachHeader.variableName);
+            const ExpressionEmitResult iterable = emitExpression(
+                inputFile,
+                lineNumber,
+                forEachHeader.iterable,
+                statementStartColumn + static_cast<int>(forEachHeader.iterableOffset),
+                sourceLines,
+                declaredVariables
+            );
+            if (!iterable.ok) {
+                declaredVariables.erase(forEachHeader.variableName);
+                ++blockDepth;
+                blockKinds.push_back("for");
+                ++suppressedBlockDepth;
+                canAttachElse = false;
+                continue;
+            }
+
+            if (iterable.type.primitive != PrimitiveType::List || iterable.type.subtypes.size() != 1) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(forEachHeader.iterableOffset), "for-in expects a List value", sourceLines);
+                declaredVariables.erase(forEachHeader.variableName);
+                ++blockDepth;
+                blockKinds.push_back("for");
+                ++suppressedBlockDepth;
+                canAttachElse = false;
+                continue;
+            }
+
+            const Type elementType = iterable.type.subtypes[0];
+            if (!isImplicitlyConvertible(elementType, loopVariable->second)) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
+                    "cannot implicitly convert " + cpppTypeName(elementType) + " to " + cpppTypeName(loopVariable->second),
+                    sourceLines
+                );
+                declaredVariables.erase(forEachHeader.variableName);
+                ++blockDepth;
+                blockKinds.push_back("for");
+                ++suppressedBlockDepth;
+                canAttachElse = false;
+                continue;
+            }
+
+            std::string loopDeclaration = stripGeneratedStatement(declarationResult.generatedStatement);
+            const size_t initializer = loopDeclaration.find(" = ");
+            if (initializer != std::string::npos) {
+                loopDeclaration = loopDeclaration.substr(0, initializer);
+            }
+
+            queueGeneratedLine(
+                indentForDepth(blockDepth) + "for (" + loopDeclaration + " : " + iterable.generatedExpression + ") {" + (hasComment ? " " + commentText : ""),
+                lineNumber
+            );
+            ++blockDepth;
+            blockKinds.push_back("for");
+            canAttachElse = false;
+            continue;
+        }
+
+        if (!forEachResult.matched && forResult.matched && !forResult.ok) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                statementStartColumn + static_cast<int>(forResult.errorOffset),
+                forResult.message,
+                sourceLines
+            );
+            ++blockDepth;
+            blockKinds.push_back("for");
+            ++suppressedBlockDepth;
+            canAttachElse = false;
+            continue;
+        }
+
+        if (!forEachResult.matched && forResult.matched) {
+            forHeader = forResult.header;
             std::string generatedInitializer;
             std::string generatedIteration;
             if (!emitForPart(
@@ -528,6 +706,7 @@ int main(int argc, char* argv[]) {
                     generatedInitializer)) {
                 ++blockDepth;
                 blockKinds.push_back("for");
+                ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
@@ -545,6 +724,7 @@ int main(int argc, char* argv[]) {
                 if (!condition.ok) {
                     ++blockDepth;
                     blockKinds.push_back("for");
+                    ++suppressedBlockDepth;
                     canAttachElse = false;
                     continue;
                 }
@@ -553,6 +733,7 @@ int main(int argc, char* argv[]) {
                     recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(forHeader.conditionOffset), "for condition must be bool", sourceLines);
                     ++blockDepth;
                     blockKinds.push_back("for");
+                    ++suppressedBlockDepth;
                     canAttachElse = false;
                     continue;
                 }
@@ -570,6 +751,7 @@ int main(int argc, char* argv[]) {
                     generatedIteration)) {
                 ++blockDepth;
                 blockKinds.push_back("for");
+                ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
@@ -581,11 +763,29 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        if (parseConditionHeader(statement, "rep", header)) {
+        ConditionParseResult repResult = parseConditionHeaderDetailed(statement, "rep", "rep");
+        if (repResult.matched && !repResult.ok) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                statementStartColumn + static_cast<int>(repResult.errorOffset),
+                repResult.message,
+                sourceLines
+            );
+            ++blockDepth;
+            blockKinds.push_back("rep");
+            ++suppressedBlockDepth;
+            canAttachElse = false;
+            continue;
+        }
+
+        if (repResult.matched) {
+            header = repResult.header;
             if (header.condition.empty()) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected rep count", sourceLines);
                 ++blockDepth;
                 blockKinds.push_back("rep");
+                ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
@@ -601,6 +801,7 @@ int main(int argc, char* argv[]) {
             if (!count.ok) {
                 ++blockDepth;
                 blockKinds.push_back("rep");
+                ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
@@ -609,6 +810,7 @@ int main(int argc, char* argv[]) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "rep count must be numeric", sourceLines);
                 ++blockDepth;
                 blockKinds.push_back("rep");
+                ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
@@ -641,12 +843,46 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        if (parseConditionHeader(statement, "if", header)) {
+        ConditionParseResult ifResult = parseConditionHeaderDetailed(statement, "if", "if");
+        if (ifResult.matched && !ifResult.ok) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                statementStartColumn + static_cast<int>(ifResult.errorOffset),
+                ifResult.message,
+                sourceLines
+            );
+            ++blockDepth;
+            blockKinds.push_back("if");
+            ++suppressedBlockDepth;
+            canAttachElse = false;
+            continue;
+        }
+
+        if (ifResult.matched) {
+            header = ifResult.header;
             emitConditionHeader("if", header);
             continue;
         }
 
-        if (parseConditionHeader(statement, "while", header)) {
+        ConditionParseResult whileResult = parseConditionHeaderDetailed(statement, "while", "while");
+        if (whileResult.matched && !whileResult.ok) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                statementStartColumn + static_cast<int>(whileResult.errorOffset),
+                whileResult.message,
+                sourceLines
+            );
+            ++blockDepth;
+            blockKinds.push_back("while");
+            ++suppressedBlockDepth;
+            canAttachElse = false;
+            continue;
+        }
+
+        if (whileResult.matched) {
+            header = whileResult.header;
             emitConditionHeader("while", header);
             continue;
         }
@@ -675,7 +911,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, statementBody, sourceLines, declaredVariables);
+        const AssignmentEmitResult assignmentResult = emitAssignmentStatement(inputFile, lineNumber, statementBody, sourceLines, declaredVariables, !shouldSubmit);
         if (assignmentResult.matched) {
             if (!assignmentResult.ok) {
                 continue;
@@ -778,6 +1014,15 @@ int main(int argc, char* argv[]) {
     for (const std::string& preambleLine : preambleLines) {
         emitLine(preambleLine);
     }
+    if (shouldRun) {
+        emitLine("static const vector<string> __cppp_source_lines = {");
+        emitLine("    \"\",");
+        for (const auto& sourceLine : sourceLines) {
+            emitLine("    " + cppStringLiteral(sourceLine.second) + ",");
+        }
+        emitLine("};");
+        emitLine("");
+    }
     emitLine("int main() {");
     emitLine("    ios::sync_with_stdio(false);");
     emitLine("    cin.tie(nullptr);");
@@ -800,7 +1045,13 @@ int main(int argc, char* argv[]) {
         emitLine("        size_t __cppp_first = __cppp_message.find(':');");
         emitLine("        size_t __cppp_second = __cppp_message.find(':', __cppp_first + 1);");
         emitLine("        if (__cppp_first != string::npos && __cppp_second != string::npos) {");
-        emitLine("            cout << \"" + inputFile + ":\" << __cppp_message.substr(0, __cppp_first) << \":\" << __cppp_message.substr(__cppp_first + 1, __cppp_second - __cppp_first - 1) << \": error: runtime error: \" << __cppp_message.substr(__cppp_second + 1) << '\\n';");
+        emitLine("            int __cppp_line = stoi(__cppp_message.substr(0, __cppp_first));");
+        emitLine("            int __cppp_column = stoi(__cppp_message.substr(__cppp_first + 1, __cppp_second - __cppp_first - 1));");
+        emitLine("            cout << \"" + inputFile + ":\" << __cppp_line << ':' << __cppp_column << \": error: runtime error: \" << __cppp_message.substr(__cppp_second + 1) << '\\n';");
+        emitLine("            if (__cppp_line >= 0 && __cppp_line < static_cast<int>(__cppp_source_lines.size())) {");
+        emitLine("                cout << __cppp_source_lines[static_cast<size_t>(__cppp_line)] << '\\n';");
+        emitLine("                cout << string(static_cast<size_t>(max(0, __cppp_column - 1)), ' ') << '^' << '\\n';");
+        emitLine("            }");
         emitLine("        } else {");
         emitLine("            cout << \"CP++ runtime error: \" << __cppp_message << '\\n';");
         emitLine("        }");

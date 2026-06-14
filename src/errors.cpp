@@ -27,6 +27,11 @@ std::vector<Diagnostic>& diagnostics() {
     return errors;
 }
 
+void printCaretLine(std::ostream& stream, int column) {
+    const int displayColumn = std::max(1, column);
+    stream << std::string(static_cast<size_t>(displayColumn - 1), ' ') << "^\n";
+}
+
 void printDiagnostic(const Diagnostic& diagnostic) {
     const int displayColumn = std::max(1, diagnostic.column);
     std::cerr << diagnostic.sourceFile << ':' << diagnostic.lineNumber << ':' << displayColumn
@@ -34,6 +39,7 @@ void printDiagnostic(const Diagnostic& diagnostic) {
 
     if (!diagnostic.sourceLine.empty()) {
         std::cerr << diagnostic.sourceLine << '\n';
+        printCaretLine(std::cerr, displayColumn);
     }
 }
 
@@ -51,6 +57,7 @@ void printRuntimeDiagnostic(
     const auto sourceLine = sourceLines.find(lineNumber);
     if (sourceLine != sourceLines.end() && !sourceLine->second.empty()) {
         std::cout << sourceLine->second << '\n';
+        printCaretLine(std::cout, displayColumn);
     }
 }
 

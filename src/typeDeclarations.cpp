@@ -92,6 +92,16 @@ bool shouldParseAsExpression(const std::vector<Token>& tokens) {
     return false;
 }
 
+size_t nonEndTokenCount(const std::vector<Token>& tokens) {
+    size_t count = 0;
+    for (const Token& token : tokens) {
+        if (token.kind != TokenKind::EndOfFile) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 const std::map<std::string, TypeInfo>& primitiveTypes() {
     static const std::map<std::string, TypeInfo> types = {
         {"bool", {"bool", "false"}},
@@ -848,7 +858,7 @@ TypeEmitResult emitTypeDeclaration(
         } else if (targetType == PrimitiveType::Bool) {
             if (isBoolLiteral(assignedValue)) {
                 emittedValue = assignedValue;
-            } else if (shouldParseAsExpression(valueTokens)) {
+            } else if (shouldParseAsExpression(valueTokens) || nonEndTokenCount(valueTokens) > 1) {
                 if (!finishExpressionAssignment(
                         inputFile,
                         lineNumber,
@@ -920,7 +930,7 @@ TypeEmitResult emitTypeDeclaration(
                 return {true, false, "", {}};
             }
         } else if (targetType == PrimitiveType::Int) {
-            if (shouldParseAsExpression(valueTokens)) {
+            if (shouldParseAsExpression(valueTokens) || nonEndTokenCount(valueTokens) > 1) {
                 if (!finishExpressionAssignment(
                         inputFile,
                         lineNumber,
@@ -956,7 +966,7 @@ TypeEmitResult emitTypeDeclaration(
                 }
             }
         } else if (targetType == PrimitiveType::Float) {
-            if (shouldParseAsExpression(valueTokens)) {
+            if (shouldParseAsExpression(valueTokens) || nonEndTokenCount(valueTokens) > 1) {
                 if (!finishExpressionAssignment(
                         inputFile,
                         lineNumber,

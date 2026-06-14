@@ -1,5 +1,7 @@
 #include "expressionParser.h"
 
+#include <memory>
+
 namespace {
 std::string cppTypeForExpressionType(const Type& type) {
     switch (type.primitive) {
@@ -22,6 +24,628 @@ std::string cppTypeForExpressionType(const Type& type) {
 
     return "";
 }
+
+bool isListType(const Type& type) {
+    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
+}
+
+class ExpressionAnalyzer {
+public:
+    ExpressionAnalyzer(
+        const std::string& inputFile,
+        int lineNumber,
+        const std::map<int, std::string>& sourceLines,
+        const std::map<std::string, Type>& declaredVariables
+    ) :
+        inputFile(inputFile),
+        lineNumber(lineNumber),
+        sourceLines(sourceLines),
+        declaredVariables(declaredVariables) {}
+
+    bool analyze(Expr& expr) {
+        if (auto* literal = dynamic_cast<LiteralExpr*>(&expr)) {
+            return analyzeLiteral(*literal);
+        }
+        if (auto* variable = dynamic_cast<VariableExpr*>(&expr)) {
+            return analyzeVariable(*variable);
+        }
+        if (auto* unary = dynamic_cast<UnaryExpr*>(&expr)) {
+            return analyzeUnary(*unary);
+        }
+        if (auto* binary = dynamic_cast<BinaryExpr*>(&expr)) {
+            return analyzeBinary(*binary);
+        }
+        if (auto* cast = dynamic_cast<CastExpr*>(&expr)) {
+            return analyzeCast(*cast);
+        }
+        if (auto* call = dynamic_cast<CallExpr*>(&expr)) {
+            return analyzeCall(*call);
+        }
+        if (auto* index = dynamic_cast<IndexExpr*>(&expr)) {
+            return analyzeIndex(*index);
+        }
+        if (auto* list = dynamic_cast<ListLiteralExpr*>(&expr)) {
+            return analyzeListLiteral(*list);
+        }
+
+        return false;
+    }
+
+private:
+    const std::string& inputFile;
+    int lineNumber;
+    const std::map<int, std::string>& sourceLines;
+    const std::map<std::string, Type>& declaredVariables;
+
+    void report(int column, const std::string& message) const {
+        recordSourceError(inputFile, lineNumber, column, message, sourceLines);
+    }
+
+    bool isValueType(Type type) const {
+        return type != PrimitiveType::Unknown;
+    }
+
+    bool isNumericType(Type type) const {
+        return type == PrimitiveType::Bool ||
+            type == PrimitiveType::Char ||
+            type == PrimitiveType::Int ||
+            type == PrimitiveType::Float;
+    }
+
+    bool isBitwiseType(Type type) const {
+        return type == PrimitiveType::Bool || type == PrimitiveType::Char || type == PrimitiveType::Int;
+    }
+
+    bool isIncrementableType(Type type) const {
+        return type == PrimitiveType::Char ||
+            type == PrimitiveType::Int ||
+            type == PrimitiveType::Float;
+    }
+
+    bool isComparable(Type left, Type right) const {
+        return isValueType(left) && isValueType(right);
+    }
+
+    bool isFloatType(Type type) const {
+        return type == PrimitiveType::Float;
+    }
+
+    bool isSummableType(Type type) const {
+        return type == PrimitiveType::Bool ||
+            type == PrimitiveType::Char ||
+            type == PrimitiveType::Int ||
+            type == PrimitiveType::Float;
+    }
+
+    Type sumResultType(Type elementType) const {
+        if (elementType == PrimitiveType::Float) {
+            return PrimitiveType::Float;
+        }
+        return PrimitiveType::Int;
+    }
+
+    Type binaryResultType(Type left, Type right, const std::string& op) const {
+        if (op == "in") {
+            return PrimitiveType::Bool;
+        }
+
+        if (op == "+" && isListType(left) && left == right) {
+            return left;
+        }
+
+        if (!isNumericType(left) || !isNumericType(right)) {
+            return PrimitiveType::Unknown;
+        }
+
+        if (op == "%" && (isFloatType(left) || isFloatType(right))) {
+            return PrimitiveType::Unknown;
+        }
+
+        if (left == PrimitiveType::Float || right == PrimitiveType::Float) {
+            return PrimitiveType::Float;
+        }
+
+        return PrimitiveType::Int;
+    }
+
+    bool analyzeLiteral(LiteralExpr& expr) {
+        switch (expr.kind) {
+            case LiteralExpr::Kind::Bool:
+                expr.inferredType = PrimitiveType::Bool;
+                break;
+            case LiteralExpr::Kind::Int:
+                expr.inferredType = PrimitiveType::Int;
+                break;
+            case LiteralExpr::Kind::Float:
+                expr.inferredType = PrimitiveType::Float;
+                break;
+            case LiteralExpr::Kind::String:
+                expr.inferredType = PrimitiveType::Unknown;
+                break;
+            case LiteralExpr::Kind::Char:
+                expr.inferredType = PrimitiveType::Char;
+                break;
+        }
+        expr.mutableValue = false;
+        return true;
+    }
+
+    bool analyzeVariable(VariableExpr& expr) {
+        const auto variable = declaredVariables.find(expr.name);
+        if (variable == declaredVariables.end()) {
+            report(expr.sourceColumn, "use of undeclared variable '" + expr.name + "'");
+            return false;
+        }
+
+        expr.inferredType = variable->second;
+        expr.mutableValue = true;
+        return true;
+    }
+
+    bool analyzeUnary(UnaryExpr& expr) {
+        if (!analyze(*expr.operand)) {
+            return false;
+        }
+
+        if (expr.op == "++" || expr.op == "--") {
+            if (!expr.operand->mutableValue) {
+                report(expr.sourceColumn, expr.postfix ? "expected variable before '" + expr.op + "'" : "expected variable after '" + expr.op + "'");
+                return false;
+            }
+            if (!isIncrementableType(expr.operand->inferredType)) {
+                report(expr.sourceColumn, "cannot use '" + expr.op + "' with " + cpppTypeName(expr.operand->inferredType));
+                return false;
+            }
+
+            expr.inferredType = expr.operand->inferredType;
+            return true;
+        }
+
+        if (expr.op == "!") {
+            if (!isValueType(expr.operand->inferredType)) {
+                report(expr.sourceColumn, "cannot use '!' with " + cpppTypeName(expr.operand->inferredType));
+                return false;
+            }
+            expr.inferredType = PrimitiveType::Bool;
+            return true;
+        }
+
+        if (!isNumericType(expr.operand->inferredType)) {
+            report(expr.sourceColumn, "cannot use unary '" + expr.op + "' with " + cpppTypeName(expr.operand->inferredType));
+            return false;
+        }
+
+        expr.inferredType = expr.operand->inferredType;
+        return true;
+    }
+
+    bool analyzeBinary(BinaryExpr& expr) {
+        if (!analyze(*expr.left) || !analyze(*expr.right)) {
+            return false;
+        }
+
+        if (expr.op == "in") {
+            if (expr.right->inferredType.primitive != PrimitiveType::List || expr.right->inferredType.subtypes.size() != 1) {
+                report(expr.sourceColumn, "right side of 'in' must be a List");
+                return false;
+            }
+
+            const Type elementType = expr.right->inferredType.subtypes[0];
+            if (!expr.left->explicitCast && !isImplicitlyConvertible(expr.left->inferredType, elementType)) {
+                report(expr.sourceColumn, "cannot check membership of " + cpppTypeName(expr.left->inferredType) + " in " + cpppTypeName(expr.right->inferredType));
+                return false;
+            }
+
+            expr.inferredType = PrimitiveType::Bool;
+            return true;
+        }
+
+        if (expr.op == "||" || expr.op == "&&") {
+            if (!isValueType(expr.left->inferredType) || !isValueType(expr.right->inferredType)) {
+                report(expr.sourceColumn, "cannot use '" + expr.op + "' with " + cpppTypeName(expr.left->inferredType) + " and " + cpppTypeName(expr.right->inferredType));
+                return false;
+            }
+            expr.inferredType = PrimitiveType::Bool;
+            return true;
+        }
+
+        if (expr.op == "|" || expr.op == "^" || expr.op == "&" || expr.op == "<<" || expr.op == ">>") {
+            if (!isBitwiseType(expr.left->inferredType) || !isBitwiseType(expr.right->inferredType)) {
+                report(expr.sourceColumn, "cannot use '" + expr.op + "' with " + cpppTypeName(expr.left->inferredType) + " and " + cpppTypeName(expr.right->inferredType));
+                return false;
+            }
+            expr.inferredType = PrimitiveType::Int;
+            return true;
+        }
+
+        if (expr.op == "==" || expr.op == "!=" || expr.op == "<" || expr.op == "<=" || expr.op == ">" || expr.op == ">=") {
+            if (!isComparable(expr.left->inferredType, expr.right->inferredType)) {
+                report(expr.sourceColumn, "cannot compare " + cpppTypeName(expr.left->inferredType) + " and " + cpppTypeName(expr.right->inferredType));
+                return false;
+            }
+            expr.inferredType = PrimitiveType::Bool;
+            return true;
+        }
+
+        expr.inferredType = binaryResultType(expr.left->inferredType, expr.right->inferredType, expr.op);
+        if (expr.inferredType == PrimitiveType::Unknown) {
+            report(expr.sourceColumn, "cannot mix " + cpppTypeName(expr.left->inferredType) + " and " + cpppTypeName(expr.right->inferredType) + " with '" + expr.op + "'");
+            return false;
+        }
+
+        return true;
+    }
+
+    bool analyzeCast(CastExpr& expr) {
+        if (!analyze(*expr.operand)) {
+            return false;
+        }
+
+        expr.inferredType = expr.targetType;
+        expr.explicitCast = true;
+        return true;
+    }
+
+    bool analyzeCall(CallExpr& expr) {
+        if (expr.receiver && !analyze(*expr.receiver)) {
+            return false;
+        }
+        for (const std::unique_ptr<Expr>& argument : expr.arguments) {
+            if (!analyze(*argument)) {
+                return false;
+            }
+        }
+
+        if (expr.callee == "len") {
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "len must be called as len(list)");
+                return false;
+            }
+            if (expr.arguments[0]->inferredType.primitive != PrimitiveType::List || expr.arguments[0]->inferredType.subtypes.size() != 1) {
+                report(expr.sourceColumn, "len() expects a List value");
+                return false;
+            }
+            expr.inferredType = PrimitiveType::Int;
+            return true;
+        }
+
+        if (expr.callee == "remove") {
+            if (!expr.receiver ||
+                expr.receiver->inferredType.primitive != PrimitiveType::List ||
+                expr.receiver->inferredType.subtypes.size() != 1) {
+                report(expr.sourceColumn, "remove() can only be used on List values");
+                return false;
+            }
+            if (!expr.receiver->mutableValue) {
+                report(expr.sourceColumn, "remove() requires a mutable List variable");
+                return false;
+            }
+            if (expr.arguments.size() > 1) {
+                report(expr.sourceColumn, "remove() expects no arguments or index");
+                return false;
+            }
+            if (!expr.arguments.empty()) {
+                const Expr& index = *expr.arguments[0];
+                if (!index.explicitCast && !isImplicitlyConvertible(index.inferredType, PrimitiveType::Int)) {
+                    report(expr.sourceColumn, "list index must be int");
+                    return false;
+                }
+            }
+            expr.inferredType = expr.receiver->inferredType.subtypes[0];
+            return true;
+        }
+
+        if (expr.callee == "min" || expr.callee == "max") {
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, expr.callee + " must be called as " + expr.callee + "(list)");
+                return false;
+            }
+            if (expr.arguments[0]->inferredType.primitive != PrimitiveType::List ||
+                expr.arguments[0]->inferredType.subtypes.size() != 1) {
+                report(expr.sourceColumn, expr.callee + "() expects a List value");
+                return false;
+            }
+            expr.inferredType = expr.arguments[0]->inferredType.subtypes[0];
+            return true;
+        }
+
+        if (expr.callee == "sum") {
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "sum must be called as sum(list)");
+                return false;
+            }
+            if (expr.arguments[0]->inferredType.primitive != PrimitiveType::List ||
+                expr.arguments[0]->inferredType.subtypes.size() != 1) {
+                report(expr.sourceColumn, "sum() expects a List value");
+                return false;
+            }
+            const Type elementType = expr.arguments[0]->inferredType.subtypes[0];
+            if (!isSummableType(elementType)) {
+                report(expr.sourceColumn, "sum() expects a List of numeric values");
+                return false;
+            }
+            expr.inferredType = sumResultType(elementType);
+            return true;
+        }
+
+        report(expr.sourceColumn, "unexpected token in expression");
+        return false;
+    }
+
+    bool analyzeIndex(IndexExpr& expr) {
+        if (!analyze(*expr.base) || !analyze(*expr.index)) {
+            return false;
+        }
+
+        if (expr.base->inferredType.primitive != PrimitiveType::List || expr.base->inferredType.subtypes.size() != 1) {
+            report(expr.sourceColumn, "indexing requires a List value");
+            return false;
+        }
+
+        if (expr.index->inferredType != PrimitiveType::Int) {
+            report(expr.sourceColumn, "list index must be int");
+            return false;
+        }
+
+        expr.inferredType = expr.base->inferredType.subtypes[0];
+        return true;
+    }
+
+    bool analyzeListLiteral(ListLiteralExpr& expr) {
+        if (expr.elements.empty()) {
+            report(expr.sourceColumn, "empty list literal needs a declared List type");
+            return false;
+        }
+
+        for (const std::unique_ptr<Expr>& element : expr.elements) {
+            if (!analyze(*element)) {
+                return false;
+            }
+        }
+
+        if (expr.elements[0]->inferredType == PrimitiveType::Unknown) {
+            report(expr.sourceColumn, "list literal elements must have a known CP++ type");
+            return false;
+        }
+
+        const Type elementType = expr.elements[0]->inferredType;
+        for (size_t i = 1; i < expr.elements.size(); ++i) {
+            if (!isImplicitlyConvertible(expr.elements[i]->inferredType, elementType)) {
+                report(expr.sourceColumn, "cannot implicitly convert " + cpppTypeName(expr.elements[i]->inferredType) + " to " + cpppTypeName(elementType) + " in list literal");
+                return false;
+            }
+        }
+
+        expr.inferredType = Type(PrimitiveType::List, {elementType});
+        return true;
+    }
+};
+
+class ExpressionCodegen {
+public:
+    ExpressionCodegen(int lineNumber, bool emitRuntimeChecks) :
+        lineNumber(lineNumber),
+        emitRuntimeChecks(emitRuntimeChecks) {}
+
+    std::string generate(const Expr& expr) const {
+        if (const auto* literal = dynamic_cast<const LiteralExpr*>(&expr)) {
+            return generateLiteral(*literal);
+        }
+        if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
+            return variable->name;
+        }
+        if (const auto* unary = dynamic_cast<const UnaryExpr*>(&expr)) {
+            return generateUnary(*unary);
+        }
+        if (const auto* binary = dynamic_cast<const BinaryExpr*>(&expr)) {
+            return generateBinary(*binary);
+        }
+        if (const auto* cast = dynamic_cast<const CastExpr*>(&expr)) {
+            return castExpressionTo(generate(*cast->operand), cast->operand->inferredType, cast->targetType);
+        }
+        if (const auto* call = dynamic_cast<const CallExpr*>(&expr)) {
+            return generateCall(*call);
+        }
+        if (const auto* index = dynamic_cast<const IndexExpr*>(&expr)) {
+            return generateIndex(*index);
+        }
+        if (const auto* list = dynamic_cast<const ListLiteralExpr*>(&expr)) {
+            return generateListLiteral(*list);
+        }
+
+        return "";
+    }
+
+private:
+    int lineNumber;
+    bool emitRuntimeChecks;
+
+    std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
+        return "throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(column) + ":" + message + "\")";
+    }
+
+    std::string checkedIntegerExpression(
+        const std::string& left,
+        const std::string& right,
+        const std::string& op,
+        int column
+    ) const {
+        if (op == "/") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if (__cppp_right == 0) { " + runtimeErrorThrowExpression(column, "division by zero") + "; } "
+                "if (__cppp_left == LLONG_MIN && __cppp_right == -1) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left / __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "%") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if (__cppp_right == 0) { " + runtimeErrorThrowExpression(column, "modulo by zero") + "; } "
+                "if (__cppp_left == LLONG_MIN && __cppp_right == -1) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left % __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "+") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if ((__cppp_right > 0 && __cppp_left > LLONG_MAX - __cppp_right) || (__cppp_right < 0 && __cppp_left < LLONG_MIN - __cppp_right)) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left + __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "-") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "if ((__cppp_right < 0 && __cppp_left > LLONG_MAX + __cppp_right) || (__cppp_right > 0 && __cppp_left < LLONG_MIN + __cppp_right)) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return __cppp_left - __cppp_right; "
+                "})(" + left + ", " + right + ")";
+        }
+
+        if (op == "*") {
+            return "([&](long long __cppp_left, long long __cppp_right) { "
+                "__int128 __cppp_product = static_cast<__int128>(__cppp_left) * static_cast<__int128>(__cppp_right); "
+                "if (__cppp_product > LLONG_MAX || __cppp_product < LLONG_MIN) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
+                "return static_cast<long long>(__cppp_product); "
+                "})(" + left + ", " + right + ")";
+        }
+
+        return "(" + left + " " + op + " " + right + ")";
+    }
+
+    std::string concatenatedListExpression(const BinaryExpr& expr) const {
+        const std::string left = generate(*expr.left);
+        const std::string right = generate(*expr.right);
+        return "([&]() { auto __cppp_left = " + left + "; auto __cppp_right = " + right +
+            "; __cppp_left.insert(__cppp_left.end(), __cppp_right.begin(), __cppp_right.end()); return __cppp_left; }())";
+    }
+
+    std::string generateLiteral(const LiteralExpr& expr) const {
+        switch (expr.kind) {
+            case LiteralExpr::Kind::Bool:
+            case LiteralExpr::Kind::Int:
+            case LiteralExpr::Kind::Float:
+            case LiteralExpr::Kind::String:
+                return expr.text;
+            case LiteralExpr::Kind::Char:
+                return "CPPPChar(" + expr.text + ")";
+        }
+        return expr.text;
+    }
+
+    std::string generateUnary(const UnaryExpr& expr) const {
+        const std::string operand = generate(*expr.operand);
+        if (expr.op == "++" || expr.op == "--") {
+            return expr.postfix ? "(" + operand + expr.op + ")" : "(" + expr.op + operand + ")";
+        }
+        if (expr.op == "!") {
+            return "(!" + castExpressionTo(operand, expr.operand->inferredType, PrimitiveType::Bool) + ")";
+        }
+        return "(" + expr.op + operand + ")";
+    }
+
+    std::string generateBinary(const BinaryExpr& expr) const {
+        const std::string left = generate(*expr.left);
+        const std::string right = generate(*expr.right);
+
+        if (expr.op == "in") {
+            const Type elementType = expr.right->inferredType.subtypes[0];
+            std::string needle = left;
+            if (!isImplicitlyConvertible(expr.left->inferredType, elementType) || expr.left->inferredType != elementType) {
+                needle = castExpressionTo(needle, expr.left->inferredType, elementType);
+            }
+            return "(find((" + right + ").begin(), (" + right + ").end(), " + needle + ") != (" + right + ").end())";
+        }
+
+        if (expr.op == "||" || expr.op == "&&") {
+            return "(" + castExpressionTo(left, expr.left->inferredType, PrimitiveType::Bool) + " " + expr.op + " " + castExpressionTo(right, expr.right->inferredType, PrimitiveType::Bool) + ")";
+        }
+
+        if (emitRuntimeChecks && expr.inferredType == PrimitiveType::Int) {
+            return checkedIntegerExpression(left, right, expr.op, expr.sourceColumn);
+        }
+
+        if (expr.op == "+" && isListType(expr.inferredType)) {
+            return concatenatedListExpression(expr);
+        }
+
+        return "(" + left + " " + expr.op + " " + right + ")";
+    }
+
+    std::string generateCall(const CallExpr& expr) const {
+        if (expr.callee == "len") {
+            return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
+        }
+
+        if (expr.callee == "remove") {
+            const std::string receiver = generate(*expr.receiver);
+            if (expr.arguments.empty()) {
+                if (emitRuntimeChecks) {
+                    return "CPPPListPop(" + receiver + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                }
+                return "([&]() { auto __cppp_removed = (" + receiver + ").back(); (" + receiver + ").pop_back(); return __cppp_removed; }())";
+            }
+
+            std::string index = generate(*expr.arguments[0]);
+            if (!isImplicitlyConvertible(expr.arguments[0]->inferredType, PrimitiveType::Int) || expr.arguments[0]->inferredType != PrimitiveType::Int) {
+                index = castExpressionTo(index, expr.arguments[0]->inferredType, PrimitiveType::Int);
+            }
+            if (emitRuntimeChecks) {
+                return "CPPPListRemoveAt(" + receiver + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            return "([&]() { auto __cppp_removed = (" + receiver + ")[" + index + "]; (" + receiver + ").erase((" + receiver + ").begin() + " + index + "); return __cppp_removed; }())";
+        }
+
+        if (expr.callee == "min") {
+            const std::string list = generate(*expr.arguments[0]);
+            if (emitRuntimeChecks) {
+                return "CPPPListMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            return "(*min_element((" + list + ").begin(), (" + list + ").end()))";
+        }
+
+        if (expr.callee == "max") {
+            const std::string list = generate(*expr.arguments[0]);
+            if (emitRuntimeChecks) {
+                return "CPPPListMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            return "(*max_element((" + list + ").begin(), (" + list + ").end()))";
+        }
+
+        if (expr.callee == "sum") {
+            const std::string list = generate(*expr.arguments[0]);
+            const Type elementType = expr.arguments[0]->inferredType.subtypes[0];
+            const std::string initial = elementType == PrimitiveType::Float ? "0.0L" : "0LL";
+            return "accumulate((" + list + ").begin(), (" + list + ").end(), " + initial + ")";
+        }
+
+        return "";
+    }
+
+    std::string generateIndex(const IndexExpr& expr) const {
+        const std::string base = generate(*expr.base);
+        const std::string index = generate(*expr.index);
+        if (emitRuntimeChecks) {
+            return "CPPPListAt(" + base + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+        }
+        return "(" + base + "[" + index + "])";
+    }
+
+    std::string generateListLiteral(const ListLiteralExpr& expr) const {
+        const Type elementType = expr.inferredType.subtypes[0];
+        std::string generated = "vector<" + cppTypeForExpressionType(elementType) + ">{";
+        for (size_t i = 0; i < expr.elements.size(); ++i) {
+            if (i > 0) {
+                generated += ", ";
+            }
+            std::string element = generate(*expr.elements[i]);
+            if (expr.elements[i]->inferredType != elementType) {
+                element = castExpressionTo(element, expr.elements[i]->inferredType, elementType);
+            }
+            generated += element;
+        }
+        generated += "}";
+        return generated;
+    }
+};
 }
 
 ExpressionParser::ExpressionParser(
@@ -50,28 +674,43 @@ ExpressionEmitResult ExpressionParser::parse() {
         }
     }
 
-    const ParsedExpression expression = parseExpression();
-    if (!expression.ok) {
+    bool ok = true;
+    std::unique_ptr<Expr> expression = parseAst(ok);
+    if (!ok || !expression) {
         return {false, "", PrimitiveType::Unknown, false, {}};
     }
 
-    if (!atEnd()) {
-        report(peek(), "unexpected token in expression");
+    ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables);
+    if (!analyzer.analyze(*expression)) {
         return {false, "", PrimitiveType::Unknown, false, {}};
     }
 
+    ExpressionCodegen codegen(lineNumber, emitRuntimeChecks);
     return {
         true,
-        expression.text,
-        expression.type,
-        expression.explicitCast,
+        codegen.generate(*expression),
+        expression->inferredType,
+        expression->explicitCast,
         {{
             lineNumber,
-            expression.sourceColumn,
+            expression->sourceColumn,
             0,
             0
         }}
     };
+}
+
+std::unique_ptr<Expr> ExpressionParser::parseAst(bool& ok) {
+    std::unique_ptr<Expr> expression = parseExpression(ok);
+    if (!ok) {
+        return nullptr;
+    }
+    if (!atEnd()) {
+        report(peek(), "unexpected token in expression");
+        ok = false;
+        return nullptr;
+    }
+    return expression;
 }
 
 bool ExpressionParser::atEnd() const {
@@ -90,7 +729,6 @@ bool ExpressionParser::match(TokenKind kind, const std::string& text) {
     if (peek().kind != kind || (!text.empty() && peek().text != text)) {
         return false;
     }
-
     ++current;
     return true;
 }
@@ -107,7 +745,6 @@ bool ExpressionParser::isUnterminatedQuotedToken(const Token& token) const {
     if (token.kind != TokenKind::String && token.kind != TokenKind::Char) {
         return false;
     }
-
     return token.text.size() < 2 || token.text.front() != token.text.back();
 }
 
@@ -140,536 +777,194 @@ bool ExpressionParser::reportInputUsageError(const Token& inputToken) const {
     return true;
 }
 
-ExpressionParser::ParsedExpression ExpressionParser::parseExpression() {
-    return parseLogicalOr();
+bool ExpressionParser::isTypeName(const std::string& name) const {
+    return declaredTypeForName(name) != PrimitiveType::Unknown;
 }
 
-ExpressionParser::ParsedExpression ExpressionParser::parseLogicalOr() {
-    ParsedExpression expression = parseLogicalAnd();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("||")) {
+std::unique_ptr<Expr> ExpressionParser::parseExpression(bool& ok) { return parseLogicalOr(ok); }
+std::unique_ptr<Expr> ExpressionParser::parseLogicalOr(bool& ok) {
+    std::unique_ptr<Expr> expression = parseLogicalAnd(ok);
+    while (ok && isOperator("||")) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseLogicalAnd();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isValueType(expression.type) || !isValueType(right.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        expression.text = "(" + castExpressionTo(expression.text, expression.type, PrimitiveType::Bool) + " " + op.text + " " + castExpressionTo(right.text, right.type, PrimitiveType::Bool) + ")";
-        expression.type = PrimitiveType::Bool;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseLogicalAnd(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseLogicalAnd() {
-    ParsedExpression expression = parseBitwiseOr();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("&&")) {
+std::unique_ptr<Expr> ExpressionParser::parseLogicalAnd(bool& ok) {
+    std::unique_ptr<Expr> expression = parseBitwiseOr(ok);
+    while (ok && isOperator("&&")) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseBitwiseOr();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isValueType(expression.type) || !isValueType(right.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        expression.text = "(" + castExpressionTo(expression.text, expression.type, PrimitiveType::Bool) + " " + op.text + " " + castExpressionTo(right.text, right.type, PrimitiveType::Bool) + ")";
-        expression.type = PrimitiveType::Bool;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseBitwiseOr(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseBitwiseOr() {
-    ParsedExpression expression = parseBitwiseXor();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("|")) {
+std::unique_ptr<Expr> ExpressionParser::parseBitwiseOr(bool& ok) {
+    std::unique_ptr<Expr> expression = parseBitwiseXor(ok);
+    while (ok && isOperator("|")) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseBitwiseXor();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
-        expression.type = PrimitiveType::Int;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseBitwiseXor(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseBitwiseXor() {
-    ParsedExpression expression = parseBitwiseAnd();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("^")) {
+std::unique_ptr<Expr> ExpressionParser::parseBitwiseXor(bool& ok) {
+    std::unique_ptr<Expr> expression = parseBitwiseAnd(ok);
+    while (ok && isOperator("^")) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseBitwiseAnd();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
-        expression.type = PrimitiveType::Int;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseBitwiseAnd(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseBitwiseAnd() {
-    ParsedExpression expression = parseEquality();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("&")) {
+std::unique_ptr<Expr> ExpressionParser::parseBitwiseAnd(bool& ok) {
+    std::unique_ptr<Expr> expression = parseEquality(ok);
+    while (ok && isOperator("&")) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseEquality();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
-        expression.type = PrimitiveType::Int;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseEquality(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseEquality() {
-    ParsedExpression expression = parseComparison();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("==") || isOperator("!=")) {
+std::unique_ptr<Expr> ExpressionParser::parseEquality(bool& ok) {
+    std::unique_ptr<Expr> expression = parseComparison(ok);
+    while (ok && (isOperator("==") || isOperator("!="))) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseComparison();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isComparable(expression.type, right.type)) {
-            report(op, "cannot compare " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
-        expression.type = PrimitiveType::Bool;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseComparison(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseComparison() {
-    ParsedExpression expression = parseShift();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("<") || isOperator("<=") || isOperator(">") || isOperator(">=")) {
+std::unique_ptr<Expr> ExpressionParser::parseComparison(bool& ok) {
+    std::unique_ptr<Expr> expression = parseShift(ok);
+    while (ok && (isOperator("<") || isOperator("<=") || isOperator(">") || isOperator(">=") || check(TokenKind::Identifier, "in"))) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseShift();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isComparable(expression.type, right.type)) {
-            report(op, "cannot compare " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
-        expression.type = PrimitiveType::Bool;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseShift(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseShift() {
-    ParsedExpression expression = parseAdditive();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("<<") || isOperator(">>")) {
+std::unique_ptr<Expr> ExpressionParser::parseShift(bool& ok) {
+    std::unique_ptr<Expr> expression = parseAdditive(ok);
+    while (ok && (isOperator("<<") || isOperator(">>"))) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseAdditive();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (!isBitwiseType(expression.type) || !isBitwiseType(right.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type) + " and " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
-        expression.type = PrimitiveType::Int;
-        expression.explicitCast = false;
+        std::unique_ptr<Expr> right = parseAdditive(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseAdditive() {
-    ParsedExpression expression = parseMultiplicative();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("+") || isOperator("-")) {
+std::unique_ptr<Expr> ExpressionParser::parseAdditive(bool& ok) {
+    std::unique_ptr<Expr> expression = parseMultiplicative(ok);
+    while (ok && (isOperator("+") || isOperator("-"))) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseMultiplicative();
-        if (!right.ok) {
-            return right;
-        }
-
-        const Type leftType = expression.type;
-        const Type rightType = right.type;
-        expression.type = binaryResultType(leftType, rightType, op.text);
-        expression.explicitCast = false;
-        if (expression.type == PrimitiveType::Unknown) {
-            report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
+        std::unique_ptr<Expr> right = parseMultiplicative(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseMultiplicative() {
-    ParsedExpression expression = parseUnary();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (isOperator("*") || isOperator("/") || isOperator("%")) {
+std::unique_ptr<Expr> ExpressionParser::parseMultiplicative(bool& ok) {
+    std::unique_ptr<Expr> expression = parseUnary(ok);
+    while (ok && (isOperator("*") || isOperator("/") || isOperator("%"))) {
         const Token op = peek();
         ++current;
-        const ParsedExpression right = parseUnary();
-        if (!right.ok) {
-            return right;
-        }
-
-        const Type leftType = expression.type;
-        const Type rightType = right.type;
-        expression.type = binaryResultType(leftType, rightType, op.text);
-        expression.explicitCast = false;
-        if (expression.type == PrimitiveType::Unknown) {
-            report(op, "cannot mix " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType) + " with '" + op.text + "'");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-        if (emitRuntimeChecks && expression.type == PrimitiveType::Int) {
-            expression.text = checkedIntegerExpression(expression.text, right.text, op.text, absoluteColumn(op));
-        } else {
-            expression.text = "(" + expression.text + " " + op.text + " " + right.text + ")";
-        }
+        std::unique_ptr<Expr> right = parseUnary(ok);
+        if (!ok) return nullptr;
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
     }
-
     return expression;
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parseUnary() {
-    if (isOperator("++") || isOperator("--")) {
+std::unique_ptr<Expr> ExpressionParser::parseUnary(bool& ok) {
+    if (isOperator("++") || isOperator("--") || isOperator("+") || isOperator("-") || isOperator("!")) {
         const Token op = peek();
         ++current;
-        if (!match(TokenKind::Identifier)) {
-            report(op, "expected variable after '" + op.text + "'");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        const Token& identifier = previous();
-        const auto variable = declaredVariables.find(identifier.text);
-        if (variable == declaredVariables.end()) {
-            report(identifier, "use of undeclared variable '" + identifier.text + "'");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (!isIncrementableType(variable->second)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(variable->second));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        return {true, "(" + op.text + identifier.text + ")", variable->second, false, absoluteColumn(op), false};
+        std::unique_ptr<Expr> right = parseUnary(ok);
+        if (!ok) return nullptr;
+        return std::make_unique<UnaryExpr>(op.text, std::move(right), absoluteColumn(op));
     }
-
-    if (isOperator("+") || isOperator("-") || isOperator("!")) {
-        const Token op = peek();
-        ++current;
-        const ParsedExpression right = parseUnary();
-        if (!right.ok) {
-            return right;
-        }
-
-        if (op.text == "!") {
-            if (!isValueType(right.type)) {
-                report(op, "cannot use '!' with " + cpppTypeName(right.type));
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            return {true, "(!" + castExpressionTo(right.text, right.type, PrimitiveType::Bool) + ")", PrimitiveType::Bool, false, absoluteColumn(op), false};
-        }
-
-        if (!isNumericType(right.type)) {
-            report(op, "cannot use unary '" + op.text + "' with " + cpppTypeName(right.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        return {true, "(" + op.text + right.text + ")", right.type, false, absoluteColumn(op), false};
-    }
-
-    return parsePostfix();
+    return parsePostfix(ok);
 }
-
-ExpressionParser::ParsedExpression ExpressionParser::parsePostfix() {
-    ParsedExpression expression = parsePrimary();
-    if (!expression.ok) {
-        return expression;
-    }
-
-    while (check(TokenKind::LeftBracket) ||
+std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
+    std::unique_ptr<Expr> expression = parsePrimary(ok);
+    while (ok && (check(TokenKind::LeftBracket) ||
            (check(TokenKind::Operator, ".") && current + 1 < tokens.size() && tokens[current + 1].kind == TokenKind::Identifier) ||
-           isOperator("++") || isOperator("--")) {
+           isOperator("++") || isOperator("--"))) {
         if (match(TokenKind::LeftBracket)) {
             const Token& leftBracket = previous();
-            if (expression.type.primitive != PrimitiveType::List || expression.type.subtypes.size() != 1) {
-                report(leftBracket, "indexing requires a List value");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            const ParsedExpression index = parseExpression();
-            if (!index.ok) {
-                return index;
-            }
-
+            std::unique_ptr<Expr> index = parseExpression(ok);
+            if (!ok) return nullptr;
             if (!match(TokenKind::RightBracket)) {
                 report(leftBracket, "unclosed bracket in list index");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
+                ok = false;
+                return nullptr;
             }
-
-            if (index.type != PrimitiveType::Int) {
-                report(leftBracket, "list index must be int");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            if (emitRuntimeChecks) {
-                expression.text = "CPPPListAt(" + expression.text + ", " + index.text + ", " + std::to_string(lineNumber) + ", " + std::to_string(absoluteColumn(leftBracket)) + ")";
-            } else {
-                expression.text = "(" + expression.text + "[" + index.text + "])";
-            }
-            expression.type = expression.type.subtypes[0];
-            expression.explicitCast = false;
-            expression.mutableValue = false;
+            expression = std::make_unique<IndexExpr>(std::move(expression), std::move(index), absoluteColumn(leftBracket));
             continue;
         }
-
-        if (match(TokenKind::Operator, ".")) {
-            if (!match(TokenKind::Identifier)) {
-                report(previous(), "expected method name after '.'");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            const Token& method = previous();
-            if (method.text != "remove") {
-                report(method, "unexpected token in expression");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            current -= 2;
-            expression = parseListMethodCall(expression);
-            if (!expression.ok) {
-                return expression;
-            }
+        if (check(TokenKind::Operator, ".")) {
+            expression = parseListMethodCall(std::move(expression), ok);
             continue;
         }
 
         const Token op = peek();
         ++current;
-        if (!expression.mutableValue) {
-            report(op, "expected variable before '" + op.text + "'");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        if (!isIncrementableType(expression.type)) {
-            report(op, "cannot use '" + op.text + "' with " + cpppTypeName(expression.type));
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        expression.text = "(" + expression.text + op.text + ")";
-        expression.explicitCast = false;
-        expression.mutableValue = false;
+        expression = std::make_unique<UnaryExpr>(op.text, std::move(expression), absoluteColumn(op), true);
     }
-
     return expression;
 }
 
-ExpressionParser::ParsedExpression ExpressionParser::parseListMethodCall(ParsedExpression expression) {
+std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr> expression, bool& ok) {
     const Token& dot = peek();
     ++current;
-    const Token& method = peek();
-    ++current;
-
-    if (expression.type.primitive != PrimitiveType::List || expression.type.subtypes.size() != 1) {
-        report(method, "remove() can only be used on List values");
-        return {false, "", PrimitiveType::Unknown, false, 0, false};
+    if (!match(TokenKind::Identifier)) {
+        report(dot, "expected method name after '.'");
+        ok = false;
+        return nullptr;
     }
-
-    if (!expression.mutableValue) {
-        report(method, "remove() requires a mutable List variable");
-        return {false, "", PrimitiveType::Unknown, false, 0, false};
+    const Token& method = previous();
+    if (method.text != "remove") {
+        report(method, "unexpected token in expression");
+        ok = false;
+        return nullptr;
     }
-
     if (!match(TokenKind::LeftParen)) {
         report(method, "remove must be called as remove() or remove(index)");
-        return {false, "", PrimitiveType::Unknown, false, 0, false};
+        ok = false;
+        return nullptr;
     }
-
     const Token& leftParen = previous();
-    const Type elementType = expression.type.subtypes[0];
-
-    if (match(TokenKind::RightParen)) {
-        if (emitRuntimeChecks) {
-            return {
-                true,
-                "CPPPListPop(" + expression.text + ", " + std::to_string(lineNumber) + ", " + std::to_string(absoluteColumn(method)) + ")",
-                elementType,
-                false,
-                absoluteColumn(dot),
-                false
-            };
-        }
-
-        return {
-            true,
-            "([&]() { auto __cppp_removed = (" + expression.text + ").back(); (" + expression.text + ").pop_back(); return __cppp_removed; }())",
-            elementType,
-            false,
-            absoluteColumn(dot),
-            false
-        };
-    }
-
-    const ParsedExpression index = parseExpression();
-    if (!index.ok) {
-        return index;
-    }
-
+    std::vector<std::unique_ptr<Expr>> arguments;
     if (!match(TokenKind::RightParen)) {
-        report(leftParen, "remove() expects no arguments or index");
-        return {false, "", PrimitiveType::Unknown, false, 0, false};
+        arguments.push_back(parseExpression(ok));
+        if (!ok) return nullptr;
+        if (!match(TokenKind::RightParen)) {
+            report(leftParen, "remove() expects no arguments or index");
+            ok = false;
+            return nullptr;
+        }
     }
-
-    if (index.type != PrimitiveType::Int && !index.explicitCast && !isImplicitlyConvertible(index.type, PrimitiveType::Int)) {
-        report(method, "list index must be int");
-        return {false, "", PrimitiveType::Unknown, false, 0, false};
-    }
-
-    std::string emittedIndex = index.text;
-    if (!isImplicitlyConvertible(index.type, PrimitiveType::Int) || index.type != PrimitiveType::Int) {
-        emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
-    }
-
-    if (emitRuntimeChecks) {
-        return {
-            true,
-            "CPPPListRemoveAt(" + expression.text + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(absoluteColumn(method)) + ")",
-            elementType,
-            false,
-            absoluteColumn(dot),
-            false
-        };
-    }
-
-    return {
-        true,
-        "([&]() { auto __cppp_removed = (" + expression.text + ")[" + emittedIndex + "]; (" + expression.text + ").erase((" + expression.text + ").begin() + " + emittedIndex + "); return __cppp_removed; }())",
-        elementType,
-        false,
-        absoluteColumn(dot),
-        false
-    };
+    return std::make_unique<CallExpr>("remove", std::move(expression), std::move(arguments), absoluteColumn(method));
 }
 
-ExpressionParser::ParsedExpression ExpressionParser::parsePrimary() {
+std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
     if (check(TokenKind::LeftParen) &&
         current + 2 < tokens.size() &&
         tokens[current + 1].kind == TokenKind::Identifier &&
@@ -679,284 +974,120 @@ ExpressionParser::ParsedExpression ExpressionParser::parsePrimary() {
         const Token typeToken = peek();
         ++current;
         ++current;
-        const ParsedExpression expression = parseUnary();
-        if (!expression.ok) {
-            return expression;
-        }
-
-        const Type targetType = declaredTypeForName(typeToken.text);
-        return {
-            true,
-            castExpressionTo(expression.text, expression.type, targetType),
-            targetType,
-            true,
-            absoluteColumn(typeToken),
-            false
-        };
+        std::unique_ptr<Expr> operand = parseUnary(ok);
+        if (!ok) return nullptr;
+        return std::make_unique<CastExpr>(declaredTypeForName(typeToken.text), std::move(operand), absoluteColumn(typeToken));
     }
 
     if (match(TokenKind::Identifier)) {
         const Token& identifier = previous();
         if (identifier.text == "true" || identifier.text == "false") {
-            return {true, identifier.text, PrimitiveType::Bool, false, absoluteColumn(identifier), false};
+            return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Bool, identifier.text, absoluteColumn(identifier));
         }
-
         if (identifier.text == "len") {
             if (!match(TokenKind::LeftParen)) {
                 report(identifier, "len must be called as len(list)");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
+                ok = false;
+                return nullptr;
             }
-
             const Token& leftParen = previous();
-            const ParsedExpression list = parseExpression();
-            if (!list.ok) {
-                return list;
-            }
-
+            std::vector<std::unique_ptr<Expr>> arguments;
+            arguments.push_back(parseExpression(ok));
+            if (!ok) return nullptr;
             if (!match(TokenKind::RightParen)) {
                 report(leftParen, "unclosed parenthesis in len");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
+                ok = false;
+                return nullptr;
             }
-
-            if (list.type.primitive != PrimitiveType::List || list.type.subtypes.size() != 1) {
-                report(identifier, "len() expects a List value");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            return {
-                true,
-                "static_cast<long long>((" + list.text + ").size())",
-                PrimitiveType::Int,
-                false,
-                absoluteColumn(identifier),
-                false
-            };
+            return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier));
         }
-
+        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum") {
+            if (!match(TokenKind::LeftParen)) {
+                report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
+                ok = false;
+                return nullptr;
+            }
+            const Token& leftParen = previous();
+            std::vector<std::unique_ptr<Expr>> arguments;
+            if (!match(TokenKind::RightParen)) {
+                arguments.push_back(parseExpression(ok));
+                if (!ok) return nullptr;
+                while (match(TokenKind::Comma)) {
+                    arguments.push_back(parseExpression(ok));
+                    if (!ok) return nullptr;
+                }
+                if (!match(TokenKind::RightParen)) {
+                    report(leftParen, "unclosed parenthesis in " + identifier.text);
+                    ok = false;
+                    return nullptr;
+                }
+            }
+            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier));
+        }
         if (identifier.text == "input") {
             reportInputUsageError(identifier);
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
+            ok = false;
+            return nullptr;
         }
-
-        const auto variable = declaredVariables.find(identifier.text);
-        if (variable == declaredVariables.end()) {
-            report(identifier, "use of undeclared variable '" + identifier.text + "'");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        return {true, identifier.text, variable->second, false, absoluteColumn(identifier), true};
+        return std::make_unique<VariableExpr>(identifier.text, absoluteColumn(identifier));
     }
 
     if (match(TokenKind::Integer)) {
         const Token& literal = previous();
-        return {true, literal.text, PrimitiveType::Int, false, absoluteColumn(literal), false};
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Int, literal.text, absoluteColumn(literal));
     }
-
     if (match(TokenKind::Float)) {
         const Token& literal = previous();
-        return {true, literal.text, PrimitiveType::Float, false, absoluteColumn(literal), false};
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Float, literal.text, absoluteColumn(literal));
     }
-
     if (match(TokenKind::String)) {
         const Token& literal = previous();
-        return {true, literal.text, PrimitiveType::Unknown, false, absoluteColumn(literal), false};
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::String, literal.text, absoluteColumn(literal));
     }
-
     if (match(TokenKind::Char)) {
         const Token& literal = previous();
-        return {true, "CPPPChar(" + literal.text + ")", PrimitiveType::Char, false, absoluteColumn(literal), false};
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Char, literal.text, absoluteColumn(literal));
     }
-
     if (match(TokenKind::LeftBracket)) {
         const Token& leftBracket = previous();
         if (match(TokenKind::RightBracket)) {
             report(leftBracket, "empty list literal needs a declared List type");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
+            ok = false;
+            return nullptr;
         }
-
-        std::vector<std::string> elements;
-        ParsedExpression element = parseExpression();
-        if (!element.ok) {
-            return element;
-        }
-
-        if (element.type == PrimitiveType::Unknown) {
-            report(leftBracket, "list literal elements must have a known CP++ type");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        Type elementType = element.type;
-        elements.push_back(element.text);
-
+        std::vector<std::unique_ptr<Expr>> elements;
+        elements.push_back(parseExpression(ok));
+        if (!ok) return nullptr;
         while (match(TokenKind::Comma)) {
             const Token& comma = previous();
             if (check(TokenKind::RightBracket) || atEnd()) {
                 report(comma, "expected expression after ',' in list literal");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
+                ok = false;
+                return nullptr;
             }
-
-            ParsedExpression nextElement = parseExpression();
-            if (!nextElement.ok) {
-                return nextElement;
-            }
-
-            if (!isImplicitlyConvertible(nextElement.type, elementType)) {
-                report(comma, "cannot implicitly convert " + cpppTypeName(nextElement.type) + " to " + cpppTypeName(elementType) + " in list literal");
-                return {false, "", PrimitiveType::Unknown, false, 0, false};
-            }
-
-            std::string emittedElement = nextElement.text;
-            if (nextElement.type != elementType) {
-                emittedElement = castExpressionTo(emittedElement, nextElement.type, elementType);
-            }
-            elements.push_back(emittedElement);
+            elements.push_back(parseExpression(ok));
+            if (!ok) return nullptr;
         }
-
         if (!match(TokenKind::RightBracket)) {
             report(leftBracket, "unclosed bracket in list literal");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
+            ok = false;
+            return nullptr;
         }
-
-        const std::string cppType = cppTypeForExpressionType(elementType);
-        if (cppType.empty()) {
-            report(leftBracket, "list literal elements must have a known CP++ type");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
-        }
-
-        std::string generated = "vector<" + cppType + ">{";
-        for (size_t i = 0; i < elements.size(); ++i) {
-            if (i > 0) {
-                generated += ", ";
-            }
-            generated += elements[i];
-        }
-        generated += "}";
-
-        return {
-            true,
-            generated,
-            Type(PrimitiveType::List, {elementType}),
-            false,
-            absoluteColumn(leftBracket),
-            false
-        };
+        return std::make_unique<ListLiteralExpr>(std::move(elements), absoluteColumn(leftBracket));
     }
-
     if (match(TokenKind::LeftParen)) {
         const Token& leftParen = previous();
-        const ParsedExpression expression = parseExpression();
-        if (!expression.ok) {
-            return expression;
-        }
-
+        std::unique_ptr<Expr> expression = parseExpression(ok);
+        if (!ok) return nullptr;
         if (!match(TokenKind::RightParen)) {
             report(leftParen, "unclosed parenthesis in expression");
-            return {false, "", PrimitiveType::Unknown, false, 0, false};
+            ok = false;
+            return nullptr;
         }
-
-        return {true, "(" + expression.text + ")", expression.type, expression.explicitCast, absoluteColumn(leftParen), false};
+        return expression;
     }
 
     report(peek(), "expected expression");
-    return {false, "", PrimitiveType::Unknown, false, 0, false};
-}
-
-bool ExpressionParser::isTypeName(const std::string& name) const {
-    return declaredTypeForName(name) != PrimitiveType::Unknown;
-}
-
-Type ExpressionParser::binaryResultType(Type left, Type right, const std::string& op) const {
-    if (!isNumericType(left) || !isNumericType(right)) {
-        return PrimitiveType::Unknown;
-    }
-
-    if (op == "%" && (isFloatType(left) || isFloatType(right))) {
-        return PrimitiveType::Unknown;
-    }
-
-    if (left == PrimitiveType::Float || right == PrimitiveType::Float) {
-        return PrimitiveType::Float;
-    }
-
-    return PrimitiveType::Int;
-}
-
-bool ExpressionParser::isValueType(Type type) const {
-    return type != PrimitiveType::Unknown;
-}
-
-bool ExpressionParser::isNumericType(Type type) const {
-    return type == PrimitiveType::Bool ||
-        type == PrimitiveType::Char ||
-        type == PrimitiveType::Int ||
-        type == PrimitiveType::Float;
-}
-
-bool ExpressionParser::isBitwiseType(Type type) const {
-    return type == PrimitiveType::Bool || type == PrimitiveType::Char || type == PrimitiveType::Int;
-}
-
-bool ExpressionParser::isIncrementableType(Type type) const {
-    return type == PrimitiveType::Char ||
-        type == PrimitiveType::Int ||
-        type == PrimitiveType::Float;
-}
-
-bool ExpressionParser::isComparable(Type left, Type right) const {
-    return isValueType(left) && isValueType(right);
-}
-
-bool ExpressionParser::isFloatType(Type type) const {
-    return type == PrimitiveType::Float;
-}
-
-std::string ExpressionParser::runtimeErrorThrowExpression(int column, const std::string& message) const {
-    return "throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(column) + ":" + message + "\")";
-}
-
-std::string ExpressionParser::checkedIntegerExpression(
-    const std::string& left,
-    const std::string& right,
-    const std::string& op,
-    int column
-) const {
-    if (op == "/") {
-        return "([&](long long __cppp_left, long long __cppp_right) { "
-            "if (__cppp_right == 0) { " + runtimeErrorThrowExpression(column, "division by zero") + "; } "
-            "if (__cppp_left == LLONG_MIN && __cppp_right == -1) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
-            "return __cppp_left / __cppp_right; "
-            "})(" + left + ", " + right + ")";
-    }
-
-    if (op == "%") {
-        return "([&](long long __cppp_left, long long __cppp_right) { "
-            "if (__cppp_right == 0) { " + runtimeErrorThrowExpression(column, "modulo by zero") + "; } "
-            "if (__cppp_left == LLONG_MIN && __cppp_right == -1) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
-            "return __cppp_left % __cppp_right; "
-            "})(" + left + ", " + right + ")";
-    }
-
-    if (op == "+") {
-        return "([&](long long __cppp_left, long long __cppp_right) { "
-            "if ((__cppp_right > 0 && __cppp_left > LLONG_MAX - __cppp_right) || (__cppp_right < 0 && __cppp_left < LLONG_MIN - __cppp_right)) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
-            "return __cppp_left + __cppp_right; "
-            "})(" + left + ", " + right + ")";
-    }
-
-    if (op == "-") {
-        return "([&](long long __cppp_left, long long __cppp_right) { "
-            "if ((__cppp_right < 0 && __cppp_left > LLONG_MAX + __cppp_right) || (__cppp_right > 0 && __cppp_left < LLONG_MIN + __cppp_right)) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
-            "return __cppp_left - __cppp_right; "
-            "})(" + left + ", " + right + ")";
-    }
-
-    if (op == "*") {
-        return "([&](long long __cppp_left, long long __cppp_right) { "
-            "__int128 __cppp_product = static_cast<__int128>(__cppp_left) * static_cast<__int128>(__cppp_right); "
-            "if (__cppp_product > LLONG_MAX || __cppp_product < LLONG_MIN) { " + runtimeErrorThrowExpression(column, "integer overflow") + "; } "
-            "return static_cast<long long>(__cppp_product); "
-            "})(" + left + ", " + right + ")";
-    }
-
-    return "(" + left + " " + op + " " + right + ")";
+    ok = false;
+    return nullptr;
 }

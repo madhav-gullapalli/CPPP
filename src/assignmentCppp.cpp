@@ -9,6 +9,13 @@ struct AssignmentTarget {
     int column;
 };
 
+struct IndexedAssignmentTarget {
+    std::string name;
+    int nameColumn = 0;
+    std::string indexText;
+    int indexColumn = 0;
+};
+
 bool isCompoundAssignment(const std::vector<Token>& tokens) {
     return tokens.size() >= 3 &&
         tokens[1].kind == TokenKind::Operator &&
@@ -46,6 +53,51 @@ bool parseAssignmentTargets(
 
     return false;
 }
+
+bool parseIndexedAssignmentTarget(
+    const std::vector<Token>& tokens,
+    const std::string& statementBody,
+    IndexedAssignmentTarget& target,
+    size_t& equalsIndex
+) {
+    if (tokens.size() < 5 ||
+        tokens[0].kind != TokenKind::Identifier ||
+        tokens[1].kind != TokenKind::LeftBracket) {
+        return false;
+    }
+
+    int bracketDepth = 0;
+    size_t tokenIndex = 1;
+    size_t rightBracketIndex = 0;
+    for (; tokenIndex < tokens.size(); ++tokenIndex) {
+        if (tokens[tokenIndex].kind == TokenKind::LeftBracket) {
+            ++bracketDepth;
+        } else if (tokens[tokenIndex].kind == TokenKind::RightBracket) {
+            --bracketDepth;
+            if (bracketDepth == 0) {
+                rightBracketIndex = tokenIndex;
+                break;
+            }
+        }
+    }
+
+    if (rightBracketIndex == 0 || rightBracketIndex + 1 >= tokens.size() || tokens[rightBracketIndex + 1].kind != TokenKind::Equals) {
+        return false;
+    }
+
+    const size_t indexStart = static_cast<size_t>(tokens[1].span.endColumn);
+    const size_t indexLength = static_cast<size_t>(tokens[rightBracketIndex].span.startColumn - tokens[1].span.endColumn - 1);
+    target.name = tokens[0].text;
+    target.nameColumn = tokens[0].span.startColumn;
+    target.indexText = statementBody.substr(indexStart, indexLength);
+    target.indexColumn = tokens[2].span.startColumn;
+    equalsIndex = rightBracketIndex + 1;
+    return true;
+}
+
+bool isListType(const Type& type) {
+    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
+}
 }
 
 AssignmentEmitResult emitAssignmentStatement(
@@ -53,7 +105,8 @@ AssignmentEmitResult emitAssignmentStatement(
     int lineNumber,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks
 ) {
     const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
@@ -200,6 +253,108 @@ AssignmentEmitResult emitAssignmentStatement(
         return {true, true, generatedStatement, ranges};
     }
 
+    IndexedAssignmentTarget indexedTarget;
+    size_t indexedEqualsIndex = 0;
+    if (parseIndexedAssignmentTarget(tokens, statementBody, indexedTarget, indexedEqualsIndex)) {
+        const auto variable = declaredVariables.find(indexedTarget.name);
+        if (variable == declaredVariables.end()) {
+            recordSourceError(inputFile, lineNumber, indexedTarget.nameColumn, "use of undeclared variable '" + indexedTarget.name + "'", sourceLines);
+            return {true, false, "", {}};
+        }
+
+        if (variable->second.primitive != PrimitiveType::List || variable->second.subtypes.size() != 1) {
+            recordSourceError(inputFile, lineNumber, indexedTarget.nameColumn, "index assignment requires a List value", sourceLines);
+            return {true, false, "", {}};
+        }
+
+        if (tokens[indexedEqualsIndex + 1].kind == TokenKind::EndOfFile) {
+            recordSourceError(inputFile, lineNumber, tokens[indexedEqualsIndex].span.endColumn + 1, "expected expression after assignment", sourceLines);
+            return {true, false, "", {}};
+        }
+
+        const ExpressionEmitResult index = emitExpression(
+            inputFile,
+            lineNumber,
+            indexedTarget.indexText,
+            indexedTarget.indexColumn,
+            sourceLines,
+            declaredVariables,
+            emitRuntimeChecks
+        );
+        if (!index.ok) {
+            return {true, false, "", {}};
+        }
+
+        if (!index.explicitCast && !isImplicitlyConvertible(index.type, PrimitiveType::Int)) {
+            recordSourceError(inputFile, lineNumber, indexedTarget.indexColumn, "list index must be int", sourceLines);
+            return {true, false, "", {}};
+        }
+
+        std::string emittedIndex = index.generatedExpression;
+        if (!isImplicitlyConvertible(index.type, PrimitiveType::Int) || index.type != PrimitiveType::Int) {
+            emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
+        }
+
+        const int expressionStartColumn = tokens[indexedEqualsIndex + 1].span.startColumn;
+        int expressionEndColumn = tokens[indexedEqualsIndex + 1].span.endColumn;
+        size_t tokenIndex = indexedEqualsIndex + 1;
+        while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+            expressionEndColumn = tokens[tokenIndex].span.endColumn;
+            ++tokenIndex;
+        }
+
+        const std::string expressionText = statementBody.substr(
+            static_cast<size_t>(expressionStartColumn - 1),
+            static_cast<size_t>(expressionEndColumn - expressionStartColumn + 1)
+        );
+
+        const Type elementType = variable->second.subtypes[0];
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            expressionText,
+            expressionStartColumn,
+            sourceLines,
+            declaredVariables,
+            emitRuntimeChecks
+        );
+        if (!expression.ok) {
+            return {true, false, "", {}};
+        }
+
+        if (!expression.explicitCast && !isImplicitlyConvertible(expression.type, elementType)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                expressionStartColumn,
+                "cannot implicitly convert " + cpppTypeName(expression.type) + " to " + cpppTypeName(elementType),
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        std::string emittedExpression = expression.generatedExpression;
+        if (!isImplicitlyConvertible(expression.type, elementType) || expression.type != elementType) {
+            emittedExpression = castExpressionTo(emittedExpression, expression.type, elementType);
+        }
+
+        const std::string generatedStatement = emitRuntimeChecks
+            ? "    CPPPListSet(" + indexedTarget.name + ", " + emittedIndex + ", " + emittedExpression + ", " + std::to_string(lineNumber) + ", " + std::to_string(indexedTarget.indexColumn) + ");"
+            : "    " + indexedTarget.name + "[" + emittedIndex + "] = " + emittedExpression + ";";
+
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                indexedTarget.nameColumn,
+                5,
+                5 + static_cast<int>(indexedTarget.name.size()) - 1
+            }}
+        };
+    }
+
     const bool simpleAssignment = tokens[1].kind == TokenKind::Equals;
     const bool compoundAssignment = isCompoundAssignment(tokens);
     if (!simpleAssignment && !compoundAssignment) {
@@ -261,20 +416,44 @@ AssignmentEmitResult emitAssignmentStatement(
         };
     }
 
-    if (compoundAssignment) {
-        expressionText = variableName + " " + compoundOperator(tokens[1].text) + " " + expressionText;
-    }
-
     const ExpressionEmitResult expression = emitExpression(
         inputFile,
         lineNumber,
-        expressionText,
-        compoundAssignment ? tokens[0].span.startColumn : expressionStartColumn,
+        compoundAssignment && tokens[1].text != "+=" ? variableName + " " + compoundOperator(tokens[1].text) + " " + expressionText : expressionText,
+        compoundAssignment && tokens[1].text != "+=" ? tokens[0].span.startColumn : expressionStartColumn,
         sourceLines,
         declaredVariables
     );
     if (!expression.ok) {
         return {true, false, "", {}};
+    }
+
+    if (compoundAssignment && tokens[1].text == "+=" && isListType(targetType)) {
+        if (expression.type != targetType) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                expressionStartColumn,
+                "cannot append " + cpppTypeName(expression.type) + " to " + cpppTypeName(targetType),
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const std::string generatedStatement =
+            "    ([&]() { auto __cppp_append = " + expression.generatedExpression + "; " +
+            variableName + ".insert(" + variableName + ".end(), __cppp_append.begin(), __cppp_append.end()); }());";
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                tokens[0].span.startColumn,
+                5,
+                5 + static_cast<int>(variableName.size()) - 1
+            }}
+        };
     }
 
     if (!expression.explicitCast && !isImplicitlyConvertible(expression.type, targetType)) {

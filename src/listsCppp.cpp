@@ -112,10 +112,25 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             {"CPPPListRemoveAt("}
         },
         {
+            "CPPPListSet",
+            {
+                "template <typename T, typename U>",
+                "void CPPPListSet(vector<T>& list, long long index, const U& value, int line, int column) {",
+                "    if (index < 0 || index >= static_cast<long long>(list.size())) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
+                "    }",
+                "    list[static_cast<typename vector<T>::difference_type>(index)] = value;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListSet("}
+        },
+        {
             "CPPPListAt",
             {
                 "template <typename T>",
-                "const T& CPPPListAt(const vector<T>& list, long long index, int line, int column) {",
+                "typename vector<T>::const_reference CPPPListAt(const vector<T>& list, long long index, int line, int column) {",
                 "    if (index < 0 || index >= static_cast<long long>(list.size())) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
                 "    }",
@@ -125,6 +140,36 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             },
             {},
             {"CPPPListAt("}
+        },
+        {
+            "CPPPListMin",
+            {
+                "template <typename T>",
+                "typename vector<T>::const_reference CPPPListMin(const vector<T>& list, int line, int column) {",
+                "    if (list.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take min of empty list\");",
+                "    }",
+                "    return *min_element(list.begin(), list.end());",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListMin("}
+        },
+        {
+            "CPPPListMax",
+            {
+                "template <typename T>",
+                "typename vector<T>::const_reference CPPPListMax(const vector<T>& list, int line, int column) {",
+                "    if (list.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take max of empty list\");",
+                "    }",
+                "    return *max_element(list.begin(), list.end());",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListMax("}
         }
     };
 }
@@ -141,7 +186,8 @@ ListEmitResult emitListStatement(
     if (tokens.size() < 6 ||
         tokens[0].kind != TokenKind::Identifier ||
         tokens[1].kind != TokenKind::Operator || tokens[1].text != "." ||
-        tokens[2].kind != TokenKind::Identifier || (tokens[2].text != "add" && tokens[2].text != "remove") ||
+        tokens[2].kind != TokenKind::Identifier ||
+        (tokens[2].text != "add" && tokens[2].text != "remove" && tokens[2].text != "sort" && tokens[2].text != "reverse") ||
         tokens[3].kind != TokenKind::LeftParen ||
         tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
         tokens.back().kind != TokenKind::EndOfFile) {
@@ -149,7 +195,9 @@ ListEmitResult emitListStatement(
     }
 
     const bool isAdd = tokens[2].text == "add";
-    const std::string actionName = isAdd ? "add" : "remove";
+    const bool isSort = tokens[2].text == "sort";
+    const bool isReverse = tokens[2].text == "reverse";
+    const std::string actionName = tokens[2].text;
 
     const std::string variableName = tokens[0].text;
     const auto variable = declaredVariables.find(variableName);
@@ -173,6 +221,35 @@ ListEmitResult emitListStatement(
     const std::vector<ListArgument> arguments = splitListArguments(argumentsText, argumentsStartColumn);
 
     const Type elementType = variable->second.subtypes[0];
+
+    if (isSort || isReverse) {
+        if (arguments.size() != 1 || !arguments[0].text.empty()) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                argumentsStartColumn,
+                actionName + "() does not take arguments",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const std::string generatedStatement = isSort
+            ? "    sort(" + variableName + ".begin(), " + variableName + ".end());"
+            : "    reverse(" + variableName + ".begin(), " + variableName + ".end());";
+
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                tokens[0].span.startColumn,
+                5,
+                5 + static_cast<int>(variableName.size()) - 1
+            }}
+        };
+    }
 
     if (isAdd) {
         if (arguments.size() == 1 && arguments[0].text.empty()) {
