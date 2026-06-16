@@ -10,7 +10,19 @@ TMP_DIR="tests/tmp"
 LOG_DIR="$TMP_DIR/logs"
 CASE_DIR="$TMP_DIR/cases"
 COMPILER="./build/cppp"
-PYTHON_CMD="${PYTHON_CMD:-python.exe}"
+
+if [[ -n "${PYTHON_CMD:-}" ]]; then
+    :
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+elif command -v python.exe >/dev/null 2>&1; then
+    PYTHON_CMD="python.exe"
+else
+    echo "Could not find a usable Python interpreter for tests/errors_coverage.py" >&2
+    exit 1
+fi
 
 UNAME_S="$(uname -s 2>/dev/null || true)"
 if [[ "${OS:-}" == "Windows_NT" || "$UNAME_S" == MINGW* || "$UNAME_S" == MSYS* ]]; then
