@@ -588,7 +588,7 @@ private:
                 }
                 const Type elementType = expr.right->inferredType.subtypes[0];
                 if (expr.left->inferredType == elementType) {
-                    return "(find((" + right + ").begin(), (" + right + ").end(), " + left + ") != (" + right + ").end())";
+                    return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + left + ") != __cppp_list.end(); }())";
                 }
                 if (expr.left->inferredType != expr.right->inferredType) {
                     return "false";
@@ -600,7 +600,7 @@ private:
             if (!isImplicitlyConvertible(expr.left->inferredType, elementType) || expr.left->inferredType != elementType) {
                 needle = castExpressionTo(needle, expr.left->inferredType, elementType);
             }
-            return "(find((" + right + ").begin(), (" + right + ").end(), " + needle + ") != (" + right + ").end())";
+            return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + needle + ") != __cppp_list.end(); }())";
         }
 
         if (expr.op == "||" || expr.op == "&&") {
