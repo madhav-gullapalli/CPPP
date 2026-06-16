@@ -10,6 +10,7 @@ TMP_DIR="tests/tmp"
 LOG_DIR="$TMP_DIR/logs"
 CASE_DIR="$TMP_DIR/cases"
 COMPILER="./build/cppp"
+PYTHON_CMD="${PYTHON_CMD:-python.exe}"
 
 UNAME_S="$(uname -s 2>/dev/null || true)"
 if [[ "${OS:-}" == "Windows_NT" || "$UNAME_S" == MINGW* || "$UNAME_S" == MSYS* ]]; then
@@ -87,6 +88,17 @@ run_program_ok() {
     local label="$3"
 
     if ! "$COMPILER" --cppp "$source" --run >"$log" 2>&1; then
+        cat "$log" >&2
+        fail "$label"
+    fi
+}
+
+run_runtime_error() {
+    local source="$1"
+    local log="$2"
+    local label="$3"
+
+    if "$COMPILER" --cppp "$source" --run >"$log" 2>&1; then
         cat "$log" >&2
         fail "$label"
     fi
@@ -170,6 +182,51 @@ expression_error_case="$(stage_case "$TEST_DIR/expression_error.cppp")"
 run_failure "$expression_error_case" "$LOG_DIR/expression_error.log" "invalid expression types should fail"
 assert_contains "$LOG_DIR/expression_error.log" "cannot use '&' with float and int" "invalid expression type diagnostic"
 pass "invalid expression type errors are preserved"
+
+list_remove_case="$(stage_case "$TEST_DIR/list_remove.cppp")"
+run_program_ok "$list_remove_case" "$LOG_DIR/list_remove.log" "list remove program runs"
+assert_contains "$LOG_DIR/list_remove.log" "1 2" "list remove output"
+pass "list remove behavior is preserved"
+
+list_remove_error_case="$(stage_case "$TEST_DIR/list_remove_error.cppp")"
+run_failure "$list_remove_error_case" "$LOG_DIR/list_remove_error.log" "invalid list remove call should fail"
+assert_contains "$LOG_DIR/list_remove_error.log" "remove() expects no arguments or index" "list remove arity diagnostic"
+pass "invalid remove() calls are rejected"
+
+list_remove_runtime_error_case="$(stage_case "$TEST_DIR/list_remove_runtime_error.cppp")"
+run_runtime_error "$list_remove_runtime_error_case" "$LOG_DIR/list_remove_runtime_error.log" "empty list remove reports runtime error"
+assert_contains "$LOG_DIR/list_remove_runtime_error.log" "runtime error: cannot remove from empty list" "list remove runtime diagnostic"
+pass "remove() runtime errors are preserved"
+
+list_slice_case="$(stage_case "$TEST_DIR/list_slice.cppp")"
+run_program_ok "$list_slice_case" "$LOG_DIR/list_slice.log" "list slicing program runs"
+assert_contains "$LOG_DIR/list_slice.log" "5" "negative list index output"
+assert_contains "$LOG_DIR/list_slice.log" "[2, 3, 4]" "list slice output"
+assert_contains "$LOG_DIR/list_slice.log" "[]" "empty slice output"
+pass "list slicing and negative indexing are preserved"
+
+list_slice_error_case="$(stage_case "$TEST_DIR/list_slice_error.cppp")"
+run_runtime_error "$list_slice_error_case" "$LOG_DIR/list_slice_error.log" "out of range negative index reports runtime error"
+assert_contains "$LOG_DIR/list_slice_error.log" "runtime error: invalid list index" "list slice runtime diagnostic"
+pass "negative index runtime errors are preserved"
+
+list_sublist_case="$(stage_case "$TEST_DIR/list_sublist.cppp")"
+run_program_ok "$list_sublist_case" "$LOG_DIR/list_sublist.log" "sublist membership program runs"
+assert_contains "$LOG_DIR/list_sublist.log" $'1\n1\n0\n0' "sublist membership output"
+pass "scalar and sublist membership are preserved"
+
+list_sublist_error_case="$(stage_case "$TEST_DIR/list_sublist_error.cppp")"
+run_failure "$list_sublist_error_case" "$LOG_DIR/list_sublist_error.log" "non-list right operand for in should fail"
+assert_contains "$LOG_DIR/list_sublist_error.log" "right side of 'in' must be a List" "in operator right-side diagnostic"
+pass "invalid in-operator right side is rejected"
+
+nested_list_in_case="$(stage_case "$TEST_DIR/nested_list_in.cppp")"
+run_program_ok "$nested_list_in_case" "$LOG_DIR/nested_list_in.log" "nested list membership program runs"
+assert_contains "$LOG_DIR/nested_list_in.log" "1" "nested list membership output"
+pass "list membership against List<List<T>> is preserved"
+
+"$PYTHON_CMD" tests/errors_coverage.py
+pass "errors.txt documented examples are covered"
 
 echo
 echo "All CP++ regression tests passed."
