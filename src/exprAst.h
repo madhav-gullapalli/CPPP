@@ -109,6 +109,19 @@ struct IndexExpr : Expr {
     }
 };
 
+struct SliceExpr : Expr {
+    std::unique_ptr<Expr> base;
+    std::unique_ptr<Expr> start;
+    std::unique_ptr<Expr> end;
+
+    SliceExpr(std::unique_ptr<Expr> base, std::unique_ptr<Expr> start, std::unique_ptr<Expr> end, int sourceColumn) :
+        base(std::move(base)),
+        start(std::move(start)),
+        end(std::move(end)) {
+        this->sourceColumn = sourceColumn;
+    }
+};
+
 struct ListLiteralExpr : Expr {
     std::vector<std::unique_ptr<Expr>> elements;
 

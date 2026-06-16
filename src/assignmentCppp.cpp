@@ -95,9 +95,6 @@ bool parseIndexedAssignmentTarget(
     return true;
 }
 
-bool isListType(const Type& type) {
-    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
-}
 }
 
 AssignmentEmitResult emitAssignmentStatement(
@@ -361,6 +358,12 @@ AssignmentEmitResult emitAssignmentStatement(
         return {false, true, "", {}};
     }
 
+    const size_t expressionTokenIndex = 2;
+    if (tokens[expressionTokenIndex].kind == TokenKind::EndOfFile) {
+        recordSourceError(inputFile, lineNumber, tokens[expressionTokenIndex - 1].span.endColumn + 1, "expected expression after assignment", sourceLines);
+        return {true, false, "", {}};
+    }
+
     const std::string variableName = tokens[0].text;
     const auto variable = declaredVariables.find(variableName);
     if (variable == declaredVariables.end()) {
@@ -368,12 +371,6 @@ AssignmentEmitResult emitAssignmentStatement(
         return {true, false, "", {}};
     }
     const Type targetType = variable->second;
-
-    const size_t expressionTokenIndex = simpleAssignment ? 2 : 2;
-    if (tokens[expressionTokenIndex].kind == TokenKind::EndOfFile) {
-        recordSourceError(inputFile, lineNumber, tokens[expressionTokenIndex - 1].span.endColumn + 1, "expected expression after assignment", sourceLines);
-        return {true, false, "", {}};
-    }
 
     const int expressionStartColumn = tokens[expressionTokenIndex].span.startColumn;
     int expressionEndColumn = tokens[expressionTokenIndex].span.endColumn;
@@ -416,11 +413,17 @@ AssignmentEmitResult emitAssignmentStatement(
         };
     }
 
+    const bool preserveCompoundListAppend =
+        compoundAssignment &&
+        tokens[1].text == "+=" &&
+        targetType.primitive == PrimitiveType::List &&
+        targetType.subtypes.size() == 1;
+
     const ExpressionEmitResult expression = emitExpression(
         inputFile,
         lineNumber,
-        compoundAssignment && tokens[1].text != "+=" ? variableName + " " + compoundOperator(tokens[1].text) + " " + expressionText : expressionText,
-        compoundAssignment && tokens[1].text != "+=" ? tokens[0].span.startColumn : expressionStartColumn,
+        compoundAssignment && !preserveCompoundListAppend ? variableName + " " + compoundOperator(tokens[1].text) + " " + expressionText : expressionText,
+        compoundAssignment && !preserveCompoundListAppend ? tokens[0].span.startColumn : expressionStartColumn,
         sourceLines,
         declaredVariables
     );
@@ -428,7 +431,7 @@ AssignmentEmitResult emitAssignmentStatement(
         return {true, false, "", {}};
     }
 
-    if (compoundAssignment && tokens[1].text == "+=" && isListType(targetType)) {
+    if (preserveCompoundListAppend) {
         if (expression.type != targetType) {
             recordSourceError(
                 inputFile,

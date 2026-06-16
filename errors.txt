@@ -322,15 +322,67 @@ list index must be int
 
 List indexing
   A List value can be indexed with square brackets using a zero-based int
-  index. In --run mode, CP++ checks that the index is in the range
-  0 <= index < len(list) and reports a readable runtime error if it is not.
-  In submit-style codegen, indexing lowers directly to ordinary C++ vector
-  indexing without a custom runtime check.
+  index. Negative indexes are also supported, so list[-1] means the last
+  element and list[-2] means the second-to-last element. In --run mode, CP++
+  checks that the resolved index is in range and reports a readable runtime
+  error if it is not. In submit-style codegen, indexing lowers directly to
+  ordinary C++ indexing after the negative-index adjustment.
 
   Example:
     List<int> values;
     values.add(4);
     print(values[0]);
+
+List slicing
+  A List value can be sliced with Python-style [start:end] syntax. This
+  returns a brand new List containing indices in the half-open range
+  [start, end). Negative bounds are allowed and count from the end of the
+  List. If the normalized start is greater than or equal to the normalized
+  end, the result is an empty List.
+
+  Example:
+    List<int> values = [1, 2, 3, 4];
+    print(values[1:3]);
+    print(values[1:-1]);
+
+slicing requires a List value
+  Slice syntax can only be used on a List expression.
+
+  Example:
+    int x = 3;
+    print(x[0:1]);
+
+  Diagnostic:
+    error: slicing requires a List value
+
+slice start must be int
+  The start bound in list[start:end] must be an int expression.
+
+  Example:
+    List<int> values = [1, 2];
+    print(values[true:false]);
+
+  Diagnostic:
+    error: slice start must be int
+
+slice end must be int
+  The end bound in list[start:end] must be an int expression.
+
+  Example:
+    List<int> values = [1, 2];
+    print(values[0:true]);
+
+  Diagnostic:
+    error: slice end must be int
+
+unclosed bracket in list slice
+  A list slice opened with '[' but did not close with ']'.
+
+  Example:
+    print(values[1:3);
+
+  Diagnostic:
+    error: unclosed bracket in list slice
 
 List assignment
   List elements can be assigned with square-bracket indexing. This updates the
@@ -420,13 +472,20 @@ min(list), max(list), and sum(list)
 in operator
   CP++ supports Python-style membership checks with `value in list`. The
   result is bool, so it can be printed directly or used in conditions.
-  Empty Lists simply return false.
+  Empty Lists simply return false. When the left side is also a List of the
+  same type, CP++ performs sublist search, so `[2, 3] in [1, 2, 3, 4]` is
+  true. Sublist search uses a linear-time KMP-style search over the two Lists.
+  If the left List cannot possibly appear in the right List because of type or
+  length, the result is just false.
 
   Example:
     List<int> values = [1, 2, 3];
     if (2 in values) {
         print("found");
     }
+
+    List<int> pattern = [2, 3];
+    print(pattern in values);
 
 foreach loops
   CP++ supports foreach loops with `for (T x in list) { ... }`. The loop
@@ -950,6 +1009,39 @@ if, else if, else, while, for, and rep blocks
         print("again");
     }
 
+break and continue
+  CP++ supports `break;` and `continue;` inside any loop body. `break` exits
+  the nearest loop immediately. `continue` skips to the next iteration of the
+  nearest loop.
+
+  Example:
+    for (int i = 0; i < 5; i++) {
+        if (i == 2) {
+            continue;
+        }
+        if (i == 4) {
+            break;
+        }
+        print(i);
+    }
+
+loop else
+  CP++ supports Python-style loop `else` blocks on `for`, foreach, `while`,
+  and `rep`. The `else` block runs only when the loop finishes normally and
+  does not run if the loop exits through `break`.
+
+  Example:
+    while (x < 3) {
+        x++;
+    } else {
+        print("finished");
+    }
+
+submit-mode loop-else optimization
+  In --submit mode, CP++ only keeps the internal loop-completion boolean for
+  loops that actually have a following loop `else`. Ordinary loops without a
+  loop `else` do not carry that extra helper state in generated C++.
+
 structured control-flow syntax errors
   Malformed if, else if, while, rep, for, and for-in headers are reported by
   their own parsers before the compiler falls back to unrelated declaration or
@@ -1107,6 +1199,26 @@ else without matching if
   Diagnostic:
     error: else without matching if
 
+break can only be used inside a loop
+  `break;` is only valid when the current statement is inside a `for`,
+  foreach, `while`, or `rep` loop body.
+
+  Example:
+    break;
+
+  Diagnostic:
+    error: break can only be used inside a loop
+
+continue can only be used inside a loop
+  `continue;` is only valid when the current statement is inside a `for`,
+  foreach, `while`, or `rep` loop body.
+
+  Example:
+    continue;
+
+  Diagnostic:
+    error: continue can only be used inside a loop
+
 unmatched closing brace
   A closing brace appeared without a matching open if, else if, or else block.
 
@@ -1229,25 +1341,6 @@ input() size must be int
 
   Diagnostic:
     error: input() size must be int
-
-multi-assignment requires input()
-  A comma-separated assignment can only read multiple values with input().
-
-  Example:
-    int a,b;
-    a,b = 1;
-
-  Diagnostic:
-    error: multi-assignment requires input()
-
-illegal operation on type
-  An assignment expressions with illega;l types
-
-  Example:
-    (3 + "hi");
-  
-  Diagnostic:
-    error: cannot add dissimilar types.
 
 Runtime errors
 --------------

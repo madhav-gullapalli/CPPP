@@ -1,2 +1,1 @@
-List<int> empt = [];
-print(min(empt));
+int a,b = 1,2;

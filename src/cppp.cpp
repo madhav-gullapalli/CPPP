@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -51,11 +52,38 @@ struct GeneratedLine {
     std::vector<SourceRange> sourceRanges;
 };
 
+struct PendingLoopElse {
+    bool active = false;
+    std::string breakFlagName;
+};
+
 static bool isRepCountType(Type type) {
     return type == PrimitiveType::Bool ||
         type == PrimitiveType::Char ||
         type == PrimitiveType::Int ||
         type == PrimitiveType::Float;
+}
+
+static bool isLoopBlockKind(const std::string& kind) {
+    return kind == "for" || kind == "while" || kind == "rep";
+}
+
+static bool startsWithTrimmed(const std::string& text, const std::string& prefix) {
+    const std::string trimmed = trim(text);
+    return trimmed.rfind(prefix, 0) == 0;
+}
+
+static std::string loopBreakFlagNameFromDeclaration(const std::string& text) {
+    const std::string trimmed = trim(text);
+    const std::string prefix = "bool __cppp_loop_completed_";
+    const std::string suffix = " = true;";
+    if (trimmed.rfind(prefix, 0) != 0 || trimmed.size() <= prefix.size() + suffix.size()) {
+        return "";
+    }
+    if (trimmed.substr(trimmed.size() - suffix.size()) != suffix) {
+        return "";
+    }
+    return trimmed.substr(5, trimmed.size() - 5 - suffix.size());
 }
 
 static size_t findLineCommentStart(const std::string& text) {
@@ -291,8 +319,11 @@ int main(int argc, char* argv[]) {
     int blockDepth = 0;
     int suppressedBlockDepth = 0;
     bool canAttachElse = false;
+    PendingLoopElse pendingLoopElse;
     std::vector<std::string> blockKinds;
+    std::vector<std::string> blockBreakFlags;
     int repLoopIndex = 0;
+    int loopControlIndex = 0;
     const auto emitLine = [&](const std::string& text, int sourceLine = 0) {
         output << text << '\n';
         ++generatedLine;
@@ -303,6 +334,18 @@ int main(int argc, char* argv[]) {
     std::vector<GeneratedLine> generatedBodyLines;
     const auto queueGeneratedLine = [&](const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         generatedBodyLines.push_back({text, sourceLine, std::move(ranges)});
+    };
+    const auto pushBlock = [&](const std::string& kind, const std::string& breakFlag = std::string()) {
+        blockKinds.push_back(kind);
+        blockBreakFlags.push_back(breakFlag);
+    };
+    const auto nearestLoopBreakFlag = [&]() -> std::string {
+        for (int i = static_cast<int>(blockKinds.size()) - 1; i >= 0; --i) {
+            if (isLoopBlockKind(blockKinds[static_cast<size_t>(i)])) {
+                return blockBreakFlags[static_cast<size_t>(i)];
+            }
+        }
+        return "";
     };
 
     std::vector<SourceFragment> sourceFragments;
@@ -337,7 +380,7 @@ int main(int argc, char* argv[]) {
         if (suppressedBlockDepth > 0 && statement[0] != '}') {
             if (statement.back() == '{') {
                 ++blockDepth;
-                blockKinds.push_back("suppressed");
+                pushBlock("suppressed");
                 ++suppressedBlockDepth;
             }
             continue;
@@ -346,12 +389,12 @@ int main(int argc, char* argv[]) {
         const size_t statementStart = codeText.find(statement);
         const int statementStartColumn = static_cast<int>(statementStart == std::string::npos ? 1 : statementStart + 1);
 
-        const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0) {
+        const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0, const std::string& breakFlag = std::string()) {
             const size_t conditionOffset = absoluteOffset + header.conditionOffset;
             if (header.condition.empty()) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), "expected condition", sourceLines);
                 ++blockDepth;
-                blockKinds.push_back(keyword);
+                pushBlock(keyword, breakFlag);
                 canAttachElse = false;
                 return false;
             }
@@ -366,7 +409,7 @@ int main(int argc, char* argv[]) {
             );
             if (!condition.ok) {
                 ++blockDepth;
-                blockKinds.push_back(keyword);
+                pushBlock(keyword, breakFlag);
                 canAttachElse = false;
                 return false;
             }
@@ -374,7 +417,7 @@ int main(int argc, char* argv[]) {
             if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), keyword + " condition must be bool", sourceLines);
                 ++blockDepth;
-                blockKinds.push_back(keyword);
+                pushBlock(keyword, breakFlag);
                 canAttachElse = false;
                 return false;
             }
@@ -384,10 +427,14 @@ int main(int argc, char* argv[]) {
                 generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
             }
 
+            if (!breakFlag.empty()) {
+                queueGeneratedLine(indentForDepth(blockDepth) + "bool " + breakFlag + " = true;", lineNumber);
+            }
             queueGeneratedLine(indentForDepth(blockDepth) + keyword + " (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
             ++blockDepth;
-            blockKinds.push_back(keyword);
+            pushBlock(keyword, breakFlag);
             canAttachElse = false;
+            pendingLoopElse.active = false;
             return true;
         };
 
@@ -447,16 +494,20 @@ int main(int argc, char* argv[]) {
             }
             --blockDepth;
             const std::string closedBlock = blockKinds.empty() ? "" : blockKinds.back();
+            const std::string closedBreakFlag = blockBreakFlags.empty() ? "" : blockBreakFlags.back();
             if (!blockKinds.empty()) {
                 blockKinds.pop_back();
+                blockBreakFlags.pop_back();
             }
             canAttachElse = closedBlock == "if" || closedBlock == "else if";
+            pendingLoopElse.active = isLoopBlockKind(closedBlock);
+            pendingLoopElse.breakFlagName = pendingLoopElse.active ? closedBreakFlag : "";
 
             const std::string afterBrace = trim(statement.substr(1));
             if (closingSuppressed) {
                 if (!afterBrace.empty() && afterBrace.back() == '{') {
                     ++blockDepth;
-                    blockKinds.push_back("suppressed");
+                    pushBlock("suppressed");
                     ++suppressedBlockDepth;
                 }
                 continue;
@@ -467,25 +518,35 @@ int main(int argc, char* argv[]) {
             }
 
             if (!canAttachElse) {
+                if (pendingLoopElse.active && parseElseHeader(afterBrace)) {
+                    queueGeneratedLine(indentForDepth(blockDepth) + "} if (" + pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+                    ++blockDepth;
+                    pushBlock("loop else");
+                    pendingLoopElse.active = false;
+                    continue;
+                }
+
                 recordSourceError(inputFile, lineNumber, statementStartColumn + 1, "else without matching if", sourceLines);
                 if (parseElseHeader(afterBrace)) {
                     ++blockDepth;
-                    blockKinds.push_back("else");
+                    pushBlock("else");
                 } else {
                     ConditionHeader recoveryHeader;
                     if (parseElseIfHeader(afterBrace, recoveryHeader)) {
                         ++blockDepth;
-                        blockKinds.push_back("else if");
+                        pushBlock("else if");
                     }
                 }
+                pendingLoopElse.active = false;
                 continue;
             }
 
             if (parseElseHeader(afterBrace)) {
                 queueGeneratedLine(indentForDepth(blockDepth) + "} else {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++blockDepth;
-                blockKinds.push_back("else");
+                pushBlock("else");
                 canAttachElse = false;
+                pendingLoopElse.active = false;
                 continue;
             }
 
@@ -494,8 +555,9 @@ int main(int argc, char* argv[]) {
                 if (header.condition.empty()) {
                     recordSourceError(inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "expected condition", sourceLines);
                     ++blockDepth;
-                    blockKinds.push_back("else if");
+                    pushBlock("else if");
                     canAttachElse = false;
+                    pendingLoopElse.active = false;
                     continue;
                 }
 
@@ -509,16 +571,18 @@ int main(int argc, char* argv[]) {
                 );
                 if (!condition.ok) {
                     ++blockDepth;
-                    blockKinds.push_back("else if");
+                    pushBlock("else if");
                     canAttachElse = false;
+                    pendingLoopElse.active = false;
                     continue;
                 }
 
                 if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
                     recordSourceError(inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "if condition must be bool", sourceLines);
                     ++blockDepth;
-                    blockKinds.push_back("else if");
+                    pushBlock("else if");
                     canAttachElse = false;
+                    pendingLoopElse.active = false;
                     continue;
                 }
 
@@ -529,8 +593,9 @@ int main(int argc, char* argv[]) {
 
                 queueGeneratedLine(indentForDepth(blockDepth) + "} else if (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++blockDepth;
-                blockKinds.push_back("else if");
+                pushBlock("else if");
                 canAttachElse = false;
+                pendingLoopElse.active = false;
                 continue;
             }
 
@@ -541,17 +606,26 @@ int main(int argc, char* argv[]) {
 
         if (parseElseHeader(statement)) {
             if (!canAttachElse) {
+                if (pendingLoopElse.active) {
+                    queueGeneratedLine(indentForDepth(blockDepth) + "if (" + pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
+                    ++blockDepth;
+                    pushBlock("loop else");
+                    pendingLoopElse.active = false;
+                    continue;
+                }
+
                 recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
                 ++blockDepth;
-                blockKinds.push_back("else");
+                pushBlock("else");
                 ++suppressedBlockDepth;
                 continue;
             }
 
             queueGeneratedLine(indentForDepth(blockDepth) + "else {" + (hasComment ? " " + commentText : ""), lineNumber);
             ++blockDepth;
-            blockKinds.push_back("else");
+            pushBlock("else");
             canAttachElse = false;
+            pendingLoopElse.active = false;
             continue;
         }
 
@@ -563,8 +637,9 @@ int main(int argc, char* argv[]) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(elseIfResult.errorOffset), elseIfResult.message, sourceLines);
             }
             ++blockDepth;
-            blockKinds.push_back("else if");
+            pushBlock("else if");
             canAttachElse = false;
+            pendingLoopElse.active = false;
             continue;
         }
 
@@ -574,14 +649,17 @@ int main(int argc, char* argv[]) {
             if (!canAttachElse) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn, "else without matching if", sourceLines);
                 ++blockDepth;
-                blockKinds.push_back("else if");
+                pushBlock("else if");
                 ++suppressedBlockDepth;
+                pendingLoopElse.active = false;
                 continue;
             }
 
             emitConditionHeader("else if", header);
             continue;
         }
+
+        pendingLoopElse.active = false;
 
         ForParseResult forResult = parseForHeaderDetailed(statement);
         ForHeader forHeader;
@@ -595,13 +673,14 @@ int main(int argc, char* argv[]) {
                 sourceLines
             );
             ++blockDepth;
-            blockKinds.push_back("for");
+            pushBlock("for");
             ++suppressedBlockDepth;
             canAttachElse = false;
             continue;
         }
 
         if (forEachResult.matched) {
+            const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(loopControlIndex++);
             const ForEachHeader& forEachHeader = forEachResult.header;
             const TypeEmitResult declarationResult = emitTypeDeclaration(
                 inputFile,
@@ -613,7 +692,7 @@ int main(int argc, char* argv[]) {
             );
             if (!declarationResult.matched || !declarationResult.ok) {
                 ++blockDepth;
-                blockKinds.push_back("for");
+                pushBlock("for");
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -631,7 +710,7 @@ int main(int argc, char* argv[]) {
             if (!iterable.ok) {
                 declaredVariables.erase(forEachHeader.variableName);
                 ++blockDepth;
-                blockKinds.push_back("for");
+                pushBlock("for");
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -641,7 +720,7 @@ int main(int argc, char* argv[]) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(forEachHeader.iterableOffset), "for-in expects a List value", sourceLines);
                 declaredVariables.erase(forEachHeader.variableName);
                 ++blockDepth;
-                blockKinds.push_back("for");
+                pushBlock("for");
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -658,7 +737,7 @@ int main(int argc, char* argv[]) {
                 );
                 declaredVariables.erase(forEachHeader.variableName);
                 ++blockDepth;
-                blockKinds.push_back("for");
+                pushBlock("for");
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -670,12 +749,13 @@ int main(int argc, char* argv[]) {
                 loopDeclaration = loopDeclaration.substr(0, initializer);
             }
 
+            queueGeneratedLine(indentForDepth(blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);
             queueGeneratedLine(
                 indentForDepth(blockDepth) + "for (" + loopDeclaration + " : " + iterable.generatedExpression + ") {" + (hasComment ? " " + commentText : ""),
                 lineNumber
             );
             ++blockDepth;
-            blockKinds.push_back("for");
+            pushBlock("for", breakFlagName);
             canAttachElse = false;
             continue;
         }
@@ -689,13 +769,14 @@ int main(int argc, char* argv[]) {
                 sourceLines
             );
             ++blockDepth;
-            blockKinds.push_back("for");
+            pushBlock("for");
             ++suppressedBlockDepth;
             canAttachElse = false;
             continue;
         }
 
         if (!forEachResult.matched && forResult.matched) {
+            const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(loopControlIndex++);
             forHeader = forResult.header;
             std::string generatedInitializer;
             std::string generatedIteration;
@@ -705,7 +786,7 @@ int main(int argc, char* argv[]) {
                     true,
                     generatedInitializer)) {
                 ++blockDepth;
-                blockKinds.push_back("for");
+                pushBlock("for");
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -723,7 +804,7 @@ int main(int argc, char* argv[]) {
                 );
                 if (!condition.ok) {
                     ++blockDepth;
-                    blockKinds.push_back("for");
+                    pushBlock("for");
                     ++suppressedBlockDepth;
                     canAttachElse = false;
                     continue;
@@ -732,7 +813,7 @@ int main(int argc, char* argv[]) {
                 if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
                     recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(forHeader.conditionOffset), "for condition must be bool", sourceLines);
                     ++blockDepth;
-                    blockKinds.push_back("for");
+                    pushBlock("for");
                     ++suppressedBlockDepth;
                     canAttachElse = false;
                     continue;
@@ -750,15 +831,16 @@ int main(int argc, char* argv[]) {
                     false,
                     generatedIteration)) {
                 ++blockDepth;
-                blockKinds.push_back("for");
+                pushBlock("for");
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
 
+            queueGeneratedLine(indentForDepth(blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);
             queueGeneratedLine(indentForDepth(blockDepth) + "for (" + generatedInitializer + "; " + generatedCondition + "; " + generatedIteration + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
             ++blockDepth;
-            blockKinds.push_back("for");
+            pushBlock("for", breakFlagName);
             canAttachElse = false;
             continue;
         }
@@ -773,18 +855,19 @@ int main(int argc, char* argv[]) {
                 sourceLines
             );
             ++blockDepth;
-            blockKinds.push_back("rep");
+            pushBlock("rep");
             ++suppressedBlockDepth;
             canAttachElse = false;
             continue;
         }
 
         if (repResult.matched) {
+            const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(loopControlIndex++);
             header = repResult.header;
             if (header.condition.empty()) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected rep count", sourceLines);
                 ++blockDepth;
-                blockKinds.push_back("rep");
+                pushBlock("rep", breakFlagName);
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -800,7 +883,7 @@ int main(int argc, char* argv[]) {
             );
             if (!count.ok) {
                 ++blockDepth;
-                blockKinds.push_back("rep");
+                pushBlock("rep", breakFlagName);
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
@@ -809,12 +892,13 @@ int main(int argc, char* argv[]) {
             if (!isRepCountType(count.type)) {
                 recordSourceError(inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "rep count must be numeric", sourceLines);
                 ++blockDepth;
-                blockKinds.push_back("rep");
+                pushBlock("rep", breakFlagName);
                 ++suppressedBlockDepth;
                 canAttachElse = false;
                 continue;
             }
 
+            queueGeneratedLine(indentForDepth(blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);
             if (shouldSubmit) {
                 const std::string indexName = "_" + std::to_string(repLoopIndex);
                 ++repLoopIndex;
@@ -838,7 +922,7 @@ int main(int argc, char* argv[]) {
                 );
             }
             ++blockDepth;
-            blockKinds.push_back("rep");
+            pushBlock("rep", breakFlagName);
             canAttachElse = false;
             continue;
         }
@@ -853,7 +937,7 @@ int main(int argc, char* argv[]) {
                 sourceLines
             );
             ++blockDepth;
-            blockKinds.push_back("if");
+            pushBlock("if");
             ++suppressedBlockDepth;
             canAttachElse = false;
             continue;
@@ -875,7 +959,7 @@ int main(int argc, char* argv[]) {
                 sourceLines
             );
             ++blockDepth;
-            blockKinds.push_back("while");
+            pushBlock("while");
             ++suppressedBlockDepth;
             canAttachElse = false;
             continue;
@@ -883,7 +967,7 @@ int main(int argc, char* argv[]) {
 
         if (whileResult.matched) {
             header = whileResult.header;
-            emitConditionHeader("while", header);
+            emitConditionHeader("while", header, 0, "__cppp_loop_completed_" + std::to_string(loopControlIndex++));
             continue;
         }
 
@@ -897,6 +981,27 @@ int main(int argc, char* argv[]) {
         }
 
         const std::string statementBody = trim(statement.substr(0, statement.size() - 1));
+        if (statementBody == "break") {
+            const std::string breakFlagName = nearestLoopBreakFlag();
+            if (breakFlagName.empty()) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn, "break can only be used inside a loop", sourceLines);
+                continue;
+            }
+
+            queueGeneratedLine(indentForDepth(blockDepth) + breakFlagName + " = false; break;" + (hasComment ? " " + commentText : ""), lineNumber);
+            continue;
+        }
+
+        if (statementBody == "continue") {
+            if (nearestLoopBreakFlag().empty()) {
+                recordSourceError(inputFile, lineNumber, statementStartColumn, "continue can only be used inside a loop", sourceLines);
+                continue;
+            }
+
+            queueGeneratedLine(indentForDepth(blockDepth) + "continue;" + (hasComment ? " " + commentText : ""), lineNumber);
+            continue;
+        }
+
         const TypeEmitResult typeResult = emitTypeDeclaration(inputFile, lineNumber, line, statementBody, sourceLines, declaredVariables);
         if (typeResult.matched) {
             if (!typeResult.ok) {
@@ -997,6 +1102,60 @@ int main(int argc, char* argv[]) {
         printRecordedSourceErrors();
         clearRecordedSourceErrors();
         return 1;
+    }
+
+    if (shouldSubmit) {
+        std::vector<std::string> usedLoopFlags;
+        for (const GeneratedLine& line : generatedBodyLines) {
+            const std::string trimmed = trim(line.text);
+            if (!startsWithTrimmed(trimmed, "if (__cppp_loop_completed_")) {
+                continue;
+            }
+
+            const size_t flagStart = trimmed.find("__cppp_loop_completed_");
+            const size_t flagEnd = trimmed.find(')', flagStart);
+            if (flagStart == std::string::npos || flagEnd == std::string::npos || flagEnd <= flagStart) {
+                continue;
+            }
+
+            usedLoopFlags.push_back(trimmed.substr(flagStart, flagEnd - flagStart));
+        }
+
+        std::vector<GeneratedLine> cleanedLines;
+        for (GeneratedLine line : generatedBodyLines) {
+            const std::string flagName = loopBreakFlagNameFromDeclaration(line.text);
+            if (!flagName.empty() &&
+                std::find(usedLoopFlags.begin(), usedLoopFlags.end(), flagName) == usedLoopFlags.end()) {
+                continue;
+            }
+
+            for (const std::string& usedFlag : usedLoopFlags) {
+                (void)usedFlag;
+            }
+
+            if (line.text.find("__cppp_loop_completed_") != std::string::npos &&
+                line.text.find(" = false; break;") != std::string::npos) {
+                const std::string originalText = line.text;
+                const size_t indentEnd = line.text.find_first_not_of(' ');
+                const std::string indent = indentEnd == std::string::npos ? "" : line.text.substr(0, indentEnd);
+                const size_t assignEnd = line.text.find("break;");
+                const size_t commentStart = originalText.find("//", assignEnd == std::string::npos ? 0 : assignEnd);
+                const size_t flagStart = line.text.find("__cppp_loop_completed_");
+                const size_t flagEnd = line.text.find(" = false; break;");
+                if (flagStart != std::string::npos && flagEnd != std::string::npos) {
+                    const std::string flag = line.text.substr(flagStart, flagEnd - flagStart);
+                    if (std::find(usedLoopFlags.begin(), usedLoopFlags.end(), flag) == usedLoopFlags.end()) {
+                        line.text = indent + "break;";
+                        if (commentStart != std::string::npos) {
+                            line.text += " " + trim(originalText.substr(commentStart));
+                        }
+                    }
+                }
+            }
+
+            cleanedLines.push_back(std::move(line));
+        }
+        generatedBodyLines = std::move(cleanedLines);
     }
 
     std::string generatedProgramText;

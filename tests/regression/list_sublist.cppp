@@ -1,0 +1,8 @@
+List<int> values = [1, 2, 3, 2, 3, 4];
+List<int> needle = [2, 3, 4];
+List<float> wrong = [2.0, 3.0];
+
+print(needle in values);
+print([1, 2, 3] in values);
+print([3, 4, 5] in values);
+print(wrong in values);

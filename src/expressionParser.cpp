@@ -64,6 +64,9 @@ public:
         if (auto* index = dynamic_cast<IndexExpr*>(&expr)) {
             return analyzeIndex(*index);
         }
+        if (auto* slice = dynamic_cast<SliceExpr*>(&expr)) {
+            return analyzeSlice(*slice);
+        }
         if (auto* list = dynamic_cast<ListLiteralExpr*>(&expr)) {
             return analyzeListLiteral(*list);
         }
@@ -230,6 +233,11 @@ private:
                 return false;
             }
 
+            if (isListType(expr.left->inferredType)) {
+                expr.inferredType = PrimitiveType::Bool;
+                return true;
+            }
+
             const Type elementType = expr.right->inferredType.subtypes[0];
             if (!expr.left->explicitCast && !isImplicitlyConvertible(expr.left->inferredType, elementType)) {
                 report(expr.sourceColumn, "cannot check membership of " + cpppTypeName(expr.left->inferredType) + " in " + cpppTypeName(expr.right->inferredType));
@@ -391,6 +399,30 @@ private:
         return true;
     }
 
+    bool analyzeSlice(SliceExpr& expr) {
+        if (!analyze(*expr.base) || !analyze(*expr.start) || !analyze(*expr.end)) {
+            return false;
+        }
+
+        if (expr.base->inferredType.primitive != PrimitiveType::List || expr.base->inferredType.subtypes.size() != 1) {
+            report(expr.sourceColumn, "slicing requires a List value");
+            return false;
+        }
+
+        if (expr.start->inferredType != PrimitiveType::Int) {
+            report(expr.start->sourceColumn, "slice start must be int");
+            return false;
+        }
+
+        if (expr.end->inferredType != PrimitiveType::Int) {
+            report(expr.end->sourceColumn, "slice end must be int");
+            return false;
+        }
+
+        expr.inferredType = expr.base->inferredType;
+        return true;
+    }
+
     bool analyzeListLiteral(ListLiteralExpr& expr) {
         if (expr.elements.empty()) {
             report(expr.sourceColumn, "empty list literal needs a declared List type");
@@ -448,6 +480,9 @@ public:
         }
         if (const auto* index = dynamic_cast<const IndexExpr*>(&expr)) {
             return generateIndex(*index);
+        }
+        if (const auto* slice = dynamic_cast<const SliceExpr*>(&expr)) {
+            return generateSlice(*slice);
         }
         if (const auto* list = dynamic_cast<const ListLiteralExpr*>(&expr)) {
             return generateListLiteral(*list);
@@ -547,6 +582,19 @@ private:
         const std::string right = generate(*expr.right);
 
         if (expr.op == "in") {
+            if (isListType(expr.left->inferredType)) {
+                if (!isListType(expr.right->inferredType)) {
+                    return "false";
+                }
+                const Type elementType = expr.right->inferredType.subtypes[0];
+                if (expr.left->inferredType == elementType) {
+                    return "(find((" + right + ").begin(), (" + right + ").end(), " + left + ") != (" + right + ").end())";
+                }
+                if (expr.left->inferredType != expr.right->inferredType) {
+                    return "false";
+                }
+                return "CPPPListContainsSublist(" + right + ", " + left + ")";
+            }
             const Type elementType = expr.right->inferredType.subtypes[0];
             std::string needle = left;
             if (!isImplicitlyConvertible(expr.left->inferredType, elementType) || expr.left->inferredType != elementType) {
@@ -626,7 +674,17 @@ private:
         if (emitRuntimeChecks) {
             return "CPPPListAt(" + base + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
         }
-        return "(" + base + "[" + index + "])";
+        return "([&]() { auto __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + index + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return (__cppp_list[__cppp_index]); }())";
+    }
+
+    std::string generateSlice(const SliceExpr& expr) const {
+        const std::string base = generate(*expr.base);
+        const std::string start = generate(*expr.start);
+        const std::string end = generate(*expr.end);
+        if (emitRuntimeChecks) {
+            return "CPPPListSlice(" + base + ", " + start + ", " + end + ")";
+        }
+        return "([&]() { auto __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
     }
 
     std::string generateListLiteral(const ListLiteralExpr& expr) const {
@@ -909,14 +967,25 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
            isOperator("++") || isOperator("--"))) {
         if (match(TokenKind::LeftBracket)) {
             const Token& leftBracket = previous();
-            std::unique_ptr<Expr> index = parseExpression(ok);
+            std::unique_ptr<Expr> start = parseExpression(ok);
             if (!ok) return nullptr;
+            if (match(TokenKind::Operator, ":")) {
+                std::unique_ptr<Expr> end = parseExpression(ok);
+                if (!ok) return nullptr;
+                if (!match(TokenKind::RightBracket)) {
+                    report(leftBracket, "unclosed bracket in list slice");
+                    ok = false;
+                    return nullptr;
+                }
+                expression = std::make_unique<SliceExpr>(std::move(expression), std::move(start), std::move(end), absoluteColumn(leftBracket));
+                continue;
+            }
             if (!match(TokenKind::RightBracket)) {
                 report(leftBracket, "unclosed bracket in list index");
                 ok = false;
                 return nullptr;
             }
-            expression = std::make_unique<IndexExpr>(std::move(expression), std::move(index), absoluteColumn(leftBracket));
+            expression = std::make_unique<IndexExpr>(std::move(expression), std::move(start), absoluteColumn(leftBracket));
             continue;
         }
         if (check(TokenKind::Operator, ".")) {

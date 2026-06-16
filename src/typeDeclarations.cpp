@@ -265,6 +265,17 @@ bool emitTypedListLiteralAt(
                 return false;
             }
 
+            if (elementExpression.type == PrimitiveType::Unknown) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    assignedValueColumn + tokens[elementStart].span.startColumn - 1,
+                    "list literal elements must have a known CP++ type",
+                    sourceLines
+                );
+                return false;
+            }
+
             if (!elementExpression.explicitCast && !isImplicitlyConvertible(elementExpression.type, elementType)) {
                 recordSourceError(
                     inputFile,
@@ -821,6 +832,25 @@ TypeEmitResult emitTypeDeclaration(
         } else if (targetType == PrimitiveType::Char) {
             if (isCharLiteral(assignedValue)) {
                 emittedValue = "CPPPChar(" + assignedValue + ")";
+            } else if (isMalformedCharLiteral(assignedValue)) {
+                std::string message = "char values must be a single character in single quotes";
+                const size_t closingQuote = assignedValue.find('\'', 1);
+                if (closingQuote != std::string::npos && closingQuote + 1 < assignedValue.size()) {
+                    message = "unexpected characters after char literal";
+                } else if (!assignedValue.empty() && assignedValue.back() == '\'') {
+                    message = "char literal contains too many characters";
+                } else {
+                    message = "unterminated char literal";
+                }
+
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    assignedValueColumn,
+                    message,
+                    sourceLines
+                );
+                return {true, false, "", {}};
             } else if (shouldParseAsExpression(valueTokens)) {
                 if (!finishExpressionAssignment(
                         inputFile,
@@ -834,23 +864,11 @@ TypeEmitResult emitTypeDeclaration(
                     return {true, false, "", {}};
                 }
             } else {
-                std::string message = "char values must be a single character in single quotes";
-                if (isMalformedCharLiteral(assignedValue)) {
-                    const size_t closingQuote = assignedValue.find('\'', 1);
-                    if (closingQuote != std::string::npos && closingQuote + 1 < assignedValue.size()) {
-                        message = "unexpected characters after char literal";
-                    } else if (assignedValue.back() == '\'') {
-                        message = "char literal contains too many characters";
-                    } else {
-                        message = "unterminated char literal";
-                    }
-                }
-
                 recordSourceError(
                     inputFile,
                     lineNumber,
                     assignedValueColumn,
-                    message,
+                    "char values must be a single character in single quotes",
                     sourceLines
                 );
                 return {true, false, "", {}};

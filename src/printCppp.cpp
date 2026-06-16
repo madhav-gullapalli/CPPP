@@ -25,6 +25,7 @@ std::string trim(const std::string& text) {
 std::vector<PrintArgument> splitPrintArguments(const std::string& text, const std::vector<Token>& tokens, int startColumn) {
     std::vector<PrintArgument> arguments;
     int parenDepth = 0;
+    int bracketDepth = 0;
     size_t argumentStartIndex = 0;
     int argumentStartColumn = startColumn;
     std::vector<Token> currentTokens;
@@ -38,9 +39,13 @@ std::vector<PrintArgument> splitPrintArguments(const std::string& text, const st
             ++parenDepth;
         } else if (token.kind == TokenKind::RightParen && parenDepth > 0) {
             --parenDepth;
+        } else if (token.kind == TokenKind::LeftBracket) {
+            ++bracketDepth;
+        } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
+            --bracketDepth;
         }
 
-        if (token.kind == TokenKind::Comma && parenDepth == 0) {
+        if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
             const size_t argumentEndIndex = static_cast<size_t>(std::max(0, token.span.startColumn - 2));
             std::string argumentText = argumentEndIndex >= argumentStartIndex ?
                 text.substr(argumentStartIndex, argumentEndIndex - argumentStartIndex + 1) :
@@ -83,6 +88,28 @@ bool isEndOption(const PrintArgument& argument) {
         argument.tokens[0].kind == TokenKind::Identifier &&
         argument.tokens[0].text == "end" &&
         argument.tokens[1].kind == TokenKind::Equals;
+}
+
+bool looksLikeMissingPrintComma(const PrintArgument& argument) {
+    if (argument.tokens.size() < 2) {
+        return false;
+    }
+
+    for (const Token& token : argument.tokens) {
+        if (token.kind == TokenKind::Identifier && token.text == "in") {
+            return false;
+        }
+        if (token.kind == TokenKind::Operator ||
+            token.kind == TokenKind::LeftParen ||
+            token.kind == TokenKind::RightParen ||
+            token.kind == TokenKind::LeftBracket ||
+            token.kind == TokenKind::RightBracket ||
+            token.kind == TokenKind::Equals) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool parseCallArguments(
@@ -141,6 +168,19 @@ PrintEmitResult emitPrintStatement(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables
 ) {
+    const std::vector<Token> statementTokens = tokenize(statementBody);
+    if (statementTokens.size() >= 2 &&
+        statementTokens[0].kind == TokenKind::Identifier &&
+        statementTokens[0].text == "print" &&
+        statementTokens[1].kind == TokenKind::LeftParen) {
+        for (const Token& token : statementTokens) {
+            if (token.kind == TokenKind::String && isUnterminatedQuotedToken(token)) {
+                recordSourceError(inputFile, lineNumber, token.span.startColumn, "unterminated string literal in print", sourceLines);
+                return {false, "", {}};
+            }
+        }
+    }
+
     std::string printArguments;
     int argumentsStartColumn = 1;
     if (!parseCallArguments(inputFile, lineNumber, sourceLine, statementBody, "print", "unclosed parenthesis in print", sourceLines, printArguments, argumentsStartColumn)) {
@@ -207,6 +247,11 @@ PrintEmitResult emitPrintStatement(
             arguments[i].tokens[0].kind == TokenKind::Identifier &&
             declaredVariables.count(arguments[i].text) == 0) {
             recordSourceError(inputFile, lineNumber, arguments[i].column, "use of undeclared variable '" + arguments[i].text + "'", sourceLines);
+            return {false, "", {}};
+        }
+
+        if (looksLikeMissingPrintComma(arguments[i])) {
+            recordSourceError(inputFile, lineNumber, arguments[i].column, "expected ',' between print arguments", sourceLines);
             return {false, "", {}};
         }
     }
