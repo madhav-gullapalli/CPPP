@@ -108,6 +108,7 @@ const std::map<std::string, TypeInfo>& primitiveTypes() {
         {"int", {"long long", "0"}},
         {"char", {"CPPPChar", "CPPPChar()"}},
         {"float", {"long double", "0.0L"}},
+        {"string", {"vector<CPPPChar>", "{}"}},
     };
 
     return types;
@@ -378,6 +379,23 @@ bool parseTypeAt(
     parsedType.type = rootType;
     parsedType.name = typeName;
     parsedType.nextTokenIndex = startIndex + 1;
+
+    if (typeName == "string") {
+        if (tokens.size() > startIndex + 1 &&
+            tokens[startIndex + 1].kind == TokenKind::Operator &&
+            tokens[startIndex + 1].text == "<") {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[startIndex + 1].span.startColumn,
+                "string expects 0 subtypes",
+                sourceLines
+            );
+            parsedType.ok = false;
+        }
+
+        return true;
+    }
 
     const int arity = primitiveArity(rootType.primitive);
     if (arity == 0) {
@@ -923,6 +941,20 @@ TypeEmitResult emitTypeDeclaration(
                         "unexpected token in list literal",
                         sourceLines
                     );
+                    return {true, false, "", {}};
+                }
+            } else if (valueTokens.size() > 1 &&
+                       valueTokens[0].kind == TokenKind::String &&
+                       isStringType(targetType)) {
+                if (!finishExpressionAssignment(
+                        inputFile,
+                        lineNumber,
+                        assignedValue,
+                        assignedValueColumn,
+                        targetType,
+                        sourceLines,
+                        declaredVariables,
+                        emittedValue)) {
                     return {true, false, "", {}};
                 }
             } else if (shouldParseAsExpression(valueTokens)) {

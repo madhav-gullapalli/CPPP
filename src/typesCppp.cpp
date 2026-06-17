@@ -4,6 +4,7 @@
 
 #include <map>
 #include <set>
+#include <sstream>
 
 std::vector<RuntimeHelper> runtimeHelpers() {
     std::vector<RuntimeHelper> helpers = {
@@ -127,6 +128,43 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPInputFloat("}
         },
         {
+            "CPPPInputString",
+            {
+                "vector<CPPPChar> CPPPInputString() {",
+                "    string value;",
+                "    cin >> value;",
+                "    vector<CPPPChar> result;",
+                "    result.reserve(value.size());",
+                "    for (char ch : value) {",
+                "        result.push_back(CPPPChar(ch));",
+                "    }",
+                "    return result;",
+                "}",
+                "",
+                "vector<CPPPChar> CPPPInputString(long long count) {",
+                "    string value;",
+                "    value.reserve(static_cast<size_t>(max(0LL, count)));",
+                "    cin >> ws;",
+                "    for (long long i = 0; i < count; ++i) {",
+                "        char ch = '\\0';",
+                "        if (!cin.get(ch)) {",
+                "            break;",
+                "        }",
+                "        value.push_back(ch);",
+                "    }",
+                "    vector<CPPPChar> result;",
+                "    result.reserve(value.size());",
+                "    for (char ch : value) {",
+                "        result.push_back(CPPPChar(ch));",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPInputString("}
+        },
+        {
             "CPPPInputList",
             {
                 "template <typename Reader>",
@@ -144,11 +182,53 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPInputList("}
         },
         {
+            "CPPPInputListLine",
+            {
+                "template <typename T>",
+                "vector<T> CPPPInputListLine() {",
+                "    string line;",
+                "    getline(cin >> ws, line);",
+                "    istringstream stream(line);",
+                "    vector<T> values;",
+                "    T value;",
+                "    while (stream >> value) {",
+                "        values.push_back(value);",
+                "    }",
+                "    return values;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPInputListLine<"}
+        },
+        {
+            "CPPPStringLiteral",
+            {
+                "vector<CPPPChar> CPPPStringLiteral(const string& value) {",
+                "    vector<CPPPChar> result;",
+                "    result.reserve(value.size());",
+                "    for (char ch : value) {",
+                "        result.push_back(CPPPChar(ch));",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPStringLiteral("}
+        },
+        {
             "CPPPPrintValue",
             {
                 "template <typename T>",
                 "void CPPPPrintValue(ostream& output, const T& value) {",
                 "    output << value;",
+                "}",
+                "",
+                "void CPPPPrintValue(ostream& output, const vector<CPPPChar>& value) {",
+                "    for (const CPPPChar& ch : value) {",
+                "        output << ch.value;",
+                "    }",
                 "}",
                 "",
                 "template <typename T>",
@@ -164,7 +244,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {},
+            {"CPPPCharCore"},
             {"CPPPPrintValue("}
         }
     };

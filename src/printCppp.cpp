@@ -22,6 +22,34 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+std::string escapeForCppStringLiteral(const std::string& text) {
+    std::string escaped;
+    escaped.reserve(text.size());
+    for (char ch : text) {
+        switch (ch) {
+            case '\\':
+                escaped += "\\\\";
+                break;
+            case '"':
+                escaped += "\\\"";
+                break;
+            case '\n':
+                escaped += "\\n";
+                break;
+            case '\r':
+                escaped += "\\r";
+                break;
+            case '\t':
+                escaped += "\\t";
+                break;
+            default:
+                escaped += ch;
+                break;
+        }
+    }
+    return escaped;
+}
+
 std::vector<PrintArgument> splitPrintArguments(const std::string& text, const std::vector<Token>& tokens, int startColumn) {
     std::vector<PrintArgument> arguments;
     int parenDepth = 0;
@@ -321,28 +349,35 @@ PrintEmitResult emitDescribeStatement(
     }
 
     const std::vector<Token> tokens = tokenize(describeArgument);
-    if (tokens.size() != 2 ||
-        tokens[0].kind != TokenKind::Identifier ||
-        tokens[1].kind != TokenKind::EndOfFile) {
-        recordSourceError(inputFile, lineNumber, argumentStartColumn, "describe requires a single variable", sourceLines);
+    if (tokens.size() == 1 && tokens[0].kind == TokenKind::EndOfFile) {
+        recordSourceError(inputFile, lineNumber, argumentStartColumn, "describe requires a value", sourceLines);
         return {false, "", {}};
     }
 
-    const std::string variableName = tokens[0].text;
-    if (declaredVariables.count(variableName) == 0) {
-        recordSourceError(inputFile, lineNumber, argumentStartColumn, "use of undeclared variable '" + variableName + "'", sourceLines);
+    const ExpressionEmitResult expression = emitExpression(
+        inputFile,
+        lineNumber,
+        describeArgument,
+        argumentStartColumn,
+        sourceLines,
+        declaredVariables
+    );
+    if (!expression.ok) {
         return {false, "", {}};
     }
 
-    const std::string generatedStatement = "    cout << \"" + variableName + ": \" << " + variableName + " << '\\n';";
+    const std::string label = escapeForCppStringLiteral(trim(describeArgument));
+    const std::string generatedStatement =
+        "    { auto __cppp_describe_value = " + expression.generatedExpression +
+        "; cout << \"" + label + ": \"; CPPPPrintValue(cout, __cppp_describe_value); cout << '\\n'; }";
     return {
         true,
         generatedStatement,
         {{
             lineNumber,
             argumentStartColumn,
-            19 + static_cast<int>(variableName.size()),
-            19 + static_cast<int>(variableName.size()) + static_cast<int>(variableName.size()) - 1
+            34,
+            33 + static_cast<int>(expression.generatedExpression.size())
         }}
     };
 }

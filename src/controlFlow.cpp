@@ -78,7 +78,7 @@ std::string trimHeaderPart(const std::string& raw, size_t baseOffset, size_t& of
 }
 
 bool isTypeRootName(const std::string& text) {
-    return text == "bool" || text == "char" || text == "int" || text == "float" || text == "List";
+    return text == "bool" || text == "char" || text == "int" || text == "float" || text == "List" || text == "string";
 }
 
 struct TypeTokenParseResult {

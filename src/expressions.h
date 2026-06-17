@@ -60,6 +60,7 @@ struct InputArgument {
 
 int primitiveArity(PrimitiveType primitive);
 std::string cpppTypeName(const Type& type);
+bool isStringType(const Type& type);
 bool isImplicitlyConvertible(const Type& from, const Type& to);
 std::string castExpressionTo(const std::string& expression, const Type& to);
 std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to);

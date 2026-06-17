@@ -33,15 +33,16 @@ Primitive type errors
 
 primitive type tree
   CP++ stores types internally as a primitive root with a list of subtype
-  children. The current user-facing roots are int, float, char, bool, and
-  List<T>. The primitive roots int, float, char, and bool each expect zero
-  subtypes, while List expects exactly one subtype.
+  children. The current user-facing roots are int, float, char, bool,
+  string, and List<T>. The primitive roots int, float, char, bool, and
+  string each expect zero subtypes, while List expects exactly one subtype.
 
   Example:
     int x;
     float y;
     char c;
     bool ok;
+    string name;
     List<int> values;
     List<List<char>> table;
 
@@ -132,6 +133,26 @@ primitive expects 0 subtypes
   Diagnostic:
     error: int expects 0 subtypes
 
+string type
+  string is a built-in CP++ type that lowers to List<char>. It carries the
+  same List operations such as indexing, slicing, add(...), len(...), in, and
+  find(...), but print(...) displays it as normal text instead of a bracketed
+  char list.
+
+  Example:
+    string s = "hello";
+    s.add('!');
+    print(s);
+
+string expects 0 subtypes
+  string is already a complete type name and does not take generic arguments.
+
+  Example:
+    string<int> s;
+
+  Diagnostic:
+    error: string expects 0 subtypes
+
 List expects 1 subtype
   List is a generic type constructor and must include exactly one element type.
   Write List<int>, List<char>, or a nested form like List<List<int>>.
@@ -181,7 +202,9 @@ true and false literals
 
 empty list literal needs a declared List type
   [] by itself does not carry an element type. Use it in a declaration with a
-  List<T> target such as List<int> values = [].
+  List<T> target such as List<int> values = [], or in another place where the
+  destination List type is already known, such as nested List literals and
+  List.add(...).
 
   Example:
     if ([]) {
@@ -190,16 +213,6 @@ empty list literal needs a declared List type
 
   Diagnostic:
     error: empty list literal needs a declared List type
-
-list literal elements must have a known CP++ type
-  Each list literal element must be a real CP++ value type such as bool, char,
-  int, float, or another List. Unsupported values like strings are rejected.
-
-  Example:
-    List<int> values = ["x"];
-
-  Diagnostic:
-    error: list literal elements must have a known CP++ type
 
 cannot implicitly convert <from> to <to> in list literal
   Each list literal element must match the destination List element type, using
@@ -449,6 +462,19 @@ List printing
     [1, 2]
     [[1], [2, 3]]
 
+string printing
+  print(...) prints string values and string literals as ordinary text, not as
+  bracketed Lists of chars.
+
+  Example:
+    string name = "hi";
+    print(name);
+    print("there");
+
+  Output:
+    hi
+    there
+
 len(list)
   len(list) returns the number of elements in a List as an int.
   It accepts any List expression, including list literals and temporary List
@@ -486,6 +512,17 @@ in operator
 
     List<int> pattern = [2, 3];
     print(pattern in values);
+
+find() on Lists
+  CP++ supports `list.find(x)` to return every zero-based index where `x`
+  appears, and `list.find(sublist)` to return every starting index where the
+  sublist appears. This works with literals and variables, including nested
+  Lists. If there are no matches, the result is an empty List<int>.
+
+  Example:
+    List<int> values = [1, 2, 1, 2];
+    print(values.find(2));
+    print(values.find([1, 2]));
 
 foreach loops
   CP++ supports foreach loops with `for (T x in list) { ... }`. The loop
@@ -579,6 +616,17 @@ cannot check membership of <from> in <List<...>>
 
   Diagnostic:
     error: cannot check membership of float in List<int>
+
+cannot find <from> in <List<...>>
+  find(...) accepts either one element compatible with the List element type,
+  or a sublist of the exact same List type as the receiver.
+
+  Example:
+    List<int> values = [1, 2];
+    print(values.find(1.5));
+
+  Diagnostic:
+    error: cannot find float in List<int>
 
 for-in expects a List value
   A foreach loop must iterate over a List expression.
@@ -775,23 +823,31 @@ empty print
     print();
 
 describe
-  describe prints the variable name followed by its value.
+  describe prints the expression text followed by its value. It accepts any
+  CP++ expression and evaluates it once before printing, so it works for
+  indexing, slicing, find(...), arithmetic, and future expression forms too.
 
   Example:
     int x = 3;
+    List<int> values = [10, 20, 30];
+    string s = "abc";
     describe(x);
+    describe(values[1]);
+    describe(s);
 
   Output:
     x: 3
+    values[1]: 20
+    s: abc
 
-describe requires a single variable
-  describe accepts exactly one variable, not a literal or expression.
+describe requires a value
+  describe needs one expression inside the parentheses.
 
   Example:
-    describe(x + 1);
+    describe();
 
   Diagnostic:
-    error: describe requires a single variable
+    error: describe requires a value
 
 Expression and assignment errors
 --------------------------------
@@ -922,13 +978,18 @@ increment and decrement operators
 
 comparison operators
   <, <=, >, >=, ==, and != are supported for int, float, char, and bool
-  values. int and float values can be compared with each other.
+  values. int and float values can be compared with each other. Lists of the
+  same CP++ type are also comparable in lexicographic order, including nested
+  lists such as List<List<int>>.
 
   Example:
     bool less = 1 < 2;
     bool same = 'A' == 'A';
     float f = 1.5;
     bool lessFloat = f < 2.0;
+    List<int> a = [1];
+    List<int> b = [1, 2];
+    bool shorterFirst = a < b;
 
 cannot use '<operator>' with <left> and <right>
   An operator was used with operand types that CP++ does not support.
@@ -973,10 +1034,12 @@ cannot compare <left> and <right>
   The two operand types cannot be compared by CP++.
 
   Example:
-    bool bad = "x" < 2;
+    List<int> a = [1];
+    List<float> b = [1.0];
+    bool bad = a < b;
 
   Diagnostic:
-    error: cannot compare unknown and int
+    error: cannot compare List<int> and List<float>
 
 Control flow
 ------------
@@ -1128,43 +1191,6 @@ expected 'in' after loop variable
   Diagnostic:
     error: expected 'in' after loop variable
 
-if condition must be bool
-  if and else if conditions must produce bool or a value that can be
-  implicitly converted to bool. int and bigint convert as 0 -> false and
-  nonzero -> true. char converts as '\0' -> false and any other character
-  -> true. float and bigfloat convert as 0 or NaN -> false and any other
-  value -> true.
-
-  Example:
-    if ("not supported") {
-        print(1);
-    }
-
-  Diagnostic:
-    error: if condition must be bool
-
-while condition must be bool
-  while conditions follow the same bool conversion rules as if conditions.
-
-  Example:
-    while ("not supported") {
-        print(1);
-    }
-
-  Diagnostic:
-    error: while condition must be bool
-
-for condition must be bool
-  for loop conditions follow the same bool conversion rules as if conditions.
-
-  Example:
-    for (int i = 0; "bad"; i++) {
-        print(i);
-    }
-
-  Diagnostic:
-    error: for condition must be bool
-
 expected rep count
   rep requires a count expression inside parentheses.
 
@@ -1304,6 +1330,15 @@ list input
     int cols = 3;
     List<List<int>> grid = input(rows, cols);
 
+string input
+  string targets can read either a whitespace-delimited word with input(), or
+  exactly n characters with input(n). string input(n) reads by character
+  rather than by whitespace-delimited element tokens.
+
+  Example:
+    string word = input();
+    string chunk = input(3);
+
 input(count) is only supported for List targets
   Size arguments belong to List input. Scalar targets still use plain input().
 
@@ -1313,14 +1348,30 @@ input(count) is only supported for List targets
   Diagnostic:
     error: input(count) is only supported for List targets
 
-List input needs one size per List dimension, like input(4) or input(rows, cols)
-  A List input call must specify the shape it should read.
+List line input
+  A one-dimensional List target can use input() with no sizes. CP++ reads one
+  whole input line, splits it on whitespace, and stores every parsed element.
 
   Example:
     List<int> values = input();
 
+List input() without sizes only supports one-dimensional Lists; use input(n) or one size per List dimension
+  Nested Lists still need explicit sizes so CP++ knows the shape to read.
+
+  Example:
+    List<List<int>> values = input();
+
   Diagnostic:
-    error: List input needs one size per List dimension, like input(4) or input(rows, cols)
+    error: List input() without sizes only supports one-dimensional Lists; use input(n) or one size per List dimension
+
+string input needs exactly 1 size argument
+  string input with an explicit size accepts exactly one size expression.
+
+  Example:
+    string s = input(2, 3);
+
+  Diagnostic:
+    error: string input needs exactly 1 size argument
 
 List input needs exactly <n> size arguments
   The number of input sizes must match the number of nested List dimensions.

@@ -59,6 +59,10 @@ int primitiveArity(PrimitiveType primitive) {
 }
 
 std::string cpppTypeName(const Type& type) {
+    if (isStringType(type)) {
+        return "string";
+    }
+
     switch (type.primitive) {
         case PrimitiveType::Bool:
             return "bool";
@@ -78,6 +82,12 @@ std::string cpppTypeName(const Type& type) {
     }
 
     return "unknown";
+}
+
+bool isStringType(const Type& type) {
+    return type.primitive == PrimitiveType::List &&
+        type.subtypes.size() == 1 &&
+        type.subtypes[0] == PrimitiveType::Char;
 }
 
 bool isImplicitlyConvertible(const Type& from, const Type& to) {
@@ -168,8 +178,30 @@ Type declaredTypeForName(const std::string& name) {
     if (name == "List") {
         return PrimitiveType::List;
     }
+    if (name == "string") {
+        return Type(PrimitiveType::List, {Type(PrimitiveType::Char)});
+    }
 
     return PrimitiveType::Unknown;
+}
+
+std::string cppTypeForInput(const Type& type) {
+    if (type == PrimitiveType::Bool) {
+        return "bool";
+    }
+    if (type == PrimitiveType::Char) {
+        return "CPPPChar";
+    }
+    if (type == PrimitiveType::Int) {
+        return "long long";
+    }
+    if (type == PrimitiveType::Float) {
+        return "long double";
+    }
+    if (type.primitive == PrimitiveType::List && type.subtypes.size() == 1) {
+        return "vector<" + cppTypeForInput(type.subtypes[0]) + ">";
+    }
+    return "";
 }
 
 bool isInputCall(const std::vector<Token>& tokens) {
@@ -242,6 +274,10 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
 }
 
 std::string inputFunctionForType(const Type& type) {
+    if (isStringType(type)) {
+        return "CPPPInputString()";
+    }
+
     switch (type.primitive) {
         case PrimitiveType::Bool:
             return "CPPPInputBool()";
@@ -274,6 +310,47 @@ bool emitInputCallForType(
         return false;
     }
 
+    if (isStringType(targetType)) {
+        if (arguments.empty()) {
+            emittedExpression = inputFunctionForType(targetType);
+            return true;
+        }
+        if (arguments.size() != 1) {
+            recordSourceError(inputFile, lineNumber, arguments[0].column, "string input needs exactly 1 size argument", sourceLines);
+            return false;
+        }
+
+        const InputArgument& argument = arguments[0];
+        if (argument.text.empty()) {
+            recordSourceError(inputFile, lineNumber, argument.column, "input() size argument cannot be empty", sourceLines);
+            return false;
+        }
+
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            argument.text,
+            argument.column,
+            sourceLines,
+            declaredVariables
+        );
+        if (!expression.ok) {
+            return false;
+        }
+
+        if (!expression.explicitCast && !isImplicitlyConvertible(expression.type, PrimitiveType::Int)) {
+            recordSourceError(inputFile, lineNumber, argument.column, "input() size must be int", sourceLines);
+            return false;
+        }
+
+        std::string emittedSize = expression.generatedExpression;
+        if (!isImplicitlyConvertible(expression.type, PrimitiveType::Int) || expression.type != PrimitiveType::Int) {
+            emittedSize = castExpressionTo(emittedSize, expression.type, PrimitiveType::Int);
+        }
+        emittedExpression = "CPPPInputString(" + emittedSize + ")";
+        return true;
+    }
+
     if (targetType.primitive != PrimitiveType::List) {
         if (!arguments.empty()) {
             recordSourceError(inputFile, lineNumber, arguments[0].column, "input(count) is only supported for List targets", sourceLines);
@@ -286,7 +363,17 @@ bool emitInputCallForType(
 
     const int depth = listDepth(targetType);
     if (arguments.empty()) {
-        recordSourceError(inputFile, lineNumber, inputColumn, "List input needs one size per List dimension, like input(4) or input(rows, cols)", sourceLines);
+        if (depth == 1) {
+            const std::string elementCppType = cppTypeForInput(targetType.subtypes[0]);
+            if (elementCppType.empty()) {
+                recordSourceError(inputFile, lineNumber, inputColumn, "unsupported List input element type", sourceLines);
+                return false;
+            }
+            emittedExpression = "CPPPInputListLine<" + elementCppType + ">()";
+            return true;
+        }
+
+        recordSourceError(inputFile, lineNumber, inputColumn, "List input() without sizes only supports one-dimensional Lists; use input(n) or one size per List dimension", sourceLines);
         return false;
     }
 

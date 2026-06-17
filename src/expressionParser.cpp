@@ -105,8 +105,28 @@ private:
             type == PrimitiveType::Float;
     }
 
+    bool isLexicographicallyComparable(Type type) const {
+        if (isNumericType(type)) {
+            return true;
+        }
+
+        if (!isListType(type)) {
+            return false;
+        }
+
+        return isLexicographicallyComparable(type.subtypes[0]);
+    }
+
     bool isComparable(Type left, Type right) const {
-        return isValueType(left) && isValueType(right);
+        if (!isValueType(left) || !isValueType(right)) {
+            return false;
+        }
+
+        if (isListType(left) || isListType(right)) {
+            return left == right && isLexicographicallyComparable(left);
+        }
+
+        return isNumericType(left) && isNumericType(right);
     }
 
     bool isFloatType(Type type) const {
@@ -163,7 +183,7 @@ private:
                 expr.inferredType = PrimitiveType::Float;
                 break;
             case LiteralExpr::Kind::String:
-                expr.inferredType = PrimitiveType::Unknown;
+                expr.inferredType = declaredTypeForName("string");
                 break;
             case LiteralExpr::Kind::Char:
                 expr.inferredType = PrimitiveType::Char;
@@ -267,8 +287,15 @@ private:
         }
 
         if (expr.op == "==" || expr.op == "!=" || expr.op == "<" || expr.op == "<=" || expr.op == ">" || expr.op == ">=") {
-            if (!isComparable(expr.left->inferredType, expr.right->inferredType)) {
-                report(expr.sourceColumn, "cannot compare " + cpppTypeName(expr.left->inferredType) + " and " + cpppTypeName(expr.right->inferredType));
+            const Type& leftType = expr.left->inferredType;
+            const Type& rightType = expr.right->inferredType;
+            if (leftType.primitive == PrimitiveType::List || rightType.primitive == PrimitiveType::List) {
+                if (leftType != rightType || !isLexicographicallyComparable(leftType)) {
+                    report(expr.sourceColumn, "cannot compare " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType));
+                    return false;
+                }
+            } else if (!isComparable(leftType, rightType)) {
+                report(expr.sourceColumn, "cannot compare " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType));
                 return false;
             }
             expr.inferredType = PrimitiveType::Bool;
@@ -340,6 +367,39 @@ private:
                 }
             }
             expr.inferredType = expr.receiver->inferredType.subtypes[0];
+            return true;
+        }
+
+        if (expr.callee == "find") {
+            if (!expr.receiver ||
+                expr.receiver->inferredType.primitive != PrimitiveType::List ||
+                expr.receiver->inferredType.subtypes.size() != 1) {
+                report(expr.sourceColumn, "find() can only be used on List values");
+                return false;
+            }
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "find() expects exactly one value or sublist");
+                return false;
+            }
+
+            const Type haystackType = expr.receiver->inferredType;
+            const Type elementType = haystackType.subtypes[0];
+            const Type needleType = expr.arguments[0]->inferredType;
+            if (isListType(needleType)) {
+                if (needleType == elementType) {
+                    expr.inferredType = Type(PrimitiveType::List, {Type(PrimitiveType::Int)});
+                    return true;
+                }
+                if (needleType != haystackType) {
+                    report(expr.sourceColumn, "cannot find " + cpppTypeName(needleType) + " in " + cpppTypeName(haystackType));
+                    return false;
+                }
+            } else if (!expr.arguments[0]->explicitCast && !isImplicitlyConvertible(needleType, elementType)) {
+                report(expr.sourceColumn, "cannot find " + cpppTypeName(needleType) + " in " + cpppTypeName(haystackType));
+                return false;
+            }
+
+            expr.inferredType = Type(PrimitiveType::List, {Type(PrimitiveType::Int)});
             return true;
         }
 
@@ -558,8 +618,9 @@ private:
             case LiteralExpr::Kind::Bool:
             case LiteralExpr::Kind::Int:
             case LiteralExpr::Kind::Float:
-            case LiteralExpr::Kind::String:
                 return expr.text;
+            case LiteralExpr::Kind::String:
+                return "CPPPStringLiteral(" + expr.text + ")";
             case LiteralExpr::Kind::Char:
                 return "CPPPChar(" + expr.text + ")";
         }
@@ -640,6 +701,22 @@ private:
                 return "CPPPListRemoveAt(" + receiver + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
             return "([&]() { auto __cppp_removed = (" + receiver + ")[" + index + "]; (" + receiver + ").erase((" + receiver + ").begin() + " + index + "); return __cppp_removed; }())";
+        }
+
+        if (expr.callee == "find") {
+            const std::string receiver = generate(*expr.receiver);
+            const Type haystackType = expr.receiver->inferredType;
+            const Type elementType = haystackType.subtypes[0];
+            const Type needleType = expr.arguments[0]->inferredType;
+            if (isListType(needleType) && needleType == haystackType) {
+                return "CPPPListFindSublist(" + receiver + ", " + generate(*expr.arguments[0]) + ")";
+            }
+
+            std::string needle = generate(*expr.arguments[0]);
+            if (!isImplicitlyConvertible(needleType, elementType) || needleType != elementType) {
+                needle = castExpressionTo(needle, needleType, elementType);
+            }
+            return "CPPPListFindValue(" + receiver + ", " + needle + ")";
         }
 
         if (expr.callee == "min") {
@@ -1009,13 +1086,13 @@ std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr
         return nullptr;
     }
     const Token& method = previous();
-    if (method.text != "remove") {
+    if (method.text != "remove" && method.text != "find") {
         report(method, "unexpected token in expression");
         ok = false;
         return nullptr;
     }
     if (!match(TokenKind::LeftParen)) {
-        report(method, "remove must be called as remove() or remove(index)");
+        report(method, method.text + " must be called with parentheses");
         ok = false;
         return nullptr;
     }
@@ -1024,13 +1101,31 @@ std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr
     if (!match(TokenKind::RightParen)) {
         arguments.push_back(parseExpression(ok));
         if (!ok) return nullptr;
+        while (match(TokenKind::Comma)) {
+            arguments.push_back(parseExpression(ok));
+            if (!ok) return nullptr;
+        }
         if (!match(TokenKind::RightParen)) {
-            report(leftParen, "remove() expects no arguments or index");
+            if (method.text == "remove") {
+                report(leftParen, "remove() expects no arguments or index");
+            } else {
+                report(leftParen, "find() expects exactly one value or sublist");
+            }
             ok = false;
             return nullptr;
         }
     }
-    return std::make_unique<CallExpr>("remove", std::move(expression), std::move(arguments), absoluteColumn(method));
+    if (method.text == "remove" && arguments.size() > 1) {
+        report(leftParen, "remove() expects no arguments or index");
+        ok = false;
+        return nullptr;
+    }
+    if (method.text == "find" && arguments.size() != 1) {
+        report(leftParen, "find() expects exactly one value or sublist");
+        ok = false;
+        return nullptr;
+    }
+    return std::make_unique<CallExpr>(method.text, std::move(expression), std::move(arguments), absoluteColumn(method));
 }
 
 std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {

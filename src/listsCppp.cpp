@@ -13,6 +13,32 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+bool isListType(const Type& type) {
+    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
+}
+
+std::string cppTypeForType(const Type& type) {
+    switch (type.primitive) {
+        case PrimitiveType::Bool:
+            return "bool";
+        case PrimitiveType::Char:
+            return "CPPPChar";
+        case PrimitiveType::Int:
+            return "long long";
+        case PrimitiveType::Float:
+            return "long double";
+        case PrimitiveType::List:
+            if (type.subtypes.size() == 1) {
+                return "vector<" + cppTypeForType(type.subtypes[0]) + ">";
+            }
+            return "";
+        case PrimitiveType::Unknown:
+            return "";
+    }
+
+    return "";
+}
+
 struct ListArgument {
     std::string text;
     int column;
@@ -22,6 +48,7 @@ std::vector<ListArgument> splitListArguments(const std::string& text, int startC
     std::vector<ListArgument> arguments;
     const std::vector<Token> tokens = tokenize(text);
     int parenDepth = 0;
+    int bracketDepth = 0;
     size_t argumentStartIndex = 0;
     int argumentStartColumn = startColumn;
 
@@ -34,7 +61,11 @@ std::vector<ListArgument> splitListArguments(const std::string& text, int startC
             ++parenDepth;
         } else if (token.kind == TokenKind::RightParen && parenDepth > 0) {
             --parenDepth;
-        } else if (token.kind == TokenKind::Comma && parenDepth == 0) {
+        } else if (token.kind == TokenKind::LeftBracket) {
+            ++bracketDepth;
+        } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
+            --bracketDepth;
+        } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
             const size_t endIndex = static_cast<size_t>(token.span.startColumn - 1);
             const std::string rawArgument = text.substr(argumentStartIndex, endIndex - argumentStartIndex);
             const std::string argumentText = trim(rawArgument);
@@ -56,6 +87,225 @@ std::vector<ListArgument> splitListArguments(const std::string& text, int startC
         trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart)
     });
     return arguments;
+}
+
+std::string expressionSliceForTokens(
+    const std::string& text,
+    const std::vector<Token>& tokens,
+    size_t startIndex,
+    size_t endIndex
+) {
+    if (startIndex >= endIndex) {
+        return "";
+    }
+
+    const int startColumn = tokens[startIndex].span.startColumn;
+    const int endColumn = tokens[endIndex - 1].span.endColumn;
+    return trim(text.substr(
+        static_cast<size_t>(startColumn - 1),
+        static_cast<size_t>(endColumn - startColumn + 1)
+    ));
+}
+
+bool emitTypedListLiteralAt(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& valueText,
+    int valueColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>& tokens,
+    size_t& tokenIndex,
+    const Type& targetType,
+    std::string& emittedValue
+) {
+    if (!isListType(targetType)) {
+        return false;
+    }
+
+    if (tokenIndex >= tokens.size() || tokens[tokenIndex].kind != TokenKind::LeftBracket) {
+        return false;
+    }
+
+    const std::string elementCppType = cppTypeForType(targetType.subtypes[0]);
+    if (elementCppType.empty()) {
+        return false;
+    }
+
+    const Token& leftBracket = tokens[tokenIndex];
+    ++tokenIndex;
+    if (tokenIndex < tokens.size() && tokens[tokenIndex].kind == TokenKind::RightBracket) {
+        ++tokenIndex;
+        emittedValue = "vector<" + elementCppType + ">{}";
+        return true;
+    }
+
+    std::vector<std::string> elements;
+    while (tokenIndex < tokens.size() && tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+        std::string emittedElement;
+        const Type& elementType = targetType.subtypes[0];
+        if (isListType(elementType) && tokens[tokenIndex].kind == TokenKind::LeftBracket) {
+            if (!emitTypedListLiteralAt(
+                    inputFile,
+                    lineNumber,
+                    valueText,
+                    valueColumn,
+                    sourceLines,
+                    declaredVariables,
+                    tokens,
+                    tokenIndex,
+                    elementType,
+                    emittedElement)) {
+                return false;
+            }
+        } else {
+            const size_t elementStart = tokenIndex;
+            int parenDepth = 0;
+            int bracketDepth = 0;
+            while (tokenIndex < tokens.size()) {
+                const Token& token = tokens[tokenIndex];
+                if (token.kind == TokenKind::EndOfFile) {
+                    break;
+                }
+                if (token.kind == TokenKind::LeftParen) {
+                    ++parenDepth;
+                } else if (token.kind == TokenKind::RightParen) {
+                    if (parenDepth > 0) {
+                        --parenDepth;
+                    }
+                } else if (token.kind == TokenKind::LeftBracket) {
+                    ++bracketDepth;
+                } else if (token.kind == TokenKind::RightBracket) {
+                    if (bracketDepth == 0 && parenDepth == 0) {
+                        break;
+                    }
+                    if (bracketDepth > 0) {
+                        --bracketDepth;
+                    }
+                } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
+                    break;
+                }
+                ++tokenIndex;
+            }
+
+            const std::string elementText = expressionSliceForTokens(valueText, tokens, elementStart, tokenIndex);
+            if (elementText.empty()) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    valueColumn + leftBracket.span.startColumn - 1,
+                    "expected expression in list literal",
+                    sourceLines
+                );
+                return false;
+            }
+
+            if (isListType(elementType) && tokens[elementStart].kind == TokenKind::LeftBracket) {
+                const std::vector<Token> nestedTokens = tokenize(elementText);
+                size_t nestedTokenIndex = 0;
+                if (emitTypedListLiteralAt(
+                        inputFile,
+                        lineNumber,
+                        elementText,
+                        valueColumn + tokens[elementStart].span.startColumn - 1,
+                        sourceLines,
+                        declaredVariables,
+                        nestedTokens,
+                        nestedTokenIndex,
+                        elementType,
+                        emittedElement)) {
+                    if (nestedTokens[nestedTokenIndex].kind != TokenKind::EndOfFile) {
+                        recordSourceError(
+                            inputFile,
+                            lineNumber,
+                            valueColumn + tokens[elementStart].span.startColumn - 1 + nestedTokens[nestedTokenIndex].span.startColumn - 1,
+                            "unexpected token in list literal",
+                            sourceLines
+                        );
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+            const ExpressionEmitResult expression = emitExpression(
+                inputFile,
+                lineNumber,
+                elementText,
+                valueColumn + tokens[elementStart].span.startColumn - 1,
+                sourceLines,
+                declaredVariables
+            );
+            if (!expression.ok) {
+                return false;
+            }
+
+            if (!expression.explicitCast && !isImplicitlyConvertible(expression.type, elementType)) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    valueColumn + tokens[elementStart].span.startColumn - 1,
+                    "cannot implicitly convert " + cpppTypeName(expression.type) + " to " + cpppTypeName(elementType) + " in list literal",
+                    sourceLines
+                );
+                return false;
+            }
+
+            emittedElement = expression.generatedExpression;
+            if (!isImplicitlyConvertible(expression.type, elementType) || expression.type != elementType) {
+                emittedElement = castExpressionTo(emittedElement, expression.type, elementType);
+            }
+            }
+        }
+
+        elements.push_back(emittedElement);
+
+        if (tokenIndex >= tokens.size()) {
+            break;
+        }
+
+        if (tokens[tokenIndex].kind == TokenKind::Comma) {
+            const Token& comma = tokens[tokenIndex];
+            ++tokenIndex;
+            if (tokenIndex >= tokens.size() ||
+                tokens[tokenIndex].kind == TokenKind::RightBracket ||
+                tokens[tokenIndex].kind == TokenKind::EndOfFile) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    valueColumn + comma.span.startColumn - 1,
+                    "expected expression after ',' in list literal",
+                    sourceLines
+                );
+                return false;
+            }
+            continue;
+        }
+
+        if (tokens[tokenIndex].kind == TokenKind::RightBracket) {
+            ++tokenIndex;
+            emittedValue = "vector<" + elementCppType + ">{";
+            for (size_t i = 0; i < elements.size(); ++i) {
+                if (i > 0) {
+                    emittedValue += ", ";
+                }
+                emittedValue += elements[i];
+            }
+            emittedValue += "}";
+            return true;
+        }
+
+        break;
+    }
+
+    recordSourceError(
+        inputFile,
+        lineNumber,
+        valueColumn + leftBracket.span.startColumn - 1,
+        "unclosed bracket in list literal",
+        sourceLines
+    );
+    return false;
 }
 }
 
@@ -216,6 +466,68 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             {"CPPPListContainsSublist("}
         },
         {
+            "CPPPListFindValue",
+            {
+                "template <typename T, typename U>",
+                "vector<long long> CPPPListFindValue(const vector<T>& haystack, const U& needle) {",
+                "    vector<long long> matches;",
+                "    for (size_t i = 0; i < haystack.size(); ++i) {",
+                "        if (haystack[i] == needle) {",
+                "            matches.push_back(static_cast<long long>(i));",
+                "        }",
+                "    }",
+                "    return matches;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListFindValue("}
+        },
+        {
+            "CPPPListFindSublist",
+            {
+                "template <typename T>",
+                "vector<long long> CPPPListFindSublist(const vector<T>& haystack, const vector<T>& needle) {",
+                "    vector<long long> matches;",
+                "    if (needle.empty()) {",
+                "        for (size_t i = 0; i <= haystack.size(); ++i) {",
+                "            matches.push_back(static_cast<long long>(i));",
+                "        }",
+                "        return matches;",
+                "    }",
+                "    if (needle.size() > haystack.size()) {",
+                "        return matches;",
+                "    }",
+                "    vector<size_t> prefix(needle.size(), 0);",
+                "    for (size_t i = 1, matched = 0; i < needle.size(); ++i) {",
+                "        while (matched > 0 && needle[i] != needle[matched]) {",
+                "            matched = prefix[matched - 1];",
+                "        }",
+                "        if (needle[i] == needle[matched]) {",
+                "            ++matched;",
+                "        }",
+                "        prefix[i] = matched;",
+                "    }",
+                "    for (size_t i = 0, matched = 0; i < haystack.size(); ++i) {",
+                "        while (matched > 0 && haystack[i] != needle[matched]) {",
+                "            matched = prefix[matched - 1];",
+                "        }",
+                "        if (haystack[i] == needle[matched]) {",
+                "            ++matched;",
+                "            if (matched == needle.size()) {",
+                "                matches.push_back(static_cast<long long>(i + 1 - matched));",
+                "                matched = prefix[matched - 1];",
+                "            }",
+                "        }",
+                "    }",
+                "    return matches;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListFindSublist("}
+        },
+        {
             "CPPPListMin",
             {
                 "template <typename T>",
@@ -343,32 +655,64 @@ ListEmitResult emitListStatement(
             }
         }
 
-        const ExpressionEmitResult value = emitExpression(
-            inputFile,
-            lineNumber,
-            arguments[0].text,
-            arguments[0].column,
-            sourceLines,
-            declaredVariables
-        );
-        if (!value.ok) {
-            return {true, false, "", {}};
-        }
-
-        if (!value.explicitCast && !isImplicitlyConvertible(value.type, elementType)) {
-            recordSourceError(
+        std::string emittedValue;
+        const std::vector<Token> valueTokens = tokenize(arguments[0].text);
+        size_t listTokenIndex = 0;
+        if (valueTokens.size() > 1 &&
+            valueTokens[0].kind == TokenKind::LeftBracket &&
+            isListType(elementType)) {
+            if (!emitTypedListLiteralAt(
                 inputFile,
                 lineNumber,
+                arguments[0].text,
                 arguments[0].column,
-                "cannot add " + cpppTypeName(value.type) + " to " + cpppTypeName(variable->second),
-                sourceLines
-            );
-            return {true, false, "", {}};
-        }
+                sourceLines,
+                declaredVariables,
+                valueTokens,
+                listTokenIndex,
+                elementType,
+                emittedValue)) {
+                return {true, false, "", {}};
+            }
 
-        std::string emittedValue = value.generatedExpression;
-        if (!isImplicitlyConvertible(value.type, elementType) || value.type != elementType) {
-            emittedValue = castExpressionTo(emittedValue, value.type, elementType);
+            if (valueTokens[listTokenIndex].kind != TokenKind::EndOfFile) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    arguments[0].column + valueTokens[listTokenIndex].span.startColumn - 1,
+                    "unexpected token in list literal",
+                    sourceLines
+                );
+                return {true, false, "", {}};
+            }
+        } else {
+            const ExpressionEmitResult value = emitExpression(
+                inputFile,
+                lineNumber,
+                arguments[0].text,
+                arguments[0].column,
+                sourceLines,
+                declaredVariables
+            );
+            if (!value.ok) {
+                return {true, false, "", {}};
+            }
+
+            if (!value.explicitCast && !isImplicitlyConvertible(value.type, elementType)) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    arguments[0].column,
+                    "cannot add " + cpppTypeName(value.type) + " to " + cpppTypeName(variable->second),
+                    sourceLines
+                );
+                return {true, false, "", {}};
+            }
+
+            emittedValue = value.generatedExpression;
+            if (!isImplicitlyConvertible(value.type, elementType) || value.type != elementType) {
+                emittedValue = castExpressionTo(emittedValue, value.type, elementType);
+            }
         }
 
         if (arguments.size() == 1) {
