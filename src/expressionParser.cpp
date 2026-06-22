@@ -418,8 +418,8 @@ private:
                 return true;
             } else {
                 for(unsigned int i = 0;i<expr.arguments.size();i++){
-                    if(!isComparable(expr.arguments[i]->inferredType.primitive, expr.arguments[0] -> inferredType.primitive)){
-                        report(expr.sourceColumn, expr.callee + "() expects all items in sequence to be comparable");
+                    if (expr.arguments[i]->inferredType != expr.arguments[0]->inferredType){
+                        report(expr.sourceColumn, expr.callee + "() expects all items in sequence to be of same type");
                         return false;
                     }
                 }
