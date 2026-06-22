@@ -694,14 +694,14 @@ cannot take min/max of single non-list item
   Diagnostic:
     error: max() expects a List value, or a list of multiples values of the same type
 
-cannot take min/max of a seqwuence of mixed type
-  Types must not be mixed  in a sequence passed to max or min.
+cannot take min/max of a seqwuence of noncomparable type
+  Noncomparable types must not be mixed  in a sequence passed to max or min.
 
   Example:
-    print(min(1,2,2.2));
+    print(min(1,2,"x"));
 
   Diagnostic:
-    error: min() expects all items in sequence to be of same type
+    error: min() expects all items in sequence to be comparable
 
 char values must be a single character in single quotes
   char literals must use single quotes and contain exactly one character.
