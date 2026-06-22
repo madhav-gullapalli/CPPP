@@ -404,19 +404,43 @@ private:
         }
 
         if (expr.callee == "min" || expr.callee == "max") {
+            if(expr.arguments.size() == 0) {
+                report(expr.sourceColumn, expr.callee + "() must take in some values");
+                    return false;
+            }
+            if (expr.arguments.size() == 1) {
+                if (expr.arguments[0]->inferredType.primitive != PrimitiveType::List ||
+                    expr.arguments[0]->inferredType.subtypes.size() != 1) {
+                    report(expr.sourceColumn, expr.callee + "() expects a List value, or a list of multiples values of the same type");
+                    return false;
+                }
+                expr.inferredType = expr.arguments[0]->inferredType.subtypes[0];
+                return true;
+            } else {
+                for(unsigned int i = 0;i<expr.arguments.size();i++){
+                    if(expr.arguments[i]->inferredType.primitive != expr.arguments[0] -> inferredType.primitive){
+                        report(expr.sourceColumn, expr.callee + "() expects all items in sequence to be of same type");
+                        return false;
+                    }
+                }
+                expr.inferredType = expr.arguments[0]->inferredType;
+                return true;
+            }
+            
+        }
+        if (expr.callee == "abs") {
             if (expr.arguments.size() != 1) {
-                report(expr.sourceColumn, expr.callee + " must be called as " + expr.callee + "(list)");
+                report(expr.sourceColumn, expr.callee + " must be called as " + expr.callee + "(num)");
                 return false;
             }
-            if (expr.arguments[0]->inferredType.primitive != PrimitiveType::List ||
-                expr.arguments[0]->inferredType.subtypes.size() != 1) {
-                report(expr.sourceColumn, expr.callee + "() expects a List value");
+            if (expr.arguments[0]->inferredType.primitive != PrimitiveType::Int &&
+            expr.arguments[0]->inferredType.primitive != PrimitiveType::Float) {
+                report(expr.sourceColumn, expr.callee + "() expects a Numeric value");
                 return false;
             }
-            expr.inferredType = expr.arguments[0]->inferredType.subtypes[0];
+            expr.inferredType = expr.arguments[0]->inferredType;
             return true;
         }
-
         if (expr.callee == "sum") {
             if (expr.arguments.size() != 1) {
                 report(expr.sourceColumn, "sum must be called as sum(list)");
@@ -720,21 +744,48 @@ private:
         }
 
         if (expr.callee == "min") {
+            if(expr.arguments.size() == 1){
             const std::string list = generate(*expr.arguments[0]);
-            if (emitRuntimeChecks) {
-                return "CPPPListMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                if (emitRuntimeChecks) {
+                    return "CPPPListMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                }
+                return "([&]() { auto __cppp_list = " + list + "; return *min_element(__cppp_list.begin(), __cppp_list.end()); }())";
+            } else {
+                std::string retLine = "min(";
+                for(unsigned int i = 0;i<expr.arguments.size() - 2;i++){
+                    retLine += generate(*expr.arguments[i]) + ",min(";
+                }
+                retLine += generate(*expr.arguments[expr.arguments.size() - 2]) + "," + generate(*expr.arguments[expr.arguments.size() - 1]);
+                for(unsigned int i = 1;i<expr.arguments.size();i++){
+                    retLine += ")";
+                }
+                return retLine;
             }
-            return "([&]() { auto __cppp_list = " + list + "; return *min_element(__cppp_list.begin(), __cppp_list.end()); }())";
         }
 
         if (expr.callee == "max") {
-            const std::string list = generate(*expr.arguments[0]);
-            if (emitRuntimeChecks) {
-                return "CPPPListMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            if(expr.arguments.size() == 1){
+                const std::string list = generate(*expr.arguments[0]);
+                if (emitRuntimeChecks) {
+                    return "CPPPListMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                }
+                return "([&]() { auto __cppp_list = " + list + "; return *max_element(__cppp_list.begin(), __cppp_list.end()); }())";
+            } else {
+                std::string retLine = "max(";
+                for(unsigned int i = 0;i<expr.arguments.size() - 2;i++){
+                    retLine += generate(*expr.arguments[i]) + ",max(";
+                }
+                retLine += generate(*expr.arguments[expr.arguments.size() - 2]) + "," + generate(*expr.arguments[expr.arguments.size() - 1]);
+                for(unsigned int i = 1;i<expr.arguments.size();i++){
+                    retLine += ")";
+                }
+                return retLine;
             }
-            return "([&]() { auto __cppp_list = " + list + "; return *max_element(__cppp_list.begin(), __cppp_list.end()); }())";
         }
-
+        if (expr.callee == "abs"){
+            const std::string num = generate(*expr.arguments[0]);
+            return "abs(" + num + ")";
+        }
         if (expr.callee == "sum") {
             const std::string list = generate(*expr.arguments[0]);
             const Type elementType = expr.arguments[0]->inferredType.subtypes[0];
@@ -1165,7 +1216,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             }
             return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier));
         }
-        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum") {
+        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum"||identifier.text == "abs") {
             if (!match(TokenKind::LeftParen)) {
                 report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
                 ok = false;

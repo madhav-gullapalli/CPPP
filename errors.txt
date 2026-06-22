@@ -685,6 +685,24 @@ cannot take max of empty list
   Diagnostic:
     error: runtime error: cannot take max of empty list
 
+cannot take min/max of single non-list item
+  If min/max has one argument it must be a single list.
+
+  Example:
+    print(max(7));
+
+  Diagnostic:
+    error: max() expects a List value, or a list of multiples values of the same type
+
+cannot take min/max of a seqwuence of mixed type
+  Types must not be mixed  in a sequence passed to max or min.
+
+  Example:
+    print(min(1,2,2.2));
+
+  Diagnostic:
+    error: min() expects all items in sequence to be of same type
+
 char values must be a single character in single quotes
   char literals must use single quotes and contain exactly one character.
 
@@ -1509,3 +1527,14 @@ semicolon-separated statements
 
   Example:
     int a = 0; int b = 1; print(a,b);
+
+Absolute value
+---------------------------------
+
+Absolute value must take in numeric values:
+
+Example:
+  int y = abs('o');
+
+Diagnostic:
+  error: abs() expects a Numeric value
