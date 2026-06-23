@@ -237,8 +237,23 @@ run_program_ok "$nested_list_in_case" "$LOG_DIR/nested_list_in.log" "nested list
 assert_contains "$LOG_DIR/nested_list_in.log" "1" "nested list membership output"
 pass "list membership against List<List<T>> is preserved"
 
-"$PYTHON_CMD" tests/errors_coverage.py
-pass "errors.txt documented examples are covered"
+catalog_failed=0
+
+if "$PYTHON_CMD" tests/errors_coverage.py correct.txt; then
+    pass "correct.txt documented examples are covered"
+else
+    catalog_failed=1
+fi
+
+if "$PYTHON_CMD" tests/errors_coverage.py errors.txt; then
+    pass "errors.txt documented examples are covered"
+else
+    catalog_failed=1
+fi
+
+if [[ "$catalog_failed" -ne 0 ]]; then
+    fail "documented example coverage"
+fi
 
 echo
 echo "All CP++ regression tests passed."
