@@ -1,6 +1,7 @@
 #include "expressions.h"
 
 #include "expressionParser.h"
+#include "typesCppp.h"
 
 namespace {
 bool& expressionRuntimeChecksEnabled() {
@@ -37,6 +38,7 @@ std::string emitListInputExpression(
         return inputFunctionForType(currentType);
     }
 
+    requireRuntimeHelper("CPPPInputList");
     const std::string elementExpression = emitListInputExpression(currentType.subtypes[0], dimensions, dimensionIndex + 1);
     return "CPPPInputList(" + dimensions[dimensionIndex] + ", [&]() { return " + elementExpression + "; })";
 }
@@ -135,20 +137,27 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
         case PrimitiveType::Bool:
             switch (from.primitive) {
                 case PrimitiveType::Bool:
+                    requireRuntimeHelper("CPPPToBoolBool");
                     return "CPPPToBoolBool(" + expression + ")";
                 case PrimitiveType::Char:
+                    requireRuntimeHelper("CPPPToBoolChar");
                     return "CPPPToBoolChar(" + expression + ")";
                 case PrimitiveType::Int:
+                    requireRuntimeHelper("CPPPToBoolInt");
                     return "CPPPToBoolInt(" + expression + ")";
                 case PrimitiveType::Float:
+                    requireRuntimeHelper("CPPPToBoolFloat");
                     return "CPPPToBoolFloat(" + expression + ")";
                 case PrimitiveType::List:
                     return "(!(" + expression + ").empty())";
                 case PrimitiveType::Unknown:
+                    requireRuntimeHelper("CPPPToBoolFallback");
                     return "CPPPToBool(" + expression + ")";
             }
+            requireRuntimeHelper("CPPPToBoolFallback");
             return "CPPPToBool(" + expression + ")";
         case PrimitiveType::Char:
+            requireRuntimeHelper("CPPPCharCore");
             return "CPPPChar(static_cast<char>(" + expression + "))";
         case PrimitiveType::Int:
             return "static_cast<long long>(" + expression + ")";
@@ -275,17 +284,22 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
 
 std::string inputFunctionForType(const Type& type) {
     if (isStringType(type)) {
+        requireRuntimeHelper("CPPPInputString");
         return "CPPPInputString()";
     }
 
     switch (type.primitive) {
         case PrimitiveType::Bool:
+            requireRuntimeHelper("CPPPInputBool");
             return "CPPPInputBool()";
         case PrimitiveType::Char:
+            requireRuntimeHelper("CPPPInputChar");
             return "CPPPInputChar()";
         case PrimitiveType::Int:
+            requireRuntimeHelper("CPPPInputInt");
             return "CPPPInputInt()";
         case PrimitiveType::Float:
+            requireRuntimeHelper("CPPPInputFloat");
             return "CPPPInputFloat()";
         case PrimitiveType::List:
         case PrimitiveType::Unknown:
@@ -347,6 +361,7 @@ bool emitInputCallForType(
         if (!isImplicitlyConvertible(expression.type, PrimitiveType::Int) || expression.type != PrimitiveType::Int) {
             emittedSize = castExpressionTo(emittedSize, expression.type, PrimitiveType::Int);
         }
+        requireRuntimeHelper("CPPPInputString");
         emittedExpression = "CPPPInputString(" + emittedSize + ")";
         return true;
     }
@@ -369,6 +384,7 @@ bool emitInputCallForType(
                 recordSourceError(inputFile, lineNumber, inputColumn, "unsupported List input element type", sourceLines);
                 return false;
             }
+            requireRuntimeHelper("CPPPInputListLine");
             emittedExpression = "CPPPInputListLine<" + elementCppType + ">()";
             return true;
         }

@@ -1,5 +1,7 @@
 #include "expressionParser.h"
 
+#include "typesCppp.h"
+
 #include <memory>
 
 namespace {
@@ -644,8 +646,10 @@ private:
             case LiteralExpr::Kind::Float:
                 return expr.text;
             case LiteralExpr::Kind::String:
+                requireRuntimeHelper("CPPPStringLiteral");
                 return "CPPPStringLiteral(" + expr.text + ")";
             case LiteralExpr::Kind::Char:
+                requireRuntimeHelper("CPPPCharCore");
                 return "CPPPChar(" + expr.text + ")";
         }
         return expr.text;
@@ -678,6 +682,7 @@ private:
                 if (expr.left->inferredType != expr.right->inferredType) {
                     return "false";
                 }
+                requireRuntimeHelper("CPPPListContainsSublist");
                 return "CPPPListContainsSublist(" + right + ", " + left + ")";
             }
             const Type elementType = expr.right->inferredType.subtypes[0];
@@ -708,10 +713,11 @@ private:
             return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
         }
 
-        if (expr.callee == "remove") {
+            if (expr.callee == "remove") {
             const std::string receiver = generate(*expr.receiver);
             if (expr.arguments.empty()) {
                 if (emitRuntimeChecks) {
+                    requireRuntimeHelper("CPPPListPop");
                     return "CPPPListPop(" + receiver + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                 }
                 return "([&]() { auto __cppp_removed = (" + receiver + ").back(); (" + receiver + ").pop_back(); return __cppp_removed; }())";
@@ -722,6 +728,7 @@ private:
                 index = castExpressionTo(index, expr.arguments[0]->inferredType, PrimitiveType::Int);
             }
             if (emitRuntimeChecks) {
+                requireRuntimeHelper("CPPPListRemoveAt");
                 return "CPPPListRemoveAt(" + receiver + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
             return "([&]() { auto __cppp_removed = (" + receiver + ")[" + index + "]; (" + receiver + ").erase((" + receiver + ").begin() + " + index + "); return __cppp_removed; }())";
@@ -733,6 +740,7 @@ private:
             const Type elementType = haystackType.subtypes[0];
             const Type needleType = expr.arguments[0]->inferredType;
             if (isListType(needleType) && needleType == haystackType) {
+                requireRuntimeHelper("CPPPListFindSublist");
                 return "CPPPListFindSublist(" + receiver + ", " + generate(*expr.arguments[0]) + ")";
             }
 
@@ -740,6 +748,7 @@ private:
             if (!isImplicitlyConvertible(needleType, elementType) || needleType != elementType) {
                 needle = castExpressionTo(needle, needleType, elementType);
             }
+            requireRuntimeHelper("CPPPListFindValue");
             return "CPPPListFindValue(" + receiver + ", " + needle + ")";
         }
 
@@ -747,6 +756,7 @@ private:
             if(expr.arguments.size() == 1){
             const std::string list = generate(*expr.arguments[0]);
                 if (emitRuntimeChecks) {
+                    requireRuntimeHelper("CPPPListMin");
                     return "CPPPListMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                 }
                 return "([&]() { auto __cppp_list = " + list + "; return *min_element(__cppp_list.begin(), __cppp_list.end()); }())";
@@ -767,6 +777,7 @@ private:
             if(expr.arguments.size() == 1){
                 const std::string list = generate(*expr.arguments[0]);
                 if (emitRuntimeChecks) {
+                    requireRuntimeHelper("CPPPListMax");
                     return "CPPPListMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                 }
                 return "([&]() { auto __cppp_list = " + list + "; return *max_element(__cppp_list.begin(), __cppp_list.end()); }())";
@@ -800,6 +811,7 @@ private:
         const std::string base = generate(*expr.base);
         const std::string index = generate(*expr.index);
         if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListAt");
             return "CPPPListAt(" + base + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
         }
         return "([&]() { const auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + index + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return (__cppp_list[__cppp_index]); }())";
@@ -810,6 +822,7 @@ private:
         const std::string start = generate(*expr.start);
         const std::string end = generate(*expr.end);
         if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListSlice");
             return "CPPPListSlice(" + base + ", " + start + ", " + end + ")";
         }
         return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";

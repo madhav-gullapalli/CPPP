@@ -2,6 +2,7 @@
 
 #include "expressions.h"
 #include "tokenizer.h"
+#include "typesCppp.h"
 
 #include <algorithm>
 
@@ -310,6 +311,7 @@ PrintEmitResult emitPrintStatement(
 
         const bool listArgument = isListType(expression.type);
         if (listArgument) {
+            requireRuntimeHelper("CPPPPrintValue");
             generatedStatement += "CPPPPrintValue(cout, ";
         } else {
             generatedStatement += "cout << ";
@@ -367,6 +369,7 @@ PrintEmitResult emitDescribeStatement(
     }
 
     const std::string label = escapeForCppStringLiteral(trim(describeArgument));
+    requireRuntimeHelper("CPPPPrintValue");
     const std::string generatedStatement =
         "    { auto __cppp_describe_value = " + expression.generatedExpression +
         "; cout << \"" + label + ": \"; CPPPPrintValue(cout, __cppp_describe_value); cout << '\\n'; }";

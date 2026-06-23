@@ -1187,6 +1187,18 @@ missing '{' after for loop
   Diagnostic:
     error: missing '{' after for loop
 
+for loop variable scope
+  A variable declared in a classic for-loop initializer belongs to that loop's
+  scope, so a later loop may reuse the same name.
+
+  Example:
+    for (int i = 0; i < 3; i++) {
+        print(i);
+    }
+    for (int i = 0; i < 2; i++) {
+        print(i);
+    }
+
 for loop must use syntax for (init; condition; step)
   A classic for loop needs exactly two top-level semicolons inside the header.
 
@@ -1481,7 +1493,9 @@ lexer whitespace
   tokens.
 
   Example:
-    int x=8;
+    int x
+    =8
+    ;
     int y=2;
     int z=(x+y)*3/2%7;
     print(z);

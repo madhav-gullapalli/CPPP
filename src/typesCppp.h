@@ -4,6 +4,7 @@
 #include "expressions.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -23,7 +24,10 @@ struct RuntimeHelper {
 
 std::vector<RuntimeHelper> runtimeHelpers();
 std::vector<std::string> typeSupportPreamble();
-std::vector<std::string> typeSupportPreambleForSubmit(const std::string& generatedProgramText);
+std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string>& requiredHelpers);
+void clearRequiredRuntimeHelpers();
+void requireRuntimeHelper(const std::string& helperName);
+const std::set<std::string>& requiredRuntimeHelpers();
 
 TypeEmitResult emitTypeDeclaration(
     const std::string& inputFile,

@@ -6,6 +6,13 @@
 #include <set>
 #include <sstream>
 
+namespace {
+std::set<std::string>& runtimeRequirementSet() {
+    static std::set<std::string> helpers;
+    return helpers;
+}
+}
+
 std::vector<RuntimeHelper> runtimeHelpers() {
     std::vector<RuntimeHelper> helpers = {
         {
@@ -262,30 +269,32 @@ std::vector<std::string> typeSupportPreamble() {
     return preamble;
 }
 
-std::vector<std::string> typeSupportPreambleForSubmit(const std::string& generatedProgramText) {
+void clearRequiredRuntimeHelpers() {
+    runtimeRequirementSet().clear();
+}
+
+void requireRuntimeHelper(const std::string& helperName) {
+    runtimeRequirementSet().insert(helperName);
+}
+
+const std::set<std::string>& requiredRuntimeHelpers() {
+    return runtimeRequirementSet();
+}
+
+std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string>& requiredHelpers) {
     const std::vector<RuntimeHelper> helpers = runtimeHelpers();
     std::map<std::string, RuntimeHelper> helpersByName;
     for (const RuntimeHelper& helper : helpers) {
         helpersByName[helper.name] = helper;
     }
 
-    std::set<std::string> requiredHelpers;
-    std::vector<std::string> worklist;
-    for (const RuntimeHelper& helper : helpers) {
-        for (const std::string& trigger : helper.triggers) {
-            if (generatedProgramText.find(trigger) != std::string::npos) {
-                if (requiredHelpers.insert(helper.name).second) {
-                    worklist.push_back(helper.name);
-                }
-                break;
-            }
-        }
-    }
+    std::set<std::string> resolvedHelpers = requiredHelpers;
+    std::vector<std::string> worklist(requiredHelpers.begin(), requiredHelpers.end());
 
     for (size_t i = 0; i < worklist.size(); ++i) {
         const RuntimeHelper& helper = helpersByName.at(worklist[i]);
         for (const std::string& dep : helper.deps) {
-            if (requiredHelpers.insert(dep).second) {
+            if (resolvedHelpers.insert(dep).second) {
                 worklist.push_back(dep);
             }
         }
@@ -293,7 +302,7 @@ std::vector<std::string> typeSupportPreambleForSubmit(const std::string& generat
 
     std::vector<std::string> preamble;
     for (const RuntimeHelper& helper : helpers) {
-        if (requiredHelpers.count(helper.name) == 0) {
+        if (resolvedHelpers.count(helper.name) == 0) {
             continue;
         }
 

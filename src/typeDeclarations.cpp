@@ -122,6 +122,20 @@ bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+bool needsCharRuntimeHelper(const Type& type) {
+    if (type == PrimitiveType::Char) {
+        return true;
+    }
+
+    for (const Type& subtype : type.subtypes) {
+        if (needsCharRuntimeHelper(subtype)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 TypeInfo typeInfoFor(const Type& type) {
     if (type.primitive == PrimitiveType::List && type.subtypes.size() == 1) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
@@ -1055,6 +1069,10 @@ TypeEmitResult emitTypeDeclaration(
 
     for (const DeclaredName& variable : variables) {
         declaredVariables[variable.name] = targetType;
+    }
+
+    if (needsCharRuntimeHelper(targetType)) {
+        requireRuntimeHelper("CPPPCharCore");
     }
 
     return {

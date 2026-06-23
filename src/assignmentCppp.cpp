@@ -2,6 +2,7 @@
 
 #include "expressions.h"
 #include "tokenizer.h"
+#include "typesCppp.h"
 
 namespace {
 struct AssignmentTarget {
@@ -335,6 +336,9 @@ AssignmentEmitResult emitAssignmentStatement(
             emittedExpression = castExpressionTo(emittedExpression, expression.type, elementType);
         }
 
+        if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListSet");
+        }
         const std::string generatedStatement = emitRuntimeChecks
             ? "    CPPPListSet(" + indexedTarget.name + ", " + emittedIndex + ", " + emittedExpression + ", " + std::to_string(lineNumber) + ", " + std::to_string(indexedTarget.indexColumn) + ");"
             : "    " + indexedTarget.name + "[" + emittedIndex + "] = " + emittedExpression + ";";

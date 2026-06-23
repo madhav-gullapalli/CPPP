@@ -757,6 +757,9 @@ ListEmitResult emitListStatement(
             emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
         }
 
+        if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListInsert");
+        }
         const std::string generatedStatement = emitRuntimeChecks
             ? "    CPPPListInsert(" + variableName + ", " + emittedValue + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[1].column) + ");"
             : "    " + variableName + ".insert(" + variableName + ".begin() + " + emittedIndex + ", " + emittedValue + ");";
@@ -775,6 +778,9 @@ ListEmitResult emitListStatement(
     }
 
     if (arguments.size() == 1 && arguments[0].text.empty()) {
+        if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListPop");
+        }
         const std::string generatedStatement = emitRuntimeChecks
             ? "    CPPPListPop(" + variableName + ", " + std::to_string(lineNumber) + ", " + std::to_string(tokens[2].span.startColumn) + ");"
             : "    " + variableName + ".pop_back();";
@@ -836,6 +842,9 @@ ListEmitResult emitListStatement(
         emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
     }
 
+    if (emitRuntimeChecks) {
+        requireRuntimeHelper("CPPPListRemoveAt");
+    }
     const std::string generatedStatement = emitRuntimeChecks
         ? "    CPPPListRemoveAt(" + variableName + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"
         : "    " + variableName + ".erase(" + variableName + ".begin() + " + emittedIndex + ");";

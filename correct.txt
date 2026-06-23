@@ -1,0 +1,1614 @@
+CP++ Correctness Documentation
+==============================
+
+This file documents correctly written CP++ programs and snippets that should
+compile or run successfully.
+
+Declarations
+------------
+
+primitive int declaration
+  int declarations compile.
+
+  Example:
+    int x = 3;
+
+primitive float declaration
+  float declarations compile.
+
+  Example:
+    float x = 2.5;
+
+primitive char declaration
+  char declarations compile.
+
+  Example:
+    char c = 'x';
+
+primitive bool declaration
+  bool declarations compile.
+
+  Example:
+    bool ok = true;
+
+string declaration
+  string declarations compile.
+
+  Example:
+    string s = "hello";
+
+list int declaration
+  List<int> declarations compile.
+
+  Example:
+    List<int> values;
+
+nested list declaration
+  Nested Lists compile.
+
+  Example:
+    List<List<int>> grid;
+
+multiple declarations
+  Multiple variables may be declared together.
+
+  Example:
+    int a,b = 1,2;
+
+int reassignment
+  ints may be reassigned.
+
+  Example:
+    int x = 1;
+    x = 2;
+
+float reassignment
+  floats may be reassigned.
+
+  Example:
+    float x = 1.0;
+    x = 2.5;
+
+bool reassignment
+  bools may be reassigned.
+
+  Example:
+    bool ok = false;
+    ok = true;
+
+string reassignment
+  strings may be reassigned.
+
+  Example:
+    string s = "a";
+    s = "b";
+
+arithmetic assignment
+  arithmetic expressions may initialize ints.
+
+  Example:
+    int x = 1 + 2 * 3;
+
+cast assignment
+  explicit casts compile.
+
+  Example:
+    int x = 65;
+    char c = (char)x;
+
+default values output
+  Declarations use CP++ defaults.
+
+  Example:
+    int x;
+    float y;
+    bool ok;
+    print(x, y, ok);
+
+  Output:
+    0 0 0
+
+Lists
+-----
+
+list int literal
+  List literals compile.
+
+  Example:
+    List<int> values = [1, 2, 3];
+
+nested list literal
+  Nested list literals compile.
+
+  Example:
+    List<List<int>> grid = [[1, 2], [3]];
+
+typed empty list
+  Typed empty lists compile.
+
+  Example:
+    List<int> values = [];
+
+list concatenation
+  Lists may be concatenated with +.
+
+  Example:
+    List<int> a = [1];
+    List<int> b = [2, 3];
+    List<int> both = a + b;
+
+list append assignment
+  Lists may be appended with +=.
+
+  Example:
+    List<int> a = [1];
+    List<int> b = [2, 3];
+    a += b;
+
+list indexed assignment
+  List elements may be reassigned.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[1] = 9;
+
+list add append
+  add(value) appends.
+
+  Example:
+    List<int> values;
+    values.add(4);
+
+list add insert
+  add(value, index) inserts.
+
+  Example:
+    List<int> values = [1, 3];
+    values.add(2, 1);
+
+nested list add
+  Nested Lists accept nested literals in add.
+
+  Example:
+    List<List<int>> grid;
+    grid.add([]);
+
+list remove last
+  remove() pops the last element.
+
+  Example:
+    List<int> values = [1, 2];
+    values.remove();
+
+list remove at index
+  remove(index) removes an element.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values.remove(1);
+
+list truthiness variable
+  Lists are truthy when nonempty.
+
+  Example:
+    List<int> values = [1];
+    if (values) {
+        print("yes");
+    }
+
+  Output:
+    yes
+
+list truthiness literal
+  Nonempty list literals are truthy.
+
+  Example:
+    if ([1]) {
+        print("yes");
+    }
+
+  Output:
+    yes
+
+len list
+  len(list) returns the size.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    print(len(values));
+
+  Output:
+    3
+
+list indexing positive
+  Positive list indexing works.
+
+  Example:
+    List<int> values = [4, 5, 6];
+    print(values[1]);
+
+  Output:
+    5
+
+list indexing negative
+  Negative list indexing works.
+
+  Example:
+    List<int> values = [4, 5, 6];
+    print(values[-1]);
+
+  Output:
+    6
+
+list slice middle
+  List slices return a new List.
+
+  Example:
+    List<int> values = [1, 2, 3, 4];
+    print(values[1:3]);
+
+  Output:
+    [2, 3]
+
+list slice negative end
+  Negative slice bounds work.
+
+  Example:
+    List<int> values = [1, 2, 3, 4];
+    print(values[1:-1]);
+
+  Output:
+    [2, 3]
+
+in scalar list
+  Scalar membership works.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    print(2 in values);
+
+  Output:
+    1
+
+in sublist
+  Sublist membership works.
+
+  Example:
+    List<int> values = [1, 2, 3, 4];
+    print([2, 3] in values);
+
+  Output:
+    1
+
+find scalar list
+  find(value) returns matching indices.
+
+  Example:
+    List<int> values = [1, 2, 1, 2];
+    print(values.find(2));
+
+  Output:
+    [1, 3]
+
+find sublist
+  find(sublist) returns starting indices.
+
+  Example:
+    List<int> values = [1, 2, 1, 2];
+    print(values.find([1, 2]));
+
+  Output:
+    [0, 2]
+
+list of strings literal
+  Lists may hold strings.
+
+  Example:
+    List<string> words = ["hi", "bye"];
+
+nested string lists literal
+  Nested string lists compile.
+
+  Example:
+    List<List<string>> groups = [["a"], ["b", "c"]];
+
+string list membership
+  Strings may participate in List membership.
+
+  Example:
+    List<string> words = ["hi", "bye"];
+    print("hi" in words);
+
+  Output:
+    1
+
+Strings
+-------
+
+string truthiness
+  Nonempty strings are truthy.
+
+  Example:
+    string s = "hi";
+    if (s) {
+        print("yes");
+    }
+
+  Output:
+    yes
+
+string add char
+  Strings inherit add(char).
+
+  Example:
+    string s = "hi";
+    s.add('!');
+    print(s);
+
+  Output:
+    hi!
+
+len string
+  len(string) works through List semantics.
+
+  Example:
+    string s = "hello";
+    print(len(s));
+
+  Output:
+    5
+
+string indexing
+  Strings may be indexed.
+
+  Example:
+    string s = "abc";
+    print(s[1]);
+
+  Output:
+    b
+
+string slice
+  Strings may be sliced.
+
+  Example:
+    string s = "hello";
+    print(s[1:4]);
+
+  Output:
+    ell
+
+in string char
+  Character membership works on strings.
+
+  Example:
+    string s = "hello";
+    print('e' in s);
+
+  Output:
+    1
+
+in string substring
+  Substring membership works on strings.
+
+  Example:
+    string s = "hello";
+    print("ell" in s);
+
+  Output:
+    1
+
+find char in string
+  find(char) works on strings.
+
+  Example:
+    string s = "hello";
+    print(s.find('l'));
+
+  Output:
+    [2, 3]
+
+find substring in string
+  find(string) works on strings.
+
+  Example:
+    string s = "banana";
+    print(s.find("ana"));
+
+  Output:
+    [1, 3]
+
+string concatenation
+  Strings may concatenate through List +.
+
+  Example:
+    string a = "hi";
+    string b = "!";
+    print(a + b);
+
+  Output:
+    hi!
+
+string comparison
+  Strings compare lexicographically.
+
+  Example:
+    print("abc" < "abd");
+
+  Output:
+    1
+
+Printing
+--------
+
+print int output
+  print(int) outputs the value.
+
+  Example:
+    print(7);
+
+  Output:
+    7
+
+print string output
+  print(string) outputs normal text.
+
+  Example:
+    string s = "hello";
+    print(s);
+
+  Output:
+    hello
+
+print string literal output
+  print(string literal) outputs normal text.
+
+  Example:
+    print("hello");
+
+  Output:
+    hello
+
+print list output
+  print(List) uses bracketed formatting.
+
+  Example:
+    List<int> values = [1, 2];
+    print(values);
+
+  Output:
+    [1, 2]
+
+print nested list output
+  Nested Lists print recursively.
+
+  Example:
+    List<List<int>> grid = [[1], [2, 3]];
+    print(grid);
+
+  Output:
+    [[1], [2, 3]]
+
+print end option output
+  print supports end = "...".
+
+  Example:
+    print("hi", end = " ");
+    print("there");
+
+  Output:
+    hi there
+
+empty print output
+  print() emits a newline.
+
+  Example:
+    print();
+    print("x");
+
+  Output:
+
+    x
+
+describe variable output
+  describe prints expression text and value.
+
+  Example:
+    int x = 3;
+    describe(x);
+
+  Output:
+    x: 3
+
+describe index expression output
+  describe accepts index expressions.
+
+  Example:
+    List<int> values = [10, 20, 30];
+    describe(values[1]);
+
+  Output:
+    values[1]: 20
+
+describe string output
+  describe prints strings as text.
+
+  Example:
+    string s = "abc";
+    describe(s);
+
+  Output:
+    s: abc
+
+describe find expression output
+  describe accepts method-call expressions.
+
+  Example:
+    List<int> values = [1, 2, 1, 2];
+    describe(values.find(2));
+
+  Output:
+    values.find(2): [1, 3]
+
+Control flow
+------------
+
+if else compile
+  if/else blocks compile.
+
+  Example:
+    int x = 1;
+    if (x) {
+        print(1);
+    } else {
+        print(0);
+    }
+
+else if compile
+  else if blocks compile.
+
+  Example:
+    int x = 1;
+    if (x == 0) {
+        print(0);
+    } else if (x == 1) {
+        print(1);
+    }
+
+while loop output
+  while loops run.
+
+  Example:
+    int x = 0;
+    while (x < 3) {
+        print(x, end = " ");
+        x++;
+    }
+
+  Output:
+    0 1 2
+
+for loop output
+  for loops run.
+
+  Example:
+    for (int i = 0; i < 3; i++) {
+        print(i, end = " ");
+    }
+
+  Output:
+    0 1 2
+
+rep loop output
+  rep loops run.
+
+  Example:
+    rep(3) {
+        print("x", end = " ");
+    }
+
+  Output:
+    x x x
+
+foreach list output
+  foreach iterates Lists.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    for (int x in values) {
+        print(x, end = " ");
+    }
+
+  Output:
+    1 2 3
+
+foreach string output
+  foreach iterates strings by char.
+
+  Example:
+    string s = "ab";
+    for (char c in s) {
+        print(c, end = " ");
+    }
+
+  Output:
+    a b
+
+break compile
+  break compiles inside loops.
+
+  Example:
+    while (true) {
+        break;
+    }
+
+continue compile
+  continue compiles inside loops.
+
+  Example:
+    rep(2) {
+        continue;
+    }
+
+loop else while output
+  while-else runs after normal completion.
+
+  Example:
+    int x = 0;
+    while (x < 2) {
+        x++;
+    } else {
+        print("done");
+    }
+
+  Output:
+    done
+
+loop else for output
+  for-else runs after normal completion.
+
+  Example:
+    for (int i = 0; i < 2; i++) {
+        print(i, end = " ");
+    } else {
+        print("done");
+    }
+
+  Output:
+    0 1 done
+
+multiple statements one line
+  Multiple statements per line work.
+
+  Example:
+    int a = 1; int b = 2; print(a + b);
+
+  Output:
+    3
+
+block brace whitespace
+  Flexible brace placement compiles.
+
+  Example:
+    int n = 0;
+    if(true){}
+    while(n<2)
+    {
+        n++;
+    }
+
+for header no spaces output
+  Dense for headers still parse.
+
+  Example:
+    for(int i=0;i<3;i++){
+        print(i, end = " ");
+    }
+
+  Output:
+    0 1 2
+
+Operators
+---------
+
+boolean operators output
+  Boolean operators run.
+
+  Example:
+    print(true && !false);
+
+  Output:
+    1
+
+bitwise and compile
+  Bitwise operators compile on ints.
+
+  Example:
+    int x = 5 & 3;
+
+bitwise shift compile
+  Shift operators compile on ints.
+
+  Example:
+    int x = 1 << 4;
+
+comparison ints output
+  Int comparisons run.
+
+  Example:
+    print(1 < 2);
+
+  Output:
+    1
+
+comparison floats output
+  Float comparisons run.
+
+  Example:
+    print(1.5 < 2.0);
+
+  Output:
+    1
+
+comparison lists output
+  Lists compare lexicographically.
+
+  Example:
+    List<int> a = [1];
+    List<int> b = [1, 2];
+    print(a < b);
+
+  Output:
+    1
+
+prefix increment output
+  Prefix increment works.
+
+  Example:
+    int x = 1;
+    ++x;
+    print(x);
+
+  Output:
+    2
+
+postfix decrement output
+  Postfix decrement works.
+
+  Example:
+    int x = 3;
+    x--;
+    print(x);
+
+  Output:
+    2
+
+char increment compile
+  Chars may be incremented.
+
+  Example:
+    char c = 'a';
+    c++;
+
+float decrement compile
+  Floats may be decremented.
+
+  Example:
+    float x = 3.0;
+    --x;
+
+compound int assignment compile
+  Compound integer assignment compiles.
+
+  Example:
+    int x = 1;
+    x <<= 3;
+    x ^= 2;
+
+compound bool assignment compile
+  Compound boolean assignment compiles.
+
+  Example:
+    bool ok = true;
+    ok &&= true;
+
+abs int output
+  abs(int) runs.
+
+  Example:
+    print(abs(-7));
+
+  Output:
+    7
+
+abs float output
+  abs(float) runs.
+
+  Example:
+    print(abs(-2.5));
+
+  Output:
+    2.5
+
+Input
+-----
+
+input int declaration compile
+  int input declarations compile.
+
+  Example:
+    int x = input();
+
+input int assignment compile
+  int input assignments compile.
+
+  Example:
+    int x;
+    x = input();
+
+input string declaration compile
+  string input declarations compile.
+
+  Example:
+    string s = input();
+
+input string sized declaration compile
+  string input(n) declarations compile.
+
+  Example:
+    string s = input(3);
+
+input list sized declaration compile
+  sized List input compiles.
+
+  Example:
+    List<int> values = input(4);
+
+input nested list sized declaration compile
+  nested sized List input compiles.
+
+  Example:
+    List<List<int>> grid = input(2, 3);
+
+input list line declaration compile
+  one-dimensional line input compiles.
+
+  Example:
+    List<int> values = input();
+
+input multi declaration compile
+  input() works in multi-declarations.
+
+  Example:
+    int a,b = input();
+
+input multi assignment compile
+  input() works in multi-assignments.
+
+  Example:
+    int a;
+    int b;
+    a,b = input();
+
+Aggregates
+----------
+
+sum int list output
+  sum(List<int>) runs.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    print(sum(values));
+
+  Output:
+    6
+
+sum float list output
+  sum(List<float>) runs.
+
+  Example:
+    List<float> values = [1.5, 2.0];
+    print(sum(values));
+
+  Output:
+    3.5
+
+min int list output
+  min(List<int>) runs.
+
+  Example:
+    List<int> values = [3, 1, 2];
+    print(min(values));
+
+  Output:
+    1
+
+max int list output
+  max(List<int>) runs.
+
+  Example:
+    List<int> values = [3, 1, 2];
+    print(max(values));
+
+  Output:
+    3
+
+Synthesis tests
+---------------
+
+array rotation by k
+  Rotate a list right by k positions.
+
+  Example:
+    int n = input();
+    int k = input();
+    List<int> values = input();
+    List<int> rotated = [];
+    int shift = k % n;
+    for (int i = 0; i < n; i++) {
+        int from = (i - shift + n) % n;
+        rotated.add(values[from]);
+    }
+    print(rotated);
+
+  Input:
+    5
+    2
+    1 2 3 4 5
+
+  Output:
+    [4, 5, 1, 2, 3]
+
+  Input:
+    4
+    5
+    10 20 30 40
+
+  Output:
+    [40, 10, 20, 30]
+
+move zeroes to the end
+  Preserve the order of nonzero values and move zeroes to the back.
+
+  Example:
+    List<int> values = input();
+    List<int> out = [];
+    int zeroes = 0;
+    for (int i = 0; i < len(values); i++) {
+        if (values[i] == 0) {
+            zeroes++;
+        } else {
+            out.add(values[i]);
+        }
+    }
+    rep(zeroes) {
+        out.add(0);
+    }
+    print(out);
+
+  Input:
+    0 1 0 3 12
+
+  Output:
+    [1, 3, 12, 0, 0]
+
+  Input:
+    4 0 5 0 6
+
+  Output:
+    [4, 5, 6, 0, 0]
+
+longest increasing contiguous segment
+  Find the length of the longest strictly increasing contiguous run.
+
+  Example:
+    int n = input();
+    List<int> values = input();
+    int best = 1;
+    int current = 1;
+    for (int i = 1; i < n; i++) {
+        if (values[i] > values[i - 1]) {
+            current++;
+        } else {
+            current = 1;
+        }
+        if (current > best) {
+            best = current;
+        }
+    }
+    print(best);
+
+  Input:
+    7
+    1 2 3 2 3 4 5
+
+  Output:
+    4
+
+  Input:
+    5
+    5 4 3 2 1
+
+  Output:
+    1
+
+longest equal-value run
+  Find the length of the longest consecutive equal-value run.
+
+  Example:
+    List<int> values = input();
+    int best = 1;
+    int current = 1;
+    for (int i = 1; i < len(values); i++) {
+        if (values[i] == values[i - 1]) {
+            current++;
+        } else {
+            current = 1;
+        }
+        if (current > best) {
+            best = current;
+        }
+    }
+    print(best);
+
+  Input:
+    1 1 2 2 2 3 1 1
+
+  Output:
+    3
+
+  Input:
+    7 7 7 7
+
+  Output:
+    4
+
+remove adjacent duplicates
+  Remove consecutive duplicate values.
+
+  Example:
+    List<int> values = input();
+    List<int> out = [];
+    if (values) {
+        out.add(values[0]);
+        for (int i = 1; i < len(values); i++) {
+            if (values[i] != values[i - 1]) {
+                out.add(values[i]);
+            }
+        }
+    }
+    print(out);
+
+  Input:
+    1 1 2 2 3 1 1
+
+  Output:
+    [1, 2, 3, 1]
+
+  Input:
+    4 4 4 4
+
+  Output:
+    [4]
+
+partition around x
+  Partition a list into < x, == x, and > x while preserving order.
+
+  Example:
+    int n = input();
+    int x = input();
+    List<int> values = input();
+    List<int> out = [];
+    for (int i = 0; i < n; i++) {
+        if (values[i] < x) {
+            out.add(values[i]);
+        }
+    }
+    for (int j = 0; j < n; j++) {
+        if (values[j] == x) {
+            out.add(values[j]);
+        }
+    }
+    for (int k = 0; k < n; k++) {
+        if (values[k] > x) {
+            out.add(values[k]);
+        }
+    }
+    print(out);
+
+  Input:
+    7
+    3
+    3 1 4 3 2 5 3
+
+  Output:
+    [1, 2, 3, 3, 3, 4, 5]
+
+  Input:
+    5
+    10
+    9 10 11 10 8
+
+  Output:
+    [9, 8, 10, 10, 11]
+
+array is almost sorted
+  Check whether removing at most one element can make the list strictly increasing.
+
+  Example:
+    List<int> values = input();
+    bool ok = false;
+    for (int skip = -1; skip < len(values); skip++) {
+        bool good = true;
+        bool started = false;
+        int prev = 0;
+        for (int i = 0; i < len(values); i++) {
+            if (i == skip) {
+                continue;
+            }
+            if (!started) {
+                prev = values[i];
+                started = true;
+            } else {
+                if (values[i] <= prev) {
+                    good = false;
+                }
+                prev = values[i];
+            }
+        }
+        if (good) {
+            ok = true;
+        }
+    }
+    print(ok);
+
+  Input:
+    1 2 5 3 4
+
+  Output:
+    1
+
+  Input:
+    3 2 1
+
+  Output:
+    0
+
+prefix minimums
+  Build the list of prefix minimums.
+
+  Example:
+    List<int> values = input();
+    List<int> out = [];
+    int current = values[0];
+    out.add(current);
+    for (int i = 1; i < len(values); i++) {
+        if (values[i] < current) {
+            current = values[i];
+        }
+        out.add(current);
+    }
+    print(out);
+
+  Input:
+    5 3 4 2 2 1
+
+  Output:
+    [5, 3, 3, 2, 2, 1]
+
+  Input:
+    7 8 9
+
+  Output:
+    [7, 7, 7]
+
+suffix maximums
+  Build the list of suffix maximums.
+
+  Example:
+    List<int> values = input();
+    List<int> out = [];
+    rep(len(values)) {
+        out.add(0);
+    }
+    int current = values[-1];
+    out[len(values) - 1] = current;
+    for (int i = len(values) - 2; i >= 0; i--) {
+        if (values[i] > current) {
+            current = values[i];
+        }
+        out[i] = current;
+    }
+    print(out);
+
+  Input:
+    2 7 3 1 5
+
+  Output:
+    [7, 7, 5, 5, 5]
+
+  Input:
+    9 8 7
+
+  Output:
+    [9, 8, 7]
+
+count local peaks
+  Count indices larger than both neighbors.
+
+  Example:
+    List<int> values = input();
+    int peaks = 0;
+    for (int i = 1; i + 1 < len(values); i++) {
+        if (values[i] > values[i - 1] && values[i] > values[i + 1]) {
+            peaks++;
+        }
+    }
+    print(peaks);
+
+  Input:
+    1 3 2 4 3 5 1
+
+  Output:
+    3
+
+  Input:
+    1 2 3 4
+
+  Output:
+    0
+
+circular local peaks
+  Count peaks when the first and last elements are adjacent.
+
+  Example:
+    List<int> values = input();
+    int n = len(values);
+    int peaks = 0;
+    for (int i = 0; i < n; i++) {
+        int left = (i - 1 + n) % n;
+        int right = (i + 1) % n;
+        if (values[i] > values[left] && values[i] > values[right]) {
+            peaks++;
+        }
+    }
+    print(peaks);
+
+  Input:
+    3 1 3 1
+
+  Output:
+    2
+
+  Input:
+    1 2 3 4
+
+  Output:
+    1
+
+range sum without queries
+  Sum a single inclusive range.
+
+  Example:
+    int n = input();
+    List<int> values = input();
+    int l = input();
+    int r = input();
+    int total = 0;
+    for (int i = l; i <= r; i++) {
+        total += values[i];
+    }
+    print(total);
+
+  Input:
+    5
+    1 2 3 4 5
+    1
+    3
+
+  Output:
+    9
+
+  Input:
+    4
+    10 20 30 40
+    0
+    0
+
+  Output:
+    10
+
+multiple range sums
+  Answer multiple range sums naively.
+
+  Example:
+    int n = input();
+    List<int> values = input();
+    int q = input();
+    rep(q) {
+        int l = input();
+        int r = input();
+        int total = 0;
+        for (int i = l; i <= r; i++) {
+            total += values[i];
+        }
+        print(total);
+    }
+
+  Input:
+    5
+    1 2 3 4 5
+    3
+    0
+    2
+    1
+    3
+    2
+    4
+
+  Output:
+    6
+    9
+    12
+
+  Input:
+    4
+    10 20 30 40
+    2
+    0
+    0
+    3
+    3
+
+  Output:
+    10
+    40
+
+prefix sum queries
+  Answer multiple range sums with prefix sums.
+
+  Example:
+    int n = input();
+    List<int> values = input();
+    List<int> pref = [];
+    int running = 0;
+    for (int i = 0; i < n; i++) {
+        running += values[i];
+        pref.add(running);
+    }
+    int q = input();
+    rep(q) {
+        int l = input();
+        int r = input();
+        int total = pref[r];
+        if (l > 0) {
+            total -= pref[l - 1];
+        }
+        print(total);
+    }
+
+  Input:
+    5
+    1 2 3 4 5
+    3
+    0
+    2
+    1
+    3
+    2
+    4
+
+  Output:
+    6
+    9
+    12
+
+  Input:
+    3
+    5 5 5
+    2
+    0
+    1
+    1
+    2
+
+  Output:
+    10
+    10
+
+balanced binary string prefix score
+  Track the maximum running score where 1 adds one and 0 subtracts one.
+
+  Example:
+    string s = input();
+    int score = 0;
+    int best = 0;
+    for (char c in s) {
+        if (c == '1') {
+            score++;
+        } else {
+            score--;
+        }
+        if (score > best) {
+            best = score;
+        }
+    }
+    print(best);
+
+  Input:
+    110101
+
+  Output:
+    2
+
+  Input:
+    000
+
+  Output:
+    0
+
+count vowels in a string
+  Count vowels, consonants, and digits.
+
+  Example:
+    string s = input();
+    int vowels = 0;
+    int consonants = 0;
+    int digits = 0;
+    for (char c in s) {
+        if (c >= '0' && c <= '9') {
+            digits++;
+        } else if (c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' || c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U') {
+            vowels++;
+        } else {
+            consonants++;
+        }
+    }
+    print(vowels, consonants, digits);
+
+  Input:
+    abC123e
+
+  Output:
+    2 2 3
+
+  Input:
+    OpenAI2026
+
+  Output:
+    4 2 4
+
+palindrome ignoring spaces
+  Ignore spaces before checking for a palindrome.
+
+  Example:
+    string s = "n u r s e s r u n";
+    string filtered = "";
+    for (char c in s) {
+        if (c != ' ') {
+            filtered.add(c);
+        }
+    }
+    bool ok = true;
+    for (int i = 0; i < len(filtered) / 2; i++) {
+        if (filtered[i] != filtered[len(filtered) - 1 - i]) {
+            ok = false;
+        }
+    }
+    print(ok);
+
+  Output:
+    1
+
+run-length encoding
+  Emit each character followed by its count.
+
+  Example:
+    string s = input();
+    char current = s[0];
+    int count = 1;
+    for (int i = 1; i < len(s); i++) {
+        if (s[i] == current) {
+            count++;
+        } else {
+            print(current, end = "");
+            print(count, end = "");
+            current = s[i];
+            count = 1;
+        }
+    }
+    print(current, end = "");
+    print(count);
+
+  Input:
+    aaabbc
+
+  Output:
+    a3b2c1
+
+  Input:
+    zzzz
+
+  Output:
+    z4
+
+caesar cipher
+  Shift lowercase letters by k modulo 26.
+
+  Example:
+    string s = input();
+    int k = input();
+    string out = "";
+    for (char c in s) {
+        int pos = (int)c - (int)'a';
+        int shifted = (pos + k) % 26;
+        out.add((char)((int)'a' + shifted));
+    }
+    print(out);
+
+  Input:
+    abc
+    2
+
+  Output:
+    cde
+
+  Input:
+    xyz
+    3
+
+  Output:
+    abc
+
+simulate simple stack with List
+  Use a List<int> as a stack for push, pop, and top operations.
+
+  Example:
+    int q = input();
+    List<int> st = [];
+    rep(q) {
+        string op = input();
+        if (op == "push") {
+            int x = input();
+            st.add(x);
+        } else if (op == "pop") {
+            if (st) {
+                st.remove();
+            }
+        } else {
+            if (st) {
+                print(st[-1]);
+            } else {
+                print("empty");
+            }
+        }
+    }
+
+  Input:
+    6
+    push
+    3
+    push
+    7
+    top
+    pop
+    top
+    pop
+
+  Output:
+    7
+    3
+
+  Input:
+    5
+    top
+    push
+    9
+    top
+    pop
+    top
+
+  Output:
+    empty
+    9
+    empty
