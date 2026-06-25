@@ -1,0 +1,9 @@
+tests/tmp/
+tests/**/*.cpp
+build/
+CPPlusPlus_*
+tmp_*
+*.log
+prompt*
+NUL
+.vscode/

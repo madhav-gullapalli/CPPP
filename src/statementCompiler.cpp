@@ -6,6 +6,7 @@
 #include "listsCppp.h"
 #include "printCppp.h"
 #include "sourceSplitter.h"
+#include "statementParser.h"
 #include "typesCppp.h"
 
 #include <algorithm>
@@ -80,6 +81,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         const size_t statementStart = codeText.find(statement);
         const int statementStartColumn = static_cast<int>(statementStart == std::string::npos ? 1 : statementStart + 1);
+        const StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
 
         const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0, const std::string& breakFlag = std::string()) {
             const size_t conditionOffset = absoluteOffset + header.conditionOffset;
@@ -181,7 +183,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             return true;
         };
 
-        if (statement[0] == '}') {
+        if (parsed.kind == StatementParseResult::Kind::CloseBrace) {
+            const CloseBraceStmt& closeBrace = static_cast<const CloseBraceStmt&>(*parsed.statement);
             if (context.blockDepth == 0) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unmatched closing brace", context.sourceLines);
                 continue;
@@ -205,7 +208,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             context.pendingLoopElse.active = isLoopBlockKind(closedBlock);
             context.pendingLoopElse.breakFlagName = context.pendingLoopElse.active ? closedBreakFlag : "";
 
-            const std::string afterBrace = trim(statement.substr(1));
+            const std::string afterBrace = closeBrace.trailingText;
             if (closingSuppressed) {
                 if (!afterBrace.empty() && afterBrace.back() == '{') {
                     ++context.blockDepth;
@@ -323,9 +326,12 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             context.pendingLoopElse.active = false;
         }
 
-        ConditionParseResult elseIfResult = parseElseIfHeaderDetailed(statement);
+        const ConditionParseResult elseIfResult =
+            parsed.kind == StatementParseResult::Kind::ElseIf
+                ? ConditionParseResult{true, parsed.ok, static_cast<const ElseIfStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
+                : ConditionParseResult{};
         if (context.canAttachElse) {
-            if (parseElseHeader(statement)) {
+            if (parsed.kind == StatementParseResult::Kind::Else) {
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "else {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++context.blockDepth;
                 context.pushBlock("else");
@@ -371,7 +377,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if (parseElseHeader(statement)) {
+        if (parsed.kind == StatementParseResult::Kind::Else) {
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "else without matching if", context.sourceLines);
             ++context.blockDepth;
             context.pushBlock("else");
@@ -383,8 +389,14 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         context.pendingLoopElse.active = false;
 
-        const ForParseResult forResult = parseForHeaderDetailed(statement);
-        const ForEachParseResult forEachResult = parseForEachHeader(statement);
+        const ForParseResult forResult =
+            parsed.kind == StatementParseResult::Kind::For
+                ? ForParseResult{true, parsed.ok, static_cast<const ForStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
+                : ForParseResult{};
+        const ForEachParseResult forEachResult =
+            parsed.kind == StatementParseResult::Kind::ForEach
+                ? ForEachParseResult{true, parsed.ok, static_cast<const ForEachStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
+                : ForEachParseResult{};
         ForHeader forHeader;
         if (forEachResult.matched && !forEachResult.ok) {
             recordSourceError(
@@ -580,7 +592,10 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        const ConditionParseResult repResult = parseConditionHeaderDetailed(statement, "rep", "rep");
+        const ConditionParseResult repResult =
+            parsed.kind == StatementParseResult::Kind::Rep
+                ? ConditionParseResult{true, parsed.ok, static_cast<const RepStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
+                : ConditionParseResult{};
         if (repResult.matched && !repResult.ok) {
             recordSourceError(
                 context.options.inputFile,
@@ -662,7 +677,10 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        const ConditionParseResult ifResult = parseConditionHeaderDetailed(statement, "if", "if");
+        const ConditionParseResult ifResult =
+            parsed.kind == StatementParseResult::Kind::If
+                ? ConditionParseResult{true, parsed.ok, static_cast<const IfStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
+                : ConditionParseResult{};
         if (ifResult.matched && !ifResult.ok) {
             recordSourceError(
                 context.options.inputFile,
@@ -683,7 +701,10 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        const ConditionParseResult whileResult = parseConditionHeaderDetailed(statement, "while", "while");
+        const ConditionParseResult whileResult =
+            parsed.kind == StatementParseResult::Kind::While
+                ? ConditionParseResult{true, parsed.ok, static_cast<const WhileStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
+                : ConditionParseResult{};
         if (whileResult.matched && !whileResult.ok) {
             recordSourceError(
                 context.options.inputFile,
