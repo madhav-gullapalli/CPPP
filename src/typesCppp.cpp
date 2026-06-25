@@ -225,17 +225,24 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPStringLiteral("}
         },
         {
+            "CPPPPrintValueString",
+            {
+                "void CPPPPrintValue(ostream& output, const vector<CPPPChar>& value) {",
+                "    for (const CPPPChar& ch : value) {",
+                "        output << ch.value;",
+                "    }",
+                "}",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPPrintValueString("}
+        },
+        {
             "CPPPPrintValue",
             {
                 "template <typename T>",
                 "void CPPPPrintValue(ostream& output, const T& value) {",
                 "    output << value;",
-                "}",
-                "",
-                "void CPPPPrintValue(ostream& output, const vector<CPPPChar>& value) {",
-                "    for (const CPPPChar& ch : value) {",
-                "        output << ch.value;",
-                "    }",
                 "}",
                 "",
                 "template <typename T>",
@@ -251,7 +258,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
+            {},
             {"CPPPPrintValue("}
         }
     };

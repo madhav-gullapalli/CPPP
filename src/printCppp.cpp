@@ -187,6 +187,24 @@ bool parseCallArguments(
 bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
+
+bool printedTypeNeedsStringHelper(const Type& type) {
+    if (isStringType(type)) {
+        return true;
+    }
+
+    if (type.primitive != PrimitiveType::List) {
+        return false;
+    }
+
+    for (const Type& subtype : type.subtypes) {
+        if (printedTypeNeedsStringHelper(subtype)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 }
 
 PrintEmitResult emitPrintStatement(
@@ -312,6 +330,9 @@ PrintEmitResult emitPrintStatement(
         const bool listArgument = isListType(expression.type);
         if (listArgument) {
             requireRuntimeHelper("CPPPPrintValue");
+            if (printedTypeNeedsStringHelper(expression.type)) {
+                requireRuntimeHelper("CPPPPrintValueString");
+            }
             generatedStatement += "CPPPPrintValue(cout, ";
         } else {
             generatedStatement += "cout << ";
@@ -370,6 +391,9 @@ PrintEmitResult emitDescribeStatement(
 
     const std::string label = escapeForCppStringLiteral(trim(describeArgument));
     requireRuntimeHelper("CPPPPrintValue");
+    if (printedTypeNeedsStringHelper(expression.type)) {
+        requireRuntimeHelper("CPPPPrintValueString");
+    }
     const std::string generatedStatement =
         "    { auto __cppp_describe_value = " + expression.generatedExpression +
         "; cout << \"" + label + ": \"; CPPPPrintValue(cout, __cppp_describe_value); cout << '\\n'; }";
