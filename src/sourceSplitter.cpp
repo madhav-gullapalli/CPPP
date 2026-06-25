@@ -14,11 +14,16 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
-std::vector<std::string> splitSemicolonStatements(const std::string& line) {
+int firstCodeColumn(const std::string& text) {
+    const size_t first = text.find_first_not_of(" \t\r\n");
+    return static_cast<int>((first == std::string::npos ? 0 : first) + 1);
+}
+
+std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, int lineNumber) {
     const size_t commentStart = findLineCommentStart(line);
     const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
     const std::string commentText = commentStart == std::string::npos ? "" : line.substr(commentStart);
-    std::vector<std::string> fragments;
+    std::vector<SourceFragment> fragments;
     bool inString = false;
     bool inChar = false;
     bool escaped = false;
@@ -52,20 +57,24 @@ std::vector<std::string> splitSemicolonStatements(const std::string& line) {
             continue;
         }
         if (!inString && !inChar && ch == '{' && parenDepth == 0) {
-            fragments.push_back(std::string(start, ' ') + codeText.substr(start, i - start + 1));
+            const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start + 1);
+            fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
             start = i + 1;
             continue;
         }
         if (!inString && !inChar && ch == '}' && parenDepth == 0) {
             if (i > start) {
-                fragments.push_back(std::string(start, ' ') + codeText.substr(start, i - start));
+                const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start);
+                fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
             }
-            fragments.push_back(std::string(i, ' ') + codeText.substr(i, 1));
+            const std::string fragment = std::string(i, ' ') + codeText.substr(i, 1);
+            fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
             start = i + 1;
             continue;
         }
         if (!inString && !inChar && ch == ';' && parenDepth == 0) {
-            fragments.push_back(std::string(start, ' ') + codeText.substr(start, i - start + 1));
+            const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start + 1);
+            fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
             start = i + 1;
         }
     }
@@ -79,7 +88,7 @@ std::vector<std::string> splitSemicolonStatements(const std::string& line) {
         }
     }
     if (!trim(remainder).empty() || fragments.empty()) {
-        fragments.push_back(remainder);
+        fragments.push_back({lineNumber, firstCodeColumn(remainder), remainder});
     }
     return fragments;
 }
@@ -137,12 +146,12 @@ int unmatchedParenthesisDepth(const std::string& text) {
 
 std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceFragment>& fragments) {
     std::vector<SourceFragment> merged;
-    SourceFragment pending{0, ""};
+    SourceFragment pending{0, 1, ""};
     std::string pendingComment;
 
     const auto flushPending = [&]() {
         if (trim(pending.text).empty() && pendingComment.empty()) {
-            pending = {0, ""};
+            pending = {0, 1, ""};
             return;
         }
 
@@ -154,8 +163,8 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
             text += pendingComment;
         }
 
-        merged.push_back({pending.lineNumber, text});
-        pending = {0, ""};
+        merged.push_back({pending.lineNumber, pending.startColumn, text});
+        pending = {0, 1, ""};
         pendingComment.clear();
     };
 
@@ -168,7 +177,7 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
         if (trimmedCode.empty()) {
             if (!commentPart.empty()) {
                 if (trim(pending.text).empty()) {
-                    merged.push_back({fragment.lineNumber, commentPart});
+                    merged.push_back({fragment.lineNumber, fragment.startColumn, commentPart});
                 } else {
                     pendingComment = commentPart;
                 }
@@ -178,6 +187,7 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
 
         if (pending.lineNumber == 0) {
             pending.lineNumber = fragment.lineNumber;
+            pending.startColumn = fragment.startColumn;
             pending.text = trimmedCode;
         } else {
             pending.text += " " + trimmedCode;
@@ -254,8 +264,8 @@ std::vector<SourceFragment> splitSourceFragments(std::istream& input, std::map<i
     while (std::getline(input, rawLine)) {
         ++rawLineNumber;
         sourceLines[rawLineNumber] = rawLine;
-        for (const std::string& fragment : splitSemicolonStatements(rawLine)) {
-            sourceFragments.push_back({rawLineNumber, fragment});
+        for (const SourceFragment& fragment : splitSemicolonStatements(rawLine, rawLineNumber)) {
+            sourceFragments.push_back(fragment);
         }
     }
 

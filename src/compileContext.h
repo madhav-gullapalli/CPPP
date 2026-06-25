@@ -18,6 +18,7 @@ struct CompileOptions {
 
 struct SourceFragment {
     int lineNumber = 0;
+    int startColumn = 1;
     std::string text;
 };
 

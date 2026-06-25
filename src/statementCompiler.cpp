@@ -79,8 +79,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        const size_t statementStart = codeText.find(statement);
-        const int statementStartColumn = static_cast<int>(statementStart == std::string::npos ? 1 : statementStart + 1);
+        const int statementStartColumn = fragment.startColumn;
         const StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
 
         const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0, const std::string& breakFlag = std::string()) {
@@ -153,6 +152,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             const AssignmentEmitResult assignmentResult = emitAssignmentStatement(
                 context.options.inputFile,
                 lineNumber,
+                partColumn,
                 part,
                 context.sourceLines,
                 context.declaredVariables,
@@ -773,6 +773,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         const AssignmentEmitResult assignmentResult = emitAssignmentStatement(
             context.options.inputFile,
             lineNumber,
+            statementStartColumn,
             statementBody,
             context.sourceLines,
             context.declaredVariables,

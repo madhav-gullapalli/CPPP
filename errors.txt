@@ -1090,6 +1090,23 @@ if, else if, else, while, for, and rep blocks
         print("again");
     }
 
+statement AST backed control flow
+  CP++ now parses structured control-flow statements through a statement AST
+  before lowering them. This keeps classic for-loops, foreach loops, if/else,
+  while, rep, and closing-brace continuations like `} else if (...) {`
+  recognized explicitly instead of only by an ordered statement chain.
+
+  Example:
+    int total = 0;
+    for (int i = 0; i < 3; i++) {
+        total += i;
+    }
+    if (total == 3) {
+        print(total);
+    } else {
+        print(0);
+    }
+
 break and continue
   CP++ supports `break;` and `continue;` inside any loop body. `break` exits
   the nearest loop immediately. `continue` skips to the next iteration of the

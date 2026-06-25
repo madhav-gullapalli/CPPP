@@ -22,6 +22,7 @@ $(SRC_DIR)/compilerDriver.cpp \
 $(SRC_DIR)/assignmentCppp.cpp \
 $(SRC_DIR)/sourceSplitter.cpp \
 $(SRC_DIR)/statementCompiler.cpp \
+$(SRC_DIR)/statementParser.cpp \
 $(SRC_DIR)/controlFlow.cpp \
 $(SRC_DIR)/errors.cpp \
 $(SRC_DIR)/expressionParser.cpp \
@@ -43,7 +44,9 @@ $(SRC_DIR)/expressions.h \
 $(SRC_DIR)/listsCppp.h \
 $(SRC_DIR)/printCppp.h \
 $(SRC_DIR)/sourceSplitter.h \
+$(SRC_DIR)/statementParser.h \
 $(SRC_DIR)/statementCompiler.h \
+$(SRC_DIR)/stmtAst.h \
 $(SRC_DIR)/tokenizer.h \
 $(SRC_DIR)/typesCppp.h
 
