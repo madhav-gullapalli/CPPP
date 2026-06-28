@@ -813,7 +813,23 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if (statementBody.find("++") != std::string::npos || statementBody.find("--") != std::string::npos) {
+        if (statementBody.rfind("describe", 0) == 0) {
+            const PrintEmitResult describeResult = emitDescribeStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
+            if (!describeResult.ok) {
+                continue;
+            }
+
+            context.queueGeneratedLine(
+                indentGeneratedStatement(describeResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                describeResult.sourceRanges
+            );
+            continue;
+        }
+
+        if ((statementBody.find("++") != std::string::npos || statementBody.find("--") != std::string::npos) &&
+            statementBody.rfind("print", 0) != 0 &&
+            statementBody.rfind("describe", 0) != 0) {
             const ExpressionEmitResult expression = emitExpression(
                 context.options.inputFile,
                 lineNumber,
@@ -827,20 +843,6 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             }
 
             context.queueGeneratedLine(indentForDepth(context.blockDepth) + expression.generatedExpression + ";" + (hasComment ? " " + commentText : ""), lineNumber);
-            continue;
-        }
-
-        if (statementBody.rfind("describe", 0) == 0) {
-            const PrintEmitResult describeResult = emitDescribeStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
-            if (!describeResult.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(
-                indentGeneratedStatement(describeResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                describeResult.sourceRanges
-            );
             continue;
         }
 

@@ -405,6 +405,34 @@ private:
             return true;
         }
 
+        if (expr.callee == "split") {
+            if (expr.arguments.size() != 2) {
+                report(expr.sourceColumn, "split() expects a List value and one delimiter");
+                return false;
+            }
+
+            const Type haystackType = expr.arguments[0]->inferredType;
+            if (haystackType.primitive != PrimitiveType::List || haystackType.subtypes.size() != 1) {
+                report(expr.sourceColumn, "split() expects a List value as the first argument");
+                return false;
+            }
+
+            const Type elementType = haystackType.subtypes[0];
+            const Type delimiterType = expr.arguments[1]->inferredType;
+            if (isListType(delimiterType)) {
+                if (delimiterType != haystackType) {
+                    report(expr.sourceColumn, "split() delimiter must be " + cpppTypeName(elementType) + " or " + cpppTypeName(haystackType));
+                    return false;
+                }
+            } else if (!expr.arguments[1]->explicitCast && !isImplicitlyConvertible(delimiterType, elementType)) {
+                report(expr.sourceColumn, "split() delimiter must be " + cpppTypeName(elementType) + " or " + cpppTypeName(haystackType));
+                return false;
+            }
+
+            expr.inferredType = Type(PrimitiveType::List, {haystackType});
+            return true;
+        }
+
         if (expr.callee == "min" || expr.callee == "max") {
             if(expr.arguments.size() == 0) {
                 report(expr.sourceColumn, expr.callee + "() must take in some values");
@@ -753,6 +781,24 @@ private:
             }
             requireRuntimeHelper("CPPPListFindValue");
             return "CPPPListFindValue(" + receiver + ", " + needle + ")";
+        }
+
+        if (expr.callee == "split") {
+            const std::string haystack = generate(*expr.arguments[0]);
+            const Type haystackType = expr.arguments[0]->inferredType;
+            const Type elementType = haystackType.subtypes[0];
+            const Type delimiterType = expr.arguments[1]->inferredType;
+            if (isListType(delimiterType) && delimiterType == haystackType) {
+                requireRuntimeHelper("CPPPListSplitSublist");
+                return "CPPPListSplitSublist(" + haystack + ", " + generate(*expr.arguments[1]) + ")";
+            }
+
+            std::string delimiter = generate(*expr.arguments[1]);
+            if (!isImplicitlyConvertible(delimiterType, elementType) || delimiterType != elementType) {
+                delimiter = castExpressionTo(delimiter, delimiterType, elementType);
+            }
+            requireRuntimeHelper("CPPPListSplitValue");
+            return "CPPPListSplitValue(" + haystack + ", " + delimiter + ")";
         }
 
         if (expr.callee == "min") {
@@ -1328,9 +1374,13 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             }
             return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier));
         }
-        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum"||identifier.text == "abs") {
+        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum" || identifier.text == "abs" || identifier.text == "split") {
             if (!match(TokenKind::LeftParen)) {
-                report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
+                if (identifier.text == "split") {
+                    report(identifier, "split must be called as split(list, delimiter)");
+                } else {
+                    report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
+                }
                 ok = false;
                 return nullptr;
             }

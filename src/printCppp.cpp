@@ -13,6 +13,13 @@ struct PrintArgument {
     std::vector<Token> tokens;
 };
 
+struct PrintOption {
+    std::string name;
+    std::string valueText;
+    int valueColumn = 0;
+    std::vector<Token> valueTokens;
+};
+
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -55,13 +62,28 @@ std::vector<PrintArgument> splitPrintArguments(const std::string& text, const st
     std::vector<PrintArgument> arguments;
     int parenDepth = 0;
     int bracketDepth = 0;
-    size_t argumentStartIndex = 0;
-    int argumentStartColumn = startColumn;
-    std::vector<Token> currentTokens;
+    size_t argumentStartTokenIndex = 0;
+    bool endedWithTopLevelComma = false;
 
-    for (const Token& token : tokens) {
+    for (size_t tokenIndex = 0; tokenIndex < tokens.size(); ++tokenIndex) {
+        const Token& token = tokens[tokenIndex];
         if (token.kind == TokenKind::EndOfFile) {
-            continue;
+            if (argumentStartTokenIndex < tokenIndex) {
+                const Token& firstToken = tokens[argumentStartTokenIndex];
+                const Token& lastToken = tokens[tokenIndex - 1];
+                const size_t rawStartIndex = static_cast<size_t>(firstToken.span.startColumn - 1);
+                const size_t rawLength = static_cast<size_t>(lastToken.span.endColumn - firstToken.span.startColumn + 1);
+                const std::string rawText = text.substr(rawStartIndex, rawLength);
+                const size_t trimStart = rawText.find_first_not_of(" \t\r\n");
+                arguments.push_back({
+                    trim(rawText),
+                    trimStart == std::string::npos ? startColumn + firstToken.span.startColumn - 1 : startColumn + firstToken.span.startColumn - 1 + static_cast<int>(trimStart),
+                    std::vector<Token>(tokens.begin() + static_cast<std::ptrdiff_t>(argumentStartTokenIndex), tokens.begin() + static_cast<std::ptrdiff_t>(tokenIndex))
+                });
+            } else if (endedWithTopLevelComma) {
+                arguments.push_back({"", startColumn + token.span.startColumn - 1, {}});
+            }
+            break;
         }
 
         if (token.kind == TokenKind::LeftParen) {
@@ -75,32 +97,28 @@ std::vector<PrintArgument> splitPrintArguments(const std::string& text, const st
         }
 
         if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
-            const size_t argumentEndIndex = static_cast<size_t>(std::max(0, token.span.startColumn - 2));
-            std::string argumentText = argumentEndIndex >= argumentStartIndex ?
-                text.substr(argumentStartIndex, argumentEndIndex - argumentStartIndex + 1) :
-                "";
-            const size_t trimStart = argumentText.find_first_not_of(" \t\r\n");
-            arguments.push_back({
-                trim(argumentText),
-                trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart),
-                currentTokens
-            });
-            argumentStartIndex = static_cast<size_t>(token.span.endColumn);
-            argumentStartColumn = startColumn + token.span.endColumn;
-            currentTokens.clear();
+            if (argumentStartTokenIndex < tokenIndex) {
+                const Token& firstToken = tokens[argumentStartTokenIndex];
+                const Token& lastToken = tokens[tokenIndex - 1];
+                const size_t rawStartIndex = static_cast<size_t>(firstToken.span.startColumn - 1);
+                const size_t rawLength = static_cast<size_t>(lastToken.span.endColumn - firstToken.span.startColumn + 1);
+                const std::string rawText = text.substr(rawStartIndex, rawLength);
+                const size_t trimStart = rawText.find_first_not_of(" \t\r\n");
+                arguments.push_back({
+                    trim(rawText),
+                    trimStart == std::string::npos ? startColumn + firstToken.span.startColumn - 1 : startColumn + firstToken.span.startColumn - 1 + static_cast<int>(trimStart),
+                    std::vector<Token>(tokens.begin() + static_cast<std::ptrdiff_t>(argumentStartTokenIndex), tokens.begin() + static_cast<std::ptrdiff_t>(tokenIndex))
+                });
+            } else {
+                arguments.push_back({"", startColumn + token.span.startColumn - 1, {}});
+            }
+            argumentStartTokenIndex = tokenIndex + 1;
+            endedWithTopLevelComma = true;
             continue;
         }
 
-        currentTokens.push_back(token);
+        endedWithTopLevelComma = false;
     }
-
-    std::string argumentText = argumentStartIndex < text.size() ? text.substr(argumentStartIndex) : "";
-    const size_t trimStart = argumentText.find_first_not_of(" \t\r\n");
-    arguments.push_back({
-        trim(argumentText),
-        trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart),
-        currentTokens
-    });
     return arguments;
 }
 
@@ -117,6 +135,30 @@ bool isEndOption(const PrintArgument& argument) {
         argument.tokens[0].kind == TokenKind::Identifier &&
         argument.tokens[0].text == "end" &&
         argument.tokens[1].kind == TokenKind::Equals;
+}
+
+bool isDelimOption(const PrintArgument& argument) {
+    return argument.tokens.size() == 3 &&
+        argument.tokens[0].kind == TokenKind::Identifier &&
+        argument.tokens[0].text == "delim" &&
+        argument.tokens[1].kind == TokenKind::Equals;
+}
+
+bool isPrintOption(const PrintArgument& argument) {
+    return isEndOption(argument) || isDelimOption(argument);
+}
+
+PrintOption toPrintOption(const PrintArgument& argument) {
+    const size_t equalsIndex = argument.text.find('=');
+    const std::string rawValueText = equalsIndex == std::string::npos ? "" : argument.text.substr(equalsIndex + 1);
+    const size_t trimStart = rawValueText.find_first_not_of(" \t\r\n");
+    const std::string valueText = trimStart == std::string::npos ? "" : rawValueText.substr(trimStart);
+    return {
+        argument.tokens[0].text,
+        valueText,
+        argument.column + static_cast<int>(equalsIndex == std::string::npos ? argument.text.size() : equalsIndex + 1 + (trimStart == std::string::npos ? 0 : trimStart)),
+        {argument.tokens[2]}
+    };
 }
 
 bool looksLikeMissingPrintComma(const PrintArgument& argument) {
@@ -255,32 +297,32 @@ PrintEmitResult emitPrintStatement(
         return {false, "", {}};
     }
 
-    std::string generatedEnd = "cout << '\\n';";
     size_t printableArgumentCount = arguments.size();
+    std::vector<PrintOption> options;
+    bool sawOption = false;
     for (size_t i = 0; i < arguments.size(); ++i) {
-        if (isEndOption(arguments[i])) {
-            if (i != arguments.size() - 1) {
-                recordSourceError(inputFile, lineNumber, arguments[i].column, "end must be the final print option", sourceLines);
-                return {false, "", {}};
+        if (isPrintOption(arguments[i])) {
+            if (!sawOption) {
+                printableArgumentCount = i;
+                sawOption = true;
             }
-
-            const Token& endValue = arguments[i].tokens[2];
-            if (endValue.kind == TokenKind::String || endValue.kind == TokenKind::Char) {
-                generatedEnd = "cout << " + endValue.text + ";";
-            } else if (endValue.kind == TokenKind::Identifier && endValue.text == "flush") {
-                generatedEnd = "cout << '\\n' << flush;";
-            } else {
-                recordSourceError(inputFile, lineNumber, arguments[i].column + endValue.span.startColumn - 1, "print end must be a string, char, or flush", sourceLines);
-                return {false, "", {}};
-            }
-
-            printableArgumentCount = i;
+            options.push_back(toPrintOption(arguments[i]));
             continue;
+        }
+
+        if (sawOption) {
+            recordSourceError(inputFile, lineNumber, arguments[i].column, "print options must come after all printed values", sourceLines);
+            return {false, "", {}};
         }
 
         for (const Token& token : arguments[i].tokens) {
             if (token.kind == TokenKind::Identifier && token.text == "end") {
                 recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "expected end = value", sourceLines);
+                return {false, "", {}};
+            }
+
+            if (token.kind == TokenKind::Identifier && token.text == "delim") {
+                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "expected delim = value", sourceLines);
                 return {false, "", {}};
             }
 
@@ -308,6 +350,63 @@ PrintEmitResult emitPrintStatement(
         return {false, "", {}};
     }
 
+    std::string generatedEnd = "cout << '\\n';";
+    std::string generatedDelim;
+    bool hasDelim = false;
+    for (const PrintOption& option : options) {
+        if (option.name == "end") {
+            const Token& endValue = option.valueTokens[0];
+            if (endValue.kind == TokenKind::Identifier && endValue.text == "flush") {
+                generatedEnd = "cout << '\\n' << flush;";
+            } else {
+                const ExpressionEmitResult expression = emitExpression(
+                    inputFile,
+                    lineNumber,
+                    option.valueText,
+                    option.valueColumn,
+                    sourceLines,
+                    declaredVariables
+                );
+                if (!expression.ok) {
+                    return {false, "", {}};
+                }
+                if (expression.type != PrimitiveType::Char && !isStringType(expression.type)) {
+                    recordSourceError(inputFile, lineNumber, option.valueColumn, "print end must be a string, char, or flush", sourceLines);
+                    return {false, "", {}};
+                }
+                if (isStringType(expression.type)) {
+                    requireRuntimeHelper("CPPPPrintValueString");
+                    generatedEnd = "CPPPPrintValue(cout, " + expression.generatedExpression + ");";
+                } else {
+                    generatedEnd = "cout << " + expression.generatedExpression + ";";
+                }
+            }
+            continue;
+        }
+
+        if (option.valueTokens[0].kind == TokenKind::Identifier && option.valueTokens[0].text == "flush") {
+            recordSourceError(inputFile, lineNumber, option.valueColumn, "print delim must be a string or char", sourceLines);
+            return {false, "", {}};
+        }
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            option.valueText,
+            option.valueColumn,
+            sourceLines,
+            declaredVariables
+        );
+        if (!expression.ok) {
+            return {false, "", {}};
+        }
+        if (expression.type != PrimitiveType::Char && !isStringType(expression.type)) {
+            recordSourceError(inputFile, lineNumber, option.valueColumn, "print delim must be a string or char", sourceLines);
+            return {false, "", {}};
+        }
+        generatedDelim = expression.generatedExpression;
+        hasDelim = true;
+    }
+
     std::string generatedStatement = "    ";
     std::vector<SourceRange> ranges;
     for (size_t i = 0; i < printableArgumentCount; ++i) {
@@ -323,24 +422,37 @@ PrintEmitResult emitPrintStatement(
             return {false, "", {}};
         }
 
+        if (hasDelim && !isListType(expression.type)) {
+            recordSourceError(inputFile, lineNumber, arguments[i].column, "print delim requires a List value", sourceLines);
+            return {false, "", {}};
+        }
+
         if (i > 0) {
             generatedStatement += "cout << ' '; ";
         }
 
         const bool listArgument = isListType(expression.type);
         if (listArgument) {
-            requireRuntimeHelper("CPPPPrintValue");
-            if (printedTypeNeedsStringHelper(expression.type)) {
+            if (hasDelim) {
+                requireRuntimeHelper("CPPPPrintDelimited");
+            } else {
+                requireRuntimeHelper("CPPPPrintValue");
+            }
+            if (printedTypeNeedsStringHelper(expression.type) || (hasDelim && isStringType(expression.type.subtypes[0]))) {
                 requireRuntimeHelper("CPPPPrintValueString");
             }
-            generatedStatement += "CPPPPrintValue(cout, ";
+            generatedStatement += hasDelim ? "CPPPPrintDelimited(cout, " : "CPPPPrintValue(cout, ";
         } else {
             generatedStatement += "cout << ";
         }
         const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
         generatedStatement += expression.generatedExpression;
         if (listArgument) {
-            generatedStatement += "); ";
+            if (hasDelim) {
+                generatedStatement += ", " + generatedDelim + "); ";
+            } else {
+                generatedStatement += "); ";
+            }
         } else {
             generatedStatement += "; ";
         }

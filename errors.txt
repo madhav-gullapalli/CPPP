@@ -823,15 +823,15 @@ expected ',' before flush
   Diagnostic:
     error: use end = flush instead of flush argument
 
-end must be the final print option
-  The end option controls how a print call ends and must appear after all
-  printable values.
+print options must come after all printed values
+  The end and delim options may appear in either order, but both must come
+  after every actual value being printed.
 
   Example:
     print("x", end = " ", 1);
 
   Diagnostic:
-    error: end must be the final print option
+    error: print options must come after all printed values
 
 print end must be a string, char, or flush
   print end accepts a string, a char, or flush. end = flush emits a newline
@@ -842,6 +842,26 @@ print end must be a string, char, or flush
 
   Diagnostic:
     error: print end must be a string, char, or flush
+
+print delim must be a string or char
+  print delim accepts only a string or char separator. Unlike end, delim does
+  not accept flush.
+
+  Example:
+    print([1, 2, 3], delim = flush);
+
+  Diagnostic:
+    error: print delim must be a string or char
+
+print delim requires a List value
+  The delim option only applies to top-level List printing. Nested list items
+  still print with their usual bracketed formatting.
+
+  Example:
+    print(123, delim = " ");
+
+  Diagnostic:
+    error: print delim requires a List value
 
 print requires at least one value
   print must receive at least one printable value before any end option.
@@ -860,6 +880,15 @@ print end option
     print("hi");
     print("hi", end = " ");
     print("hi", end = flush);
+
+print delim option
+  print(list, delim = value) prints the top-level List elements separated by a
+  string or char delimiter. This leaves nested Lists printed normally, so
+  `print([[1], [2]], delim = " ")` becomes `[1] [2]`.
+
+  Example:
+    print([1, 2, 3], delim = " ");
+    print("abc", delim = '-');
 
 empty print
   print() is allowed and emits a single newline.
@@ -1395,14 +1424,17 @@ input() can only be used as the entire value in an assignment or declaration
 
 list input
   List targets can read directly from input by giving one size per List
-  dimension. CP++ reads elements in row-major order into the requested shape.
-  Size expressions can be integer literals or int-compatible variables.
+  dimension. For nested Lists, you may also omit the final dimension so each
+  innermost one-dimensional List is read with line-style input(). CP++ reads
+  elements in row-major order into the requested shape. Size expressions can
+  be integer literals or int-compatible variables.
 
   Example:
     List<int> line = input(4);
     int rows = 2;
     int cols = 3;
     List<List<int>> grid = input(rows, cols);
+    List<List<int>> ragged = input(rows);
 
 string input
   string targets can read either a whitespace-delimited word with input(), or
@@ -1448,13 +1480,15 @@ string input needs exactly 1 size argument
     error: string input needs exactly 1 size argument
 
 List input needs exactly <n> size arguments
-  The number of input sizes must match the number of nested List dimensions.
+  The number of input sizes must match the number of nested List dimensions,
+  except nested List input may omit the final dimension and read each inner
+  one-dimensional List with input().
 
   Example:
-    List<List<int>> grid = input(3);
+    List<int> values = input(1, 2);
 
   Diagnostic:
-    error: List input needs exactly 2 size arguments
+    error: List input needs exactly 0 or 1 size argument
 
 input() size must be int
   Each List input size must be an int value or something CP++ can implicitly
@@ -1466,6 +1500,38 @@ input() size must be int
 
   Diagnostic:
     error: input() size must be int
+
+split()
+  split(list, delimiter) breaks a List into a List of sublists. The delimiter
+  must be either one element of the List's element type, or another List with
+  the exact same type as the first argument. Consecutive delimiters are
+  skipped, so they do not produce empty pieces.
+
+  Example:
+    List<int> values = [1, 2, 3, 2, 1];
+    print(split(values, 2));
+    print(split("hello  world im gay", "  "));
+
+split() expects a List value as the first argument
+  The first split() argument is the haystack being split, so it must be a
+  List-like value such as List<int> or string.
+
+  Example:
+    print(split(123, 2));
+
+  Diagnostic:
+    error: split() expects a List value as the first argument
+
+split() delimiter must be <element> or <list>
+  The second split() argument must be either one element of the haystack's
+  element type, or another List of the exact same type as the haystack.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    print(split(values, 2.5));
+
+  Diagnostic:
+    error: split() delimiter must be int or List<int>
 
 Runtime errors
 --------------

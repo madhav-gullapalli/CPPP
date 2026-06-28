@@ -38,6 +38,31 @@ std::string emitListInputExpression(
         return inputFunctionForType(currentType);
     }
 
+    if (dimensionIndex >= dimensions.size()) {
+        if (isStringType(currentType)) {
+            return inputFunctionForType(currentType);
+        }
+        const int depth = listDepth(currentType);
+        if (depth == 1) {
+            std::string elementCppType;
+            if (currentType.subtypes[0] == PrimitiveType::Bool) {
+                elementCppType = "bool";
+            } else if (currentType.subtypes[0] == PrimitiveType::Char) {
+                elementCppType = "CPPPChar";
+            } else if (currentType.subtypes[0] == PrimitiveType::Int) {
+                elementCppType = "long long";
+            } else if (currentType.subtypes[0] == PrimitiveType::Float) {
+                elementCppType = "long double";
+            }
+            if (elementCppType.empty()) {
+                return "";
+            }
+            requireRuntimeHelper("CPPPInputListLine");
+            return "CPPPInputListLine<" + elementCppType + ">()";
+        }
+        return "";
+    }
+
     requireRuntimeHelper("CPPPInputList");
     const std::string elementExpression = emitListInputExpression(currentType.subtypes[0], dimensions, dimensionIndex + 1);
     return "CPPPInputList(" + dimensions[dimensionIndex] + ", [&]() { return " + elementExpression + "; })";
@@ -393,12 +418,18 @@ bool emitInputCallForType(
         return false;
     }
 
-    if (static_cast<int>(arguments.size()) != depth) {
+    const bool exactDimensions = static_cast<int>(arguments.size()) == depth;
+    const bool lineFinalDimension = depth > 1 && static_cast<int>(arguments.size()) == depth - 1;
+    if (!exactDimensions && !lineFinalDimension) {
+        std::string expected = "0 or 1";
+        if (depth > 1) {
+            expected = std::to_string(depth - 1) + " or " + std::to_string(depth);
+        }
         recordSourceError(
             inputFile,
             lineNumber,
             arguments[0].column,
-            "List input needs exactly " + std::to_string(depth) + " size argument" + (depth == 1 ? "" : "s"),
+            "List input needs exactly " + expected + " size argument" + ((depth == 1 || depth == 2) ? "" : "s"),
             sourceLines
         );
         return false;
@@ -436,6 +467,10 @@ bool emitInputCallForType(
     }
 
     emittedExpression = emitListInputExpression(targetType, dimensions, 0);
+    if (emittedExpression.empty()) {
+        recordSourceError(inputFile, lineNumber, arguments[0].column, "List input sizes must leave at most one final line-shaped List dimension", sourceLines);
+        return false;
+    }
     return true;
 }
 

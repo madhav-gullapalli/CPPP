@@ -260,6 +260,23 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             },
             {},
             {"CPPPPrintValue("}
+        },
+        {
+            "CPPPPrintDelimited",
+            {
+                "template <typename T, typename Delimiter>",
+                "void CPPPPrintDelimited(ostream& output, const vector<T>& values, const Delimiter& delimiter) {",
+                "    for (size_t i = 0; i < values.size(); ++i) {",
+                "        if (i > 0) {",
+                "            CPPPPrintValue(output, delimiter);",
+                "        }",
+                "        CPPPPrintValue(output, values[i]);",
+                "    }",
+                "}",
+                ""
+            },
+            {"CPPPPrintValue"},
+            {"CPPPPrintDelimited("}
         }
     };
 
