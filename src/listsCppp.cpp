@@ -400,6 +400,18 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             {"CPPPListAt("}
         },
         {
+            "CPPPListRef",
+            {
+                "template <typename T>",
+                "typename vector<T>::reference CPPPListRef(vector<T>& list, long long index, int line, int column) {",
+                "    return list[static_cast<typename vector<T>::difference_type>(CPPPNormalizeListIndex(list, index, line, column))];",
+                "}",
+                ""
+            },
+            {"CPPPListAt"},
+            {"CPPPListRef("}
+        },
+        {
             "CPPPListSlice",
             {
                 "template <typename T>",

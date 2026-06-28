@@ -1,0 +1,3 @@
+List<List<int>> grid = [[1, 2], [3, 4]];
+bool bad = true;
+grid[bad][0] += 1;

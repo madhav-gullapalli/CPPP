@@ -237,6 +237,21 @@ run_program_ok "$nested_list_in_case" "$LOG_DIR/nested_list_in.log" "nested list
 assert_contains "$LOG_DIR/nested_list_in.log" "1" "nested list membership output"
 pass "list membership against List<List<T>> is preserved"
 
+exotic_lvalues_case="$(stage_case "$TEST_DIR/exotic_lvalues.cppp")"
+run_program_ok "$exotic_lvalues_case" "$LOG_DIR/exotic_lvalues.log" "nested indexed lvalue program runs"
+assert_contains "$LOG_DIR/exotic_lvalues.log" "[[4, 7], [4, 1]]" "nested indexed lvalue output"
+pass "nested indexed lvalues behave like ordinary mutable variables"
+
+exotic_lvalues_input_case="$(stage_case "$TEST_DIR/exotic_lvalues_input.cppp")"
+printf '9\n' | "$COMPILER" --cppp "$exotic_lvalues_input_case" --run >"$LOG_DIR/exotic_lvalues_input.log" 2>&1 || fail "nested indexed input program runs"
+assert_contains "$LOG_DIR/exotic_lvalues_input.log" "[[1, 9], [3, 4]]" "nested indexed input output"
+pass "input() assigns directly into nested indexed lvalues"
+
+exotic_lvalues_error_case="$(stage_case "$TEST_DIR/exotic_lvalues_error.cppp")"
+run_failure "$exotic_lvalues_error_case" "$LOG_DIR/exotic_lvalues_error.log" "invalid nested indexed lvalue should fail"
+assert_contains "$LOG_DIR/exotic_lvalues_error.log" "list index must be int" "nested indexed lvalue diagnostic"
+pass "nested indexed lvalues preserve index type diagnostics"
+
 catalog_failed=0
 
 if "$PYTHON_CMD" tests/errors_coverage.py correct.txt; then

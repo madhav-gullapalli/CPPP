@@ -53,6 +53,13 @@ struct ExpressionEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+struct LvalueEmitResult {
+    bool ok;
+    std::string generatedExpression;
+    Type type;
+    int sourceColumn;
+};
+
 struct InputArgument {
     std::string text;
     int column;
@@ -81,6 +88,16 @@ bool emitInputCallForType(
 void setExpressionRuntimeChecksEnabled(bool enabled);
 
 ExpressionEmitResult emitExpression(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks = false
+);
+
+LvalueEmitResult emitLvalueExpression(
     const std::string& inputFile,
     int lineNumber,
     const std::string& expressionText,

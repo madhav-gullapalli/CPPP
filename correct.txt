@@ -152,6 +152,42 @@ list indexed assignment
     List<int> values = [1, 2, 3];
     values[1] = 9;
 
+list indexed compound assignment
+  List elements support compound assignment like normal variables.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[1] += 5;
+    print(values);
+
+  Output:
+    [1, 7, 3]
+
+list indexed increment
+  List elements support prefix and postfix updates.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[0]++;
+    ++values[2];
+    print(values);
+
+  Output:
+    [2, 2, 4]
+
+nested list indexed variables
+  Nested List elements behave like normal mutable variables too.
+
+  Example:
+    List<List<int>> grid = [[1, 2], [3, 4]];
+    grid[0][1] += 5;
+    ++grid[1][0];
+    grid[0][0], grid[1][1] = grid[1][1], grid[0][0];
+    print(grid);
+
+  Output:
+    [[4, 7], [4, 1]]
+
 list add append
   add(value) appends.
 
@@ -889,6 +925,20 @@ input multi assignment compile
     int a;
     int b;
     a,b = input();
+
+input indexed assignment compile
+  input() works when assigning directly into a List element.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[1] = input();
+
+nested input indexed assignment compile
+  input() also works when assigning directly into nested List elements.
+
+  Example:
+    List<List<int>> grid = [[1, 2], [3, 4]];
+    grid[0][1] = input();
 
 Aggregates
 ----------

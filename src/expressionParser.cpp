@@ -482,6 +482,7 @@ private:
         }
 
         expr.inferredType = expr.base->inferredType.subtypes[0];
+        expr.mutableValue = expr.base->mutableValue;
         return true;
     }
 
@@ -656,10 +657,12 @@ private:
     }
 
     std::string generateUnary(const UnaryExpr& expr) const {
-        const std::string operand = generate(*expr.operand);
         if (expr.op == "++" || expr.op == "--") {
-            return expr.postfix ? "(" + operand + expr.op + ")" : "(" + expr.op + operand + ")";
+            const std::string operand = generateMutableAccess(*expr.operand);
+            return "([&]() { auto& __cppp_ref = " + operand + "; auto __cppp_old = __cppp_ref; " +
+                expr.op + "__cppp_ref; return " + (expr.postfix ? "__cppp_old" : "__cppp_ref") + "; }())";
         }
+        const std::string operand = generate(*expr.operand);
         if (expr.op == "!") {
             return "(!" + castExpressionTo(operand, expr.operand->inferredType, PrimitiveType::Bool) + ")";
         }
@@ -817,6 +820,25 @@ private:
         return "([&]() { const auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + index + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return (__cppp_list[__cppp_index]); }())";
     }
 
+    std::string generateMutableAccess(const Expr& expr) const {
+        if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
+            return variable->name;
+        }
+        if (const auto* index = dynamic_cast<const IndexExpr*>(&expr)) {
+            const std::string base = generateMutableAccess(*index->base);
+            std::string generatedIndex = generate(*index->index);
+            if (index->index->inferredType != PrimitiveType::Int) {
+                generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
+            }
+            if (emitRuntimeChecks) {
+                requireRuntimeHelper("CPPPListRef");
+                return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
+            }
+            return "([&]() -> auto& { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
+        }
+        return generate(expr);
+    }
+
     std::string generateSlice(const SliceExpr& expr) const {
         const std::string base = generate(*expr.base);
         const std::string start = generate(*expr.start);
@@ -845,6 +867,26 @@ private:
         return generated;
     }
 };
+
+std::string generateMutableAccessExpression(const Expr& expr, int lineNumber, bool emitRuntimeChecks) {
+    if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
+        return variable->name;
+    }
+    if (const auto* index = dynamic_cast<const IndexExpr*>(&expr)) {
+        const std::string base = generateMutableAccessExpression(*index->base, lineNumber, emitRuntimeChecks);
+        ExpressionCodegen codegen(lineNumber, emitRuntimeChecks);
+        std::string generatedIndex = codegen.generate(*index->index);
+        if (index->index->inferredType != PrimitiveType::Int) {
+            generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
+        }
+        if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListRef");
+            return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
+        }
+        return "([&]() -> auto& { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
+    }
+    return ExpressionCodegen(lineNumber, emitRuntimeChecks).generate(expr);
+}
 }
 
 ExpressionParser::ExpressionParser(
@@ -896,6 +938,63 @@ ExpressionEmitResult ExpressionParser::parse() {
             0,
             0
         }}
+    };
+}
+
+LvalueEmitResult emitLvalueExpression(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks
+) {
+    ExpressionParser parser(
+        inputFile,
+        lineNumber,
+        expressionText,
+        expressionColumn,
+        sourceLines,
+        declaredVariables,
+        emitRuntimeChecks
+    );
+
+    for (const Token& token : tokenize(expressionText)) {
+        if ((token.kind == TokenKind::String || token.kind == TokenKind::Char) &&
+            (token.text.size() < 2 || token.text.front() != token.text.back())) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                expressionColumn + token.span.startColumn - 1,
+                token.kind == TokenKind::Char ? "unterminated char literal" : "unterminated string literal",
+                sourceLines
+            );
+            return {false, "", PrimitiveType::Unknown, expressionColumn};
+        }
+    }
+
+    bool ok = true;
+    std::unique_ptr<Expr> expression = parser.parseAst(ok);
+    if (!ok || !expression) {
+        return {false, "", PrimitiveType::Unknown, expressionColumn};
+    }
+
+    ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables);
+    if (!analyzer.analyze(*expression)) {
+        return {false, "", PrimitiveType::Unknown, expressionColumn};
+    }
+
+    if (!expression->mutableValue) {
+        recordSourceError(inputFile, lineNumber, expression->sourceColumn, "assignment target must be a mutable variable or list element", sourceLines);
+        return {false, "", PrimitiveType::Unknown, expression->sourceColumn};
+    }
+
+    return {
+        true,
+        generateMutableAccessExpression(*expression, lineNumber, emitRuntimeChecks),
+        expression->inferredType,
+        expression->sourceColumn
     };
 }
 

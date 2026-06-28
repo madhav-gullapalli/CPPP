@@ -333,6 +333,21 @@ list index must be int
   Diagnostic:
     error: list index must be int
 
+list indexed variables
+  A List element accessed with list[index] behaves like a normal mutable
+  variable in assignments and updates. It can appear on the left side of
+  `=`, compound assignment like `+=`, prefix/postfix `++` and `--`, and can
+  receive target-typed `input()` directly.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[1] += 4;
+    values[0]++;
+    values[2] = input();
+
+  The same rule applies recursively to nested List elements like
+  `grid[i][j]`.
+
 List indexing
   A List value can be indexed with square brackets using a zero-based int
   index. Negative indexes are also supported, so list[-1] means the last
@@ -414,6 +429,18 @@ index assignment requires a List value
 
   Diagnostic:
     error: index assignment requires a List value
+
+list index must be int in indexed assignment and updates
+  Indexed assignments and updates use the same int index rule as indexed
+  reads. This includes plain assignment, compound assignment, and ++/-- on a
+  List element.
+
+  Example:
+    List<int> values = [1, 2, 3];
+    values[true] += 1;
+
+  Diagnostic:
+    error: list index must be int
 
 List addition
   CP++ supports `A + B` for List values of the same type. This returns a brand
