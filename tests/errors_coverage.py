@@ -233,6 +233,13 @@ def expect_contains(haystack: str, needle: str, label: str) -> None:
         raise AssertionError(f"{label}: expected to find {needle!r}\nActual output:\n{haystack}")
 
 
+def print_progress(current: int, total: int, label: str) -> None:
+    width = 28
+    filled = 0 if total == 0 else current * width // total
+    bar = "#" * filled + "-" * (width - filled)
+    print(f"[{current}/{total}] [{bar}] {label}", flush=True)
+
+
 def main() -> int:
     if len(sys.argv) > 3:
         raise SystemExit("usage: errors_coverage.py [doc-path|start-line] [start-line]")
@@ -272,8 +279,10 @@ def main() -> int:
     else:
         print(f"Running {doc_path.name} coverage for {len(cases)} documented examples...")
     failures: List[str] = []
+    total_cases = len(cases)
 
-    for case in cases:
+    for index, case in enumerate(cases, start=1):
+        print_progress(index, total_cases, case.title)
         mode = choose_mode(case, rules)
         source = write_case(case, case_dir, rules)
         log = log_dir / f"{case.key}.log"

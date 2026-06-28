@@ -428,7 +428,7 @@ index assignment requires a List value
     x[0] = 1;
 
   Diagnostic:
-    error: index assignment requires a List value
+    error: indexing requires a List value
 
 list index must be int in indexed assignment and updates
   Indexed assignments and updates use the same int index rule as indexed
