@@ -11,6 +11,7 @@
 struct FunctionParameter {
     std::string name;
     Type type;
+    bool deepCopy = false;
     int column = 0;
 };
 

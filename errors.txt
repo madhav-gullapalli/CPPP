@@ -1117,6 +1117,18 @@ invalid function return type
   Diagnostic:
     error: cannot implicitly convert string to int
 
+deep must precede a collection
+  The `deep` modifier is only valid before a container parameter type such as
+  `List<int>` or `string`.
+
+  Example:
+    void f(deep int x){
+        print(x);
+    }
+
+  Diagnostic:
+    error: deep must precede a collection
+
 Operator support
 ----------------
 

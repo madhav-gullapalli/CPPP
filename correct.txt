@@ -650,6 +650,23 @@ void recursive function
   Output:
     0 1 3 2
 
+deep container parameter
+  Prefixing a container parameter with `deep` passes that argument by copy
+  instead of by reference.
+
+  Example:
+    void f(deep List<int> A, List<int> B){
+        A.add(1);
+        B.add(2);
+    }
+    List<int> A = [];
+    List<int> B = [];
+    f(A, B);
+    print(A, B);
+
+  Output:
+    [] [2]
+
 Control flow
 ------------
 

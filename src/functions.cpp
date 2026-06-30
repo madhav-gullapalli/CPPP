@@ -7,12 +7,16 @@ bool isReferenceParameterType(const Type& type) {
     return isStringType(type) || (type.primitive == PrimitiveType::List && type.subtypes.size() == 1);
 }
 
-std::string cppParameterType(const Type& type) {
+bool isDeepEligibleType(const Type& type) {
+    return isReferenceParameterType(type);
+}
+
+std::string cppParameterType(const Type& type, bool deepCopy) {
     const std::string cppType = cppTypeForType(type);
     if (cppType.empty()) {
         return "";
     }
-    if (isReferenceParameterType(type)) {
+    if (!deepCopy && isReferenceParameterType(type)) {
         return cppType + "&";
     }
     return cppType;
@@ -58,17 +62,12 @@ ParsedFunctionHeader parseFunctionHeader(
 ) {
     ParsedFunctionHeader result;
     const std::vector<Token> tokens = tokenize(statementBody);
-    if (tokens.size() < 5 || tokens[0].kind != TokenKind::Identifier) {
+    if (tokens.size() < 4 || tokens[0].kind != TokenKind::Identifier) {
         return result;
     }
 
     const ParsedTypeResult returnType = parseDeclaredTypeTokens(inputFile, lineNumber, tokens, 0, sourceLines, true);
     if (!returnType.matched) {
-        return result;
-    }
-    result.matched = true;
-    if (!returnType.ok) {
-        result.ok = false;
         return result;
     }
 
@@ -77,18 +76,36 @@ ParsedFunctionHeader parseFunctionHeader(
         return result;
     }
 
+    const size_t nameIndex = tokenIndex;
+    if (nameIndex + 1 >= tokens.size() || tokens[nameIndex + 1].kind != TokenKind::LeftParen) {
+        return result;
+    }
+
+    result.matched = true;
+    if (!returnType.ok) {
+        result.ok = false;
+        return result;
+    }
+
     result.signature.returnType = returnType.type;
     result.signature.returnsVoid = returnType.type == PrimitiveType::Void;
     result.signature.name = tokens[tokenIndex].text;
     result.nameColumn = statementColumn + tokens[tokenIndex].span.startColumn - 1;
     ++tokenIndex;
-
-    if (tokenIndex >= tokens.size() || tokens[tokenIndex].kind != TokenKind::LeftParen) {
-        return result;
-    }
     ++tokenIndex;
 
     while (tokenIndex < tokens.size() && tokens[tokenIndex].kind != TokenKind::RightParen) {
+        bool deepCopy = false;
+        if (tokens[tokenIndex].kind == TokenKind::Identifier && tokens[tokenIndex].text == "deep") {
+            deepCopy = true;
+            ++tokenIndex;
+            if (tokenIndex >= tokens.size()) {
+                recordSourceError(inputFile, lineNumber, statementColumn + tokens[tokenIndex - 1].span.startColumn - 1, "deep must precede a collection", sourceLines);
+                result.ok = false;
+                return result;
+            }
+        }
+
         const ParsedTypeResult parameterType = parseDeclaredTypeTokens(inputFile, lineNumber, tokens, tokenIndex, sourceLines);
         if (!parameterType.matched) {
             recordSourceError(inputFile, lineNumber, statementColumn + tokens[tokenIndex].span.startColumn - 1, "expected parameter type", sourceLines);
@@ -96,6 +113,11 @@ ParsedFunctionHeader parseFunctionHeader(
             return result;
         }
         if (!parameterType.ok) {
+            result.ok = false;
+            return result;
+        }
+        if (deepCopy && !isDeepEligibleType(parameterType.type)) {
+            recordSourceError(inputFile, lineNumber, statementColumn + tokens[tokenIndex - 1].span.startColumn - 1, "deep must precede a collection", sourceLines);
             result.ok = false;
             return result;
         }
@@ -109,6 +131,7 @@ ParsedFunctionHeader parseFunctionHeader(
         result.signature.parameters.push_back({
             tokens[tokenIndex].text,
             parameterType.type,
+            deepCopy,
             statementColumn + tokens[tokenIndex].span.startColumn - 1
         });
         ++tokenIndex;
@@ -152,7 +175,7 @@ ParsedFunctionHeader parseFunctionHeader(
         if (i > 0) {
             result.generatedSignature += ", ";
         }
-        const std::string parameterCppType = cppParameterType(result.signature.parameters[i].type);
+        const std::string parameterCppType = cppParameterType(result.signature.parameters[i].type, result.signature.parameters[i].deepCopy);
         if (parameterCppType.empty()) {
             recordSourceError(inputFile, lineNumber, result.signature.parameters[i].column, "unsupported parameter type " + cpppTypeName(result.signature.parameters[i].type), sourceLines);
             result.ok = false;

@@ -537,7 +537,8 @@ private:
                     report(expr.sourceColumn, signature.name + " expected parameters of " + expected + " type got " + got);
                     return false;
                 }
-                if (isStringType(parameterType) || parameterType.primitive == PrimitiveType::List) {
+                if (!signature.parameters[i].deepCopy &&
+                    (isStringType(parameterType) || parameterType.primitive == PrimitiveType::List)) {
                     if (!expr.arguments[i]->mutableValue) {
                         report(expr.sourceColumn, signature.name + " requires List and string arguments to be mutable variables");
                         return false;
