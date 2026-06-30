@@ -12,7 +12,14 @@ CP++ is aimed at maximal algorithmic expressiveness:
 - built-in support for common data structures and algorithmic primitives
 - no attempt to stuff full algorithms into the language itself
 
-That means things like lists, slicing, membership checks, target-typed input, loop forms, and small utility operations are part of the language, while the actual algorithm is still yours to write.
+That means things like lists, slicing, membership checks, target-typed input, loop forms, small utility operations, and lightweight user-defined functions are part of the language, while the actual algorithm is still yours to write.
+
+Implemented highlights include:
+
+- nested `List<T>` support with indexing, slicing, membership, `find(...)`, and `split(...)`
+- target-typed scalar, string, and list `input(...)`
+- list-aware `print(...)`, normal string printing, and `delim = ...`
+- top-level functions, recursion, and `deep` pass-by-copy container parameters
 
 ## Running CP++
 
@@ -87,19 +94,41 @@ Windows equivalents:
 ## A Small Example
 
 ```cpp
-int n = input();
-List<int> values = input(n);
-values.sort();
-
-if (n) {
-    print(values[0], values[-1]);
-} else {
-    print("empty");
+void dfs(List<List<int>> adj, List<bool> vis, int u){
+    vis[u] = true;
+    print(u, end = " ");
+    for (int v in adj[u]) {
+        if (!vis[v]) {
+            dfs(adj, vis, v);
+        }
+    }
 }
+
+int n = input();
+List<List<int>> edges = input(n - 1, 2);
+List<List<int>> adj = [];
+rep(n) {
+    adj.add([]);
+}
+for (int i = 0; i < len(edges); i++) {
+    int a = edges[i][0];
+    int b = edges[i][1];
+    adj[a].add(b);
+    adj[b].add(a);
+}
+for (int i = 0; i < n; i++) {
+    adj[i].sort();
+}
+List<bool> vis = [];
+rep(n) {
+    vis.add(false);
+}
+dfs(adj, vis, 0);
+print();
 ```
 
 ## Language Docs
 
 The implemented language surface lives in [cppp_language.md](cppp_language.md).
 
-That file is the readable language reference. Its content is based on the executable documentation in `errors.txt` and `correct.txt`, which are still the best source for exact implemented behavior.
+That file is the readable language reference. Its content is based on the executable documentation in `errors.txt` and `correct.txt`, which are still the best source for exact implemented behavior, but the guide now also calls out the newer function surface, `deep` parameters, list/string printing, `split(...)`, and the recent input forms more directly.

@@ -235,6 +235,66 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Use when an implicit conversion is rejected.
 - Complexity: O(1)
 
+## Functions
+
+### Top-level function definition
+
+- Syntax:
+  ```cpp
+  int square(int x){
+      return x * x;
+  }
+  ```
+- What it does: Declares a top-level user-defined function.
+- Notes: Implemented parameter and return types use the normal CP++ type surface, including `void`, `List<...>`, nested lists, and `string`.
+- Complexity: O(1) declaration overhead
+
+### Function calls
+
+- Syntax: `square(5)`, `dfs(adj, vis, 0);`
+- What it does: Calls a user-defined function from either an expression or a standalone statement.
+- Notes: Argument count and argument types are checked at compile time.
+- Complexity: proportional to the function body
+
+### Recursive functions
+
+- Syntax:
+  ```cpp
+  void dfs(List<List<int>> adj, List<bool> vis, int u){
+      ...
+      dfs(adj, vis, v);
+  }
+  ```
+- What it does: Allows ordinary recursive patterns such as DFS.
+- Notes: Functions are top-level only in the current implemented surface.
+- Complexity: depends on recursion depth and body
+
+### `void` returns
+
+- Syntax:
+  ```cpp
+  void stop(){
+      return;
+  }
+  ```
+- What it does: Returns early from a `void` function.
+- Notes: Non-`void` functions must return a value.
+- Complexity: O(1)
+
+### Container parameters by reference
+
+- Syntax: `void f(List<int> values, string s){ ... }`
+- What it does: Passes container parameters by reference by default.
+- Notes: Mutating a plain `List<...>` or `string` parameter mutates the caller-visible value.
+- Complexity: O(1) call setup
+
+### `deep` container parameters
+
+- Syntax: `void f(deep List<int> copy, List<int> ref){ ... }`
+- What it does: Passes the `deep` container parameter by copy instead of by reference.
+- Notes: `deep` is only implemented for collection-like parameters such as `List<...>` and `string`.
+- Complexity: proportional to the copied container size
+
 ## Expressions and Operators
 
 ### Variables
@@ -421,6 +481,17 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Also supports `values.find(sublist)` and returns starting indices of sublist matches. Works on `string` as well.
 - Complexity: O(n) for single-element search; sublist search grows with container and pattern length
 
+### Split by element or sublist
+
+- Syntax:
+  ```cpp
+  split(values, 2)
+  split(values, [2, 3])
+  ```
+- What it does: Breaks a list into a `List<List<T>>` using either one element or a same-typed sublist delimiter.
+- Notes: Consecutive delimiters are skipped, so they do not produce empty pieces.
+- Complexity: grows with list and delimiter length
+
 ## Strings
 
 ### String indexing
@@ -458,6 +529,17 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Works through the same `find(...)` surface documented for lists.
 - Complexity: grows with string and pattern length
 
+### String split
+
+- Syntax:
+  ```cpp
+  split("a--b--c", "--")
+  split("a b c", ' ')
+  ```
+- What it does: Splits a string through the same list-style `split(...)` operation because `string` behaves like `List<char>`.
+- Notes: The result is a `List<string>`.
+- Complexity: grows with string and delimiter length
+
 ## Input
 
 ### Target-typed scalar input
@@ -493,7 +575,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `List<List<int>> grid = input(rows, cols);`
 - What it does: Reads nested list data in row-major order into the requested shape.
-- Notes: Number of sizes should match list dimensionality.
+- Notes: Number of sizes should normally match list dimensionality. Nested list input may also omit the final dimension and read each innermost one-dimensional list with line-style input.
 - Complexity: O(total elements)
 
 ### One-dimensional line-style list input
@@ -517,6 +599,17 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: String input with explicit size accepts exactly one size argument.
 - Complexity: O(n)
 
+### Indexed input targets
+
+- Syntax:
+  ```cpp
+  values[1] = input();
+  grid[0][1] = input();
+  ```
+- What it does: Reads directly into indexed list elements, including nested list elements.
+- Notes: This uses the same target-typed input model as declarations and plain assignments.
+- Complexity: O(1) plus input size
+
 ## Output and Introspection
 
 ### Print values
@@ -524,6 +617,17 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Syntax: `print(a, b, c);`
 - What it does: Prints one or more expressions.
 - Notes: `string` values print as ordinary text, not bracketed character lists. `List` values print with bracketed formatting, including nested lists.
+- Complexity: proportional to output size
+
+### Print with list delimiter
+
+- Syntax:
+  ```cpp
+  print([1, 2, 3], delim = " ")
+  print("abc", delim = '-')
+  ```
+- What it does: Prints the top-level elements of a list using a custom delimiter.
+- Notes: Strings participate through their `List<char>` behavior, so delimiters also work on strings.
 - Complexity: proportional to output size
 
 ### Empty print
