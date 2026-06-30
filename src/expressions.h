@@ -11,6 +11,7 @@
 
 enum class PrimitiveType {
     Unknown,
+    Void,
     Bool,
     Char,
     Int,
@@ -65,6 +66,8 @@ struct InputArgument {
     int column;
 };
 
+struct FunctionSignature;
+
 int primitiveArity(PrimitiveType primitive);
 std::string cpppTypeName(const Type& type);
 bool isStringType(const Type& type);
@@ -86,8 +89,30 @@ bool emitInputCallForType(
     std::string& emittedExpression
 );
 void setExpressionRuntimeChecksEnabled(bool enabled);
+void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSignature>* declaredFunctions);
 
 ExpressionEmitResult emitExpression(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks = false
+);
+
+ExpressionEmitResult emitExpression(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
+    bool emitRuntimeChecks = false
+);
+
+LvalueEmitResult emitLvalueExpression(
     const std::string& inputFile,
     int lineNumber,
     const std::string& expressionText,
@@ -104,6 +129,7 @@ LvalueEmitResult emitLvalueExpression(
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
     bool emitRuntimeChecks = false
 );
 

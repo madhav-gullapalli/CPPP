@@ -2,6 +2,7 @@
 
 #include "exprAst.h"
 #include "expressions.h"
+#include "functions.h"
 
 class ExpressionParser {
 public:
@@ -12,6 +13,7 @@ public:
         int expressionColumn,
         const std::map<int, std::string>& sourceLines,
         const std::map<std::string, Type>& declaredVariables,
+        const std::map<std::string, FunctionSignature>& declaredFunctions,
         bool emitRuntimeChecks
     );
 
@@ -25,6 +27,7 @@ private:
     int expressionColumn;
     const std::map<int, std::string>& sourceLines;
     const std::map<std::string, Type>& declaredVariables;
+    const std::map<std::string, FunctionSignature>& declaredFunctions;
     bool emitRuntimeChecks;
     std::vector<Token> tokens;
     size_t current = 0;

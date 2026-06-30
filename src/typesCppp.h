@@ -22,12 +22,29 @@ struct RuntimeHelper {
     std::vector<std::string> triggers;
 };
 
+struct ParsedTypeResult {
+    bool matched = false;
+    bool ok = true;
+    Type type;
+    std::string name;
+    size_t nextTokenIndex = 0;
+};
+
 std::vector<RuntimeHelper> runtimeHelpers();
 std::vector<std::string> typeSupportPreamble();
 std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string>& requiredHelpers);
 void clearRequiredRuntimeHelpers();
 void requireRuntimeHelper(const std::string& helperName);
 const std::set<std::string>& requiredRuntimeHelpers();
+std::string cppTypeForType(const Type& type);
+ParsedTypeResult parseDeclaredTypeTokens(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::vector<Token>& tokens,
+    size_t startIndex,
+    const std::map<int, std::string>& sourceLines,
+    bool allowVoid = false
+);
 
 TypeEmitResult emitTypeDeclaration(
     const std::string& inputFile,

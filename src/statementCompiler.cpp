@@ -3,6 +3,7 @@
 #include "assignmentCppp.h"
 #include "controlFlow.h"
 #include "errors.h"
+#include "functions.h"
 #include "listsCppp.h"
 #include "printCppp.h"
 #include "sourceSplitter.h"
@@ -10,6 +11,7 @@
 #include "typesCppp.h"
 
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <string>
 
@@ -51,6 +53,41 @@ bool isRepCountType(Type type) {
         type == PrimitiveType::Int ||
         type == PrimitiveType::Float;
 }
+
+bool startsWithKeyword(const std::string& text, const std::string& keyword) {
+    if (text.rfind(keyword, 0) != 0) {
+        return false;
+    }
+    return text.size() == keyword.size() || std::isspace(static_cast<unsigned char>(text[keyword.size()])) != 0;
+}
+
+bool isBuiltinCallName(const std::string& name) {
+    return name == "print" ||
+        name == "describe" ||
+        name == "input" ||
+        name == "len" ||
+        name == "min" ||
+        name == "max" ||
+        name == "sum" ||
+        name == "abs" ||
+        name == "split";
+}
+
+bool isUnsupportedBareCallStatement(
+    const std::string& statementBody,
+    const std::map<std::string, FunctionSignature>& declaredFunctions
+) {
+    const std::vector<Token> tokens = tokenize(statementBody);
+    if (tokens.size() < 4 ||
+        tokens[0].kind != TokenKind::Identifier ||
+        tokens[1].kind != TokenKind::LeftParen ||
+        tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
+        tokens.back().kind != TokenKind::EndOfFile) {
+        return false;
+    }
+
+    return declaredFunctions.count(tokens[0].text) == 0 && !isBuiltinCallName(tokens[0].text);
+}
 }
 
 void compileSourceFragments(CompileContext& context, const std::vector<SourceFragment>& sourceFragments) {
@@ -81,6 +118,48 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         const int statementStartColumn = fragment.startColumn;
         const StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
+
+        const size_t functionBrace = statement.find('{');
+        if (context.blockDepth == 0 && !context.inFunction && functionBrace != std::string::npos) {
+            const ParsedFunctionHeader functionHeader = parseFunctionHeader(
+                context.options.inputFile,
+                lineNumber,
+                trim(statement.substr(0, functionBrace + 1)),
+                statementStartColumn,
+                context.sourceLines
+            );
+            if (functionHeader.matched) {
+                if (!functionHeader.ok) {
+                    ++context.blockDepth;
+                    context.pushBlock("suppressed");
+                    ++context.suppressedBlockDepth;
+                    context.canAttachElse = false;
+                    continue;
+                }
+                if (context.declaredFunctions.count(functionHeader.signature.name) != 0) {
+                    recordSourceError(context.options.inputFile, lineNumber, functionHeader.nameColumn, "duplicate function '" + functionHeader.signature.name + "'", context.sourceLines);
+                    ++context.blockDepth;
+                    context.pushBlock("suppressed");
+                    ++context.suppressedBlockDepth;
+                    context.canAttachElse = false;
+                    continue;
+                }
+                context.declaredFunctions[functionHeader.signature.name] = functionHeader.signature;
+                context.queueFunctionLine(functionHeader.generatedSignature + (hasComment ? " " + commentText : ""), lineNumber);
+                context.savedDeclaredVariables = context.declaredVariables;
+                context.declaredVariables.clear();
+                for (const FunctionParameter& parameter : functionHeader.signature.parameters) {
+                    context.declaredVariables[parameter.name] = parameter.type;
+                }
+                context.currentFunction = functionHeader.signature;
+                context.inFunction = true;
+                context.outputTarget = OutputTarget::Function;
+                ++context.blockDepth;
+                context.pushBlock("function");
+                context.canAttachElse = false;
+                continue;
+            }
+        }
 
         const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0, const std::string& breakFlag = std::string()) {
             const size_t conditionOffset = absoluteOffset + header.conditionOffset;
@@ -219,6 +298,16 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             }
             if (afterBrace.empty()) {
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
+                if (closedBlock == "function") {
+                    context.inFunction = false;
+                    context.outputTarget = OutputTarget::Main;
+                    context.declaredVariables = context.savedDeclaredVariables;
+                    context.savedDeclaredVariables.clear();
+                    context.currentFunction = FunctionSignature{};
+                    context.canAttachElse = false;
+                    context.pendingLoopElse.active = false;
+                    context.pendingLoopElse.breakFlagName.clear();
+                }
                 continue;
             }
 
@@ -756,6 +845,77 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
+        if (statementBody == "return" || startsWithKeyword(statementBody, "return")) {
+            if (!context.inFunction) {
+                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "return can only be used inside a function", context.sourceLines);
+                continue;
+            }
+
+            const std::string returnExpressionText =
+                statementBody == "return" ? "" : trim(statementBody.substr(std::string("return").size()));
+            const int returnExpressionColumn =
+                statementStartColumn + static_cast<int>(statementBody.find("return")) + static_cast<int>(std::string("return").size());
+
+            if (returnExpressionText.empty()) {
+                if (!context.currentFunction.returnsVoid) {
+                    recordSourceError(
+                        context.options.inputFile,
+                        lineNumber,
+                        statementStartColumn,
+                        "non-void function must return a value of type " + cpppTypeName(context.currentFunction.returnType),
+                        context.sourceLines
+                    );
+                    continue;
+                }
+
+                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "return;" + (hasComment ? " " + commentText : ""), lineNumber);
+                continue;
+            }
+
+            if (context.currentFunction.returnsVoid) {
+                recordSourceError(context.options.inputFile, lineNumber, returnExpressionColumn + 1, "void function cannot return a value", context.sourceLines);
+                continue;
+            }
+
+            const ExpressionEmitResult returnExpression = emitExpression(
+                context.options.inputFile,
+                lineNumber,
+                returnExpressionText,
+                returnExpressionColumn + 1,
+                context.sourceLines,
+                context.declaredVariables
+            );
+            if (!returnExpression.ok) {
+                continue;
+            }
+
+            if (!isImplicitlyConvertible(returnExpression.type, context.currentFunction.returnType)) {
+                recordSourceError(
+                    context.options.inputFile,
+                    lineNumber,
+                    returnExpressionColumn + 1,
+                    "cannot implicitly convert " + cpppTypeName(returnExpression.type) + " to " + cpppTypeName(context.currentFunction.returnType),
+                    context.sourceLines
+                );
+                continue;
+            }
+
+            std::string generatedReturnExpression = returnExpression.generatedExpression;
+            if (returnExpression.type != context.currentFunction.returnType) {
+                generatedReturnExpression = castExpressionTo(
+                    generatedReturnExpression,
+                    returnExpression.type,
+                    context.currentFunction.returnType
+                );
+            }
+
+            context.queueGeneratedLine(
+                indentForDepth(context.blockDepth) + "return " + generatedReturnExpression + ";" + (hasComment ? " " + commentText : ""),
+                lineNumber
+            );
+            continue;
+        }
+
         const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
         if (typeResult.matched) {
             if (!typeResult.ok) {
@@ -847,14 +1007,48 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const PrintEmitResult printResult = emitPrintStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
-        if (!printResult.ok) {
+        if (statementBody.rfind("print", 0) == 0) {
+            if (!printResult.ok) {
+                continue;
+            }
+
+            context.queueGeneratedLine(
+                indentGeneratedStatement(printResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                printResult.sourceRanges
+            );
+            continue;
+        }
+
+        if (isUnsupportedBareCallStatement(statementBody, context.declaredFunctions)) {
+            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unsupported statement", context.sourceLines);
+            continue;
+        }
+
+        if (printResult.ok) {
+            context.queueGeneratedLine(
+                indentGeneratedStatement(printResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
+                lineNumber,
+                printResult.sourceRanges
+            );
+            continue;
+        }
+
+        const ExpressionEmitResult expressionStatement = emitExpression(
+            context.options.inputFile,
+            lineNumber,
+            statementBody,
+            statementStartColumn,
+            context.sourceLines,
+            context.declaredVariables
+        );
+        if (!expressionStatement.ok) {
             continue;
         }
 
         context.queueGeneratedLine(
-            indentGeneratedStatement(printResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-            lineNumber,
-            printResult.sourceRanges
+            indentForDepth(context.blockDepth) + expressionStatement.generatedExpression + ";" + (hasComment ? " " + commentText : ""),
+            lineNumber
         );
     }
 }

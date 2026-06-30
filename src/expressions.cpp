@@ -9,6 +9,11 @@ bool& expressionRuntimeChecksEnabled() {
     return enabled;
 }
 
+const std::map<std::string, FunctionSignature>*& declaredFunctionsForExpressions() {
+    static const std::map<std::string, FunctionSignature>* functions = nullptr;
+    return functions;
+}
+
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -71,6 +76,7 @@ std::string emitListInputExpression(
 
 int primitiveArity(PrimitiveType primitive) {
     switch (primitive) {
+        case PrimitiveType::Void:
         case PrimitiveType::Bool:
         case PrimitiveType::Char:
         case PrimitiveType::Int:
@@ -91,6 +97,8 @@ std::string cpppTypeName(const Type& type) {
     }
 
     switch (type.primitive) {
+        case PrimitiveType::Void:
+            return "void";
         case PrimitiveType::Bool:
             return "bool";
         case PrimitiveType::Char:
@@ -146,6 +154,10 @@ bool isImplicitlyConvertible(const Type& from, const Type& to) {
         return to == PrimitiveType::Bool;
     }
 
+    if (from == PrimitiveType::Void || to == PrimitiveType::Void) {
+        return from == to;
+    }
+
     if (from.primitive == PrimitiveType::List || to.primitive == PrimitiveType::List) {
         return from == to;
     }
@@ -159,8 +171,12 @@ std::string castExpressionTo(const std::string& expression, const Type& to) {
 
 std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to) {
     switch (to.primitive) {
+        case PrimitiveType::Void:
+            return expression;
         case PrimitiveType::Bool:
             switch (from.primitive) {
+                case PrimitiveType::Void:
+                    return expression;
                 case PrimitiveType::Bool:
                     requireRuntimeHelper("CPPPToBoolBool");
                     return "CPPPToBoolBool(" + expression + ")";
@@ -209,7 +225,13 @@ Type declaredTypeForName(const std::string& name) {
     if (name == "float") {
         return PrimitiveType::Float;
     }
+    if (name == "void") {
+        return PrimitiveType::Void;
+    }
     if (name == "List") {
+        return PrimitiveType::List;
+    }
+    if (name == "vector") {
         return PrimitiveType::List;
     }
     if (name == "string") {
@@ -231,6 +253,9 @@ std::string cppTypeForInput(const Type& type) {
     }
     if (type == PrimitiveType::Float) {
         return "long double";
+    }
+    if (type == PrimitiveType::Void) {
+        return "void";
     }
     if (type.primitive == PrimitiveType::List && type.subtypes.size() == 1) {
         return "vector<" + cppTypeForInput(type.subtypes[0]) + ">";
@@ -314,6 +339,8 @@ std::string inputFunctionForType(const Type& type) {
     }
 
     switch (type.primitive) {
+        case PrimitiveType::Void:
+            return "";
         case PrimitiveType::Bool:
             requireRuntimeHelper("CPPPInputBool");
             return "CPPPInputBool()";
@@ -483,6 +510,30 @@ ExpressionEmitResult emitExpression(
     const std::map<std::string, Type>& declaredVariables,
     bool emitRuntimeChecks
 ) {
+    static const std::map<std::string, FunctionSignature> emptyFunctions;
+    const std::map<std::string, FunctionSignature>* declaredFunctions = declaredFunctionsForExpressions();
+    return emitExpression(
+        inputFile,
+        lineNumber,
+        expressionText,
+        expressionColumn,
+        sourceLines,
+        declaredVariables,
+        declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions,
+        emitRuntimeChecks
+    );
+}
+
+ExpressionEmitResult emitExpression(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
+    bool emitRuntimeChecks
+) {
     ExpressionParser parser(
         inputFile,
         lineNumber,
@@ -490,6 +541,7 @@ ExpressionEmitResult emitExpression(
         expressionColumn,
         sourceLines,
         declaredVariables,
+        declaredFunctions.empty() && declaredFunctionsForExpressions() != nullptr ? *declaredFunctionsForExpressions() : declaredFunctions,
         emitRuntimeChecks || expressionRuntimeChecksEnabled()
     );
     return parser.parse();
@@ -497,6 +549,10 @@ ExpressionEmitResult emitExpression(
 
 void setExpressionRuntimeChecksEnabled(bool enabled) {
     expressionRuntimeChecksEnabled() = enabled;
+}
+
+void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSignature>* declaredFunctions) {
+    declaredFunctionsForExpressions() = declaredFunctions;
 }
 
 bool hasArithmeticOperator(const std::vector<Token>& tokens) {

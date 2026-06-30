@@ -201,7 +201,6 @@ bool parseCallArguments(
         statementTokens[0].kind != TokenKind::Identifier ||
         statementTokens[0].text != functionName ||
         statementTokens[1].kind != TokenKind::LeftParen) {
-        recordSourceError(inputFile, lineNumber, 1, "unsupported statement", sourceLines);
         return false;
     }
 

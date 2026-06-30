@@ -17,28 +17,6 @@ bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
-std::string cppTypeForType(const Type& type) {
-    switch (type.primitive) {
-        case PrimitiveType::Bool:
-            return "bool";
-        case PrimitiveType::Char:
-            return "CPPPChar";
-        case PrimitiveType::Int:
-            return "long long";
-        case PrimitiveType::Float:
-            return "long double";
-        case PrimitiveType::List:
-            if (type.subtypes.size() == 1) {
-                return "vector<" + cppTypeForType(type.subtypes[0]) + ">";
-            }
-            return "";
-        case PrimitiveType::Unknown:
-            return "";
-    }
-
-    return "";
-}
-
 struct ListArgument {
     std::string text;
     int column;
@@ -403,7 +381,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListRef",
             {
                 "template <typename T>",
-                "typename vector<T>::reference CPPPListRef(vector<T>& list, long long index, int line, int column) {",
+                "decltype(auto) CPPPListRef(vector<T>& list, long long index, int line, int column) {",
                 "    return list[static_cast<typename vector<T>::difference_type>(CPPPNormalizeListIndex(list, index, line, column))];",
                 "}",
                 ""
@@ -643,34 +621,71 @@ ListEmitResult emitListStatement(
 ) {
     const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 6 ||
-        tokens[0].kind != TokenKind::Identifier ||
-        tokens[1].kind != TokenKind::Operator || tokens[1].text != "." ||
-        tokens[2].kind != TokenKind::Identifier ||
-        (tokens[2].text != "add" && tokens[2].text != "remove" && tokens[2].text != "sort" && tokens[2].text != "reverse") ||
-        tokens[3].kind != TokenKind::LeftParen ||
         tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
         tokens.back().kind != TokenKind::EndOfFile) {
         return {false, true, "", {}};
     }
 
-    const bool isAdd = tokens[2].text == "add";
-    const bool isSort = tokens[2].text == "sort";
-    const bool isReverse = tokens[2].text == "reverse";
-    const std::string actionName = tokens[2].text;
+    size_t leftParenIndex = tokens.size();
+    int parenDepth = 0;
+    for (size_t i = tokens.size() - 2; i > 0; --i) {
+        if (tokens[i].kind == TokenKind::RightParen) {
+            ++parenDepth;
+        } else if (tokens[i].kind == TokenKind::LeftParen) {
+            --parenDepth;
+            if (parenDepth == 0) {
+                leftParenIndex = i;
+                break;
+            }
+        }
+    }
+    if (leftParenIndex == tokens.size() ||
+        leftParenIndex < 2 ||
+        tokens[leftParenIndex - 1].kind != TokenKind::Identifier ||
+        tokens[leftParenIndex - 2].kind != TokenKind::Operator ||
+        tokens[leftParenIndex - 2].text != ".") {
+        return {false, true, "", {}};
+    }
 
-    const std::string variableName = tokens[0].text;
-    const auto variable = declaredVariables.find(variableName);
-    if (variable == declaredVariables.end()) {
-        recordSourceError(inputFile, lineNumber, tokens[0].span.startColumn, "use of undeclared variable '" + variableName + "'", sourceLines);
+    const size_t methodIndex = leftParenIndex - 1;
+    const size_t dotIndex = leftParenIndex - 2;
+    const std::string actionName = tokens[methodIndex].text;
+    if (actionName != "add" && actionName != "remove" && actionName != "sort" && actionName != "reverse") {
+        return {false, true, "", {}};
+    }
+
+    if (dotIndex == 0) {
+        return {false, true, "", {}};
+    }
+
+    const std::string receiverText = expressionSliceForTokens(statementBody, tokens, 0, dotIndex);
+    if (receiverText.empty()) {
+        return {false, true, "", {}};
+    }
+
+    const LvalueEmitResult receiver = emitLvalueExpression(
+        inputFile,
+        lineNumber,
+        receiverText,
+        tokens[0].span.startColumn,
+        sourceLines,
+        declaredVariables,
+        emitRuntimeChecks
+    );
+    if (!receiver.ok) {
         return {true, false, "", {}};
     }
 
-    if (variable->second.primitive != PrimitiveType::List || variable->second.subtypes.size() != 1) {
-        recordSourceError(inputFile, lineNumber, tokens[2].span.startColumn, actionName + "() can only be used on List values", sourceLines);
+    const bool isAdd = actionName == "add";
+    const bool isSort = actionName == "sort";
+    const bool isReverse = actionName == "reverse";
+
+    if (receiver.type.primitive != PrimitiveType::List || receiver.type.subtypes.size() != 1) {
+        recordSourceError(inputFile, lineNumber, tokens[methodIndex].span.startColumn, actionName + "() can only be used on List values", sourceLines);
         return {true, false, "", {}};
     }
 
-    const Token& leftParen = tokens[3];
+    const Token& leftParen = tokens[leftParenIndex];
     const Token& rightParen = tokens[tokens.size() - 2];
     const std::string argumentsText = statementBody.substr(
         static_cast<size_t>(leftParen.span.endColumn),
@@ -679,7 +694,7 @@ ListEmitResult emitListStatement(
     const int argumentsStartColumn = leftParen.span.endColumn + 1;
     const std::vector<ListArgument> arguments = splitListArguments(argumentsText, argumentsStartColumn);
 
-    const Type elementType = variable->second.subtypes[0];
+    const Type elementType = receiver.type.subtypes[0];
 
     if (isSort || isReverse) {
         if (arguments.size() != 1 || !arguments[0].text.empty()) {
@@ -694,8 +709,8 @@ ListEmitResult emitListStatement(
         }
 
         const std::string generatedStatement = isSort
-            ? "    sort(" + variableName + ".begin(), " + variableName + ".end());"
-            : "    reverse(" + variableName + ".begin(), " + variableName + ".end());";
+            ? "    sort((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end());"
+            : "    reverse((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end());";
 
         return {
             true,
@@ -703,9 +718,9 @@ ListEmitResult emitListStatement(
             generatedStatement,
             {{
                 lineNumber,
-                tokens[0].span.startColumn,
+                receiver.sourceColumn,
                 5,
-                5 + static_cast<int>(variableName.size()) - 1
+                5 + static_cast<int>(receiver.generatedExpression.size()) - 1
             }}
         };
     }
@@ -776,7 +791,7 @@ ListEmitResult emitListStatement(
                     inputFile,
                     lineNumber,
                     arguments[0].column,
-                    "cannot add " + cpppTypeName(value.type) + " to " + cpppTypeName(variable->second),
+                    "cannot add " + cpppTypeName(value.type) + " to " + cpppTypeName(receiver.type),
                     sourceLines
                 );
                 return {true, false, "", {}};
@@ -792,12 +807,12 @@ ListEmitResult emitListStatement(
             return {
                 true,
                 true,
-                "    " + variableName + ".push_back(" + emittedValue + ");",
+                "    (" + receiver.generatedExpression + ").push_back(" + emittedValue + ");",
                 {{
                     lineNumber,
-                    tokens[0].span.startColumn,
+                    receiver.sourceColumn,
                     5,
-                    5 + static_cast<int>(variableName.size()) - 1
+                    5 + static_cast<int>(receiver.generatedExpression.size()) - 1
                 }}
             };
         }
@@ -834,8 +849,8 @@ ListEmitResult emitListStatement(
             requireRuntimeHelper("CPPPListInsert");
         }
         const std::string generatedStatement = emitRuntimeChecks
-            ? "    CPPPListInsert(" + variableName + ", " + emittedValue + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[1].column) + ");"
-            : "    " + variableName + ".insert(" + variableName + ".begin() + " + emittedIndex + ", " + emittedValue + ");";
+            ? "    CPPPListInsert(" + receiver.generatedExpression + ", " + emittedValue + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[1].column) + ");"
+            : "    (" + receiver.generatedExpression + ").insert((" + receiver.generatedExpression + ").begin() + " + emittedIndex + ", " + emittedValue + ");";
 
         return {
             true,
@@ -843,9 +858,9 @@ ListEmitResult emitListStatement(
             generatedStatement,
             {{
                 lineNumber,
-                tokens[0].span.startColumn,
+                receiver.sourceColumn,
                 5,
-                5 + static_cast<int>(variableName.size()) - 1
+                5 + static_cast<int>(receiver.generatedExpression.size()) - 1
             }}
         };
     }
@@ -855,8 +870,8 @@ ListEmitResult emitListStatement(
             requireRuntimeHelper("CPPPListPop");
         }
         const std::string generatedStatement = emitRuntimeChecks
-            ? "    CPPPListPop(" + variableName + ", " + std::to_string(lineNumber) + ", " + std::to_string(tokens[2].span.startColumn) + ");"
-            : "    " + variableName + ".pop_back();";
+            ? "    CPPPListPop(" + receiver.generatedExpression + ", " + std::to_string(lineNumber) + ", " + std::to_string(tokens[methodIndex].span.startColumn) + ");"
+            : "    (" + receiver.generatedExpression + ").pop_back();";
 
         return {
             true,
@@ -864,9 +879,9 @@ ListEmitResult emitListStatement(
             generatedStatement,
             {{
                 lineNumber,
-                tokens[0].span.startColumn,
+                receiver.sourceColumn,
                 5,
-                5 + static_cast<int>(variableName.size()) - 1
+                5 + static_cast<int>(receiver.generatedExpression.size()) - 1
             }}
         };
     }
@@ -919,8 +934,8 @@ ListEmitResult emitListStatement(
         requireRuntimeHelper("CPPPListRemoveAt");
     }
     const std::string generatedStatement = emitRuntimeChecks
-        ? "    CPPPListRemoveAt(" + variableName + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"
-        : "    " + variableName + ".erase(" + variableName + ".begin() + " + emittedIndex + ");";
+        ? "    CPPPListRemoveAt(" + receiver.generatedExpression + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"
+        : "    (" + receiver.generatedExpression + ").erase((" + receiver.generatedExpression + ").begin() + " + emittedIndex + ");";
 
     return {
         true,
@@ -928,9 +943,9 @@ ListEmitResult emitListStatement(
         generatedStatement,
         {{
             lineNumber,
-            tokens[0].span.startColumn,
+            receiver.sourceColumn,
             5,
-            5 + static_cast<int>(variableName.size()) - 1
+            5 + static_cast<int>(receiver.generatedExpression.size()) - 1
         }}
     };
 }

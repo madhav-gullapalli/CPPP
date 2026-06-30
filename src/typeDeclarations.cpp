@@ -543,7 +543,7 @@ bool parseTypeAt(
     return true;
 }
 
-bool parseTypeName(
+[[maybe_unused]] bool parseTypeName(
     const std::string& inputFile,
     int lineNumber,
     const std::vector<Token>& tokens,
@@ -566,6 +566,12 @@ bool parseTypeName(
     }
 
     return true;
+}
+
+bool isVoidTypeToken(const std::vector<Token>& tokens, size_t startIndex) {
+    return startIndex < tokens.size() &&
+        tokens[startIndex].kind == TokenKind::Identifier &&
+        tokens[startIndex].text == "void";
 }
 
 bool finishExpressionAssignment(
@@ -660,8 +666,8 @@ TypeEmitResult emitTypeDeclaration(
         return {false, true, "", {}};
     }
 
-    ParsedTypeName parsedType;
-    if (!parseTypeName(inputFile, lineNumber, tokens, sourceLines, parsedType)) {
+    const ParsedTypeResult parsedType = parseDeclaredTypeTokens(inputFile, lineNumber, tokens, 0, sourceLines);
+    if (!parsedType.matched) {
         return {false, true, "", {}};
     }
     if (!parsedType.ok) {
@@ -670,6 +676,10 @@ TypeEmitResult emitTypeDeclaration(
 
     const std::string typeName = parsedType.name;
     const Type targetType = parsedType.type;
+    if (targetType == PrimitiveType::Void) {
+        recordSourceError(inputFile, lineNumber, tokens[0].span.startColumn, "variables cannot have void type", sourceLines);
+        return {true, false, "", {}};
+    }
     const TypeInfo typeInfo = typeInfoFor(targetType);
     if (typeInfo.cppType.empty()) {
         recordSourceError(
@@ -1081,4 +1091,51 @@ TypeEmitResult emitTypeDeclaration(
         generatedStatement,
         ranges
     };
+}
+
+std::string cppTypeForType(const Type& type) {
+    return typeInfoFor(type).cppType;
+}
+
+ParsedTypeResult parseDeclaredTypeTokens(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::vector<Token>& tokens,
+    size_t startIndex,
+    const std::map<int, std::string>& sourceLines,
+    bool allowVoid
+) {
+    ParsedTypeResult result;
+    if (allowVoid && isVoidTypeToken(tokens, startIndex)) {
+        result.matched = true;
+        result.ok = true;
+        result.type = PrimitiveType::Void;
+        result.name = "void";
+        result.nextTokenIndex = startIndex + 1;
+        return result;
+    }
+
+    ParsedTypeName parsedType;
+    if (!parseTypeAt(inputFile, lineNumber, tokens, startIndex, sourceLines, parsedType)) {
+        return result;
+    }
+
+    result.matched = true;
+    result.ok = parsedType.ok;
+    result.type = parsedType.type;
+    result.name = parsedType.name;
+    result.nextTokenIndex = parsedType.nextTokenIndex;
+
+    if (result.ok && parsedType.pendingRightClosers > 0) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            tokens[startIndex].span.startColumn,
+            "unexpected '>' after type " + cpppTypeName(parsedType.type),
+            sourceLines
+        );
+        result.ok = false;
+    }
+
+    return result;
 }

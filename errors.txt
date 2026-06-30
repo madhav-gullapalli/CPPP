@@ -1003,6 +1003,120 @@ cannot implicitly convert <from> to <to>
   Diagnostic:
     error: cannot implicitly convert int to char
 
+Functions
+---------
+
+user-defined functions
+  CP++ supports top-level functions of the form `T name(T a, T b){ ... }`.
+  Parameters and return values use normal CP++ type rules, and `void`
+  functions may use bare `return;`.
+
+  Example:
+    int square(int x){
+        return x * x;
+    }
+    print(square(5));
+
+expected parameter after ','
+  A function declaration parameter list cannot end with a trailing comma.
+
+  Example:
+    int add(int x,){
+        return x;
+    }
+
+  Diagnostic:
+    error: expected parameter after ','
+
+unclosed parenthesis in function declaration
+  A function header opened `(` but did not close its parameter list.
+
+  Example:
+    int add(int x, int y{
+        return x + y;
+    }
+
+  Diagnostic:
+    error: unclosed parenthesis in function declaration
+
+unclosed parenthesis in function call
+  A function call opened `(` but did not close it.
+
+  Example:
+    print(add(1, 2);
+
+  Diagnostic:
+    error: unclosed parenthesis in function call
+
+<name> expected parameters of <types> type got <types>
+  Function calls are checked against the declared parameter types at compile
+  time, and the diagnostic lists both the expected and actual argument types.
+
+  Example:
+    int solve(int x, char y){
+        return x + (int)y;
+    }
+    print(solve("hi", 7));
+
+  Diagnostic:
+    error: solve expected parameters of int and char type got string and int
+
+<name> expected <n> parameters of <types> type got <m>
+  Function calls with the wrong arity report both the expected count and the
+  provided count.
+
+  Example:
+    int add(int x, int y){
+        return x + y;
+    }
+    print(add(1));
+
+  Diagnostic:
+    error: add expected 2 parameters of int and int type got 1
+
+return can only be used inside a function
+  `return` is only valid inside a user-defined function body.
+
+  Example:
+    return 1;
+
+  Diagnostic:
+    error: return can only be used inside a function
+
+non-void function must return a value of type <type>
+  A function with a non-void return type cannot use bare `return;`.
+
+  Example:
+    int bad(){
+        return;
+    }
+
+  Diagnostic:
+    error: non-void function must return a value of type int
+
+void function cannot return a value
+  A `void` function may use `return;` but not `return expr;`.
+
+  Example:
+    void bad(){
+        return 1;
+    }
+
+  Diagnostic:
+    error: void function cannot return a value
+
+invalid function return type
+  A returned expression must be implicitly convertible to the declared return
+  type.
+
+  Example:
+    int bad(){
+        return "hi";
+    }
+
+  Diagnostic:
+    error: cannot implicitly convert string to int
+
 Operator support
 ----------------
 

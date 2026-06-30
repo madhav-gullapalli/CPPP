@@ -19,6 +19,8 @@ COMPILER := $(BUILD_DIR)/cppp$(EXE_EXT)
 SOURCES := \
 $(SRC_DIR)/cppp.cpp \
 $(SRC_DIR)/compilerDriver.cpp \
+$(SRC_DIR)/programEmitter.cpp \
+$(SRC_DIR)/functions.cpp \
 $(SRC_DIR)/assignmentCppp.cpp \
 $(SRC_DIR)/sourceSplitter.cpp \
 $(SRC_DIR)/statementCompiler.cpp \

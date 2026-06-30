@@ -7,6 +7,8 @@
 namespace {
 std::string cppTypeForExpressionType(const Type& type) {
     switch (type.primitive) {
+        case PrimitiveType::Void:
+            return "void";
         case PrimitiveType::Bool:
             return "bool";
         case PrimitiveType::Char:
@@ -37,12 +39,14 @@ public:
         const std::string& inputFile,
         int lineNumber,
         const std::map<int, std::string>& sourceLines,
-        const std::map<std::string, Type>& declaredVariables
+        const std::map<std::string, Type>& declaredVariables,
+        const std::map<std::string, FunctionSignature>& declaredFunctions
     ) :
         inputFile(inputFile),
         lineNumber(lineNumber),
         sourceLines(sourceLines),
-        declaredVariables(declaredVariables) {}
+        declaredVariables(declaredVariables),
+        declaredFunctions(declaredFunctions) {}
 
     bool analyze(Expr& expr) {
         if (auto* literal = dynamic_cast<LiteralExpr*>(&expr)) {
@@ -81,6 +85,7 @@ private:
     int lineNumber;
     const std::map<int, std::string>& sourceLines;
     const std::map<std::string, Type>& declaredVariables;
+    const std::map<std::string, FunctionSignature>& declaredFunctions;
 
     void report(int column, const std::string& message) const {
         recordSourceError(inputFile, lineNumber, column, message, sourceLines);
@@ -490,6 +495,60 @@ private:
             return true;
         }
 
+        const auto function = declaredFunctions.find(expr.callee);
+        if (function != declaredFunctions.end()) {
+            const FunctionSignature& signature = function->second;
+            if (expr.arguments.size() != signature.parameters.size()) {
+                std::string expected;
+                for (size_t i = 0; i < signature.parameters.size(); ++i) {
+                    if (i > 0) {
+                        expected += " and ";
+                    }
+                    expected += cpppTypeName(signature.parameters[i].type);
+                }
+                report(
+                    expr.sourceColumn,
+                    signature.name + " expected " + std::to_string(signature.parameters.size()) +
+                        " parameters of " + expected + " type got " + std::to_string(expr.arguments.size())
+                );
+                return false;
+            }
+
+            std::vector<Type> argumentTypes;
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                const Type parameterType = signature.parameters[i].type;
+                const Type argumentType = expr.arguments[i]->inferredType;
+                argumentTypes.push_back(argumentType);
+                if (!expr.arguments[i]->explicitCast && !isImplicitlyConvertible(argumentType, parameterType)) {
+                    std::string expected;
+                    std::string got;
+                    for (size_t j = 0; j < signature.parameters.size(); ++j) {
+                        if (j > 0) {
+                            expected += " and ";
+                            got += " and ";
+                        }
+                        expected += cpppTypeName(signature.parameters[j].type);
+                        if (j < expr.arguments.size()) {
+                            got += cpppTypeName(expr.arguments[j]->inferredType);
+                        } else {
+                            got += "missing";
+                        }
+                    }
+                    report(expr.sourceColumn, signature.name + " expected parameters of " + expected + " type got " + got);
+                    return false;
+                }
+                if (isStringType(parameterType) || parameterType.primitive == PrimitiveType::List) {
+                    if (!expr.arguments[i]->mutableValue) {
+                        report(expr.sourceColumn, signature.name + " requires List and string arguments to be mutable variables");
+                        return false;
+                    }
+                }
+            }
+
+            expr.inferredType = signature.returnsVoid ? PrimitiveType::Void : signature.returnType;
+            return true;
+        }
+
         report(expr.sourceColumn, "unexpected token in expression");
         return false;
     }
@@ -570,9 +629,10 @@ private:
 
 class ExpressionCodegen {
 public:
-    ExpressionCodegen(int lineNumber, bool emitRuntimeChecks) :
+    ExpressionCodegen(int lineNumber, bool emitRuntimeChecks, const std::map<std::string, FunctionSignature>& declaredFunctions) :
         lineNumber(lineNumber),
-        emitRuntimeChecks(emitRuntimeChecks) {}
+        emitRuntimeChecks(emitRuntimeChecks),
+        declaredFunctions(declaredFunctions) {}
 
     std::string generate(const Expr& expr) const {
         if (const auto* literal = dynamic_cast<const LiteralExpr*>(&expr)) {
@@ -609,6 +669,7 @@ public:
 private:
     int lineNumber;
     bool emitRuntimeChecks;
+    const std::map<std::string, FunctionSignature>& declaredFunctions;
 
     std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
         return "throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(column) + ":" + message + "\")";
@@ -853,6 +914,24 @@ private:
             return "([&]() { auto __cppp_list = " + list + "; return accumulate(__cppp_list.begin(), __cppp_list.end(), " + initial + "); }())";
         }
 
+        std::string generated = expr.callee + "(";
+        const auto function = declaredFunctions.find(expr.callee);
+        for (size_t i = 0; i < expr.arguments.size(); ++i) {
+            if (i > 0) {
+                generated += ", ";
+            }
+            std::string argument = generate(*expr.arguments[i]);
+            if (function != declaredFunctions.end()) {
+                const Type parameterType = function->second.parameters[i].type;
+                if (expr.arguments[i]->inferredType != parameterType) {
+                    argument = castExpressionTo(argument, expr.arguments[i]->inferredType, parameterType);
+                }
+            }
+            generated += argument;
+        }
+        generated += ")";
+        return generated;
+
         return "";
     }
 
@@ -914,13 +993,18 @@ private:
     }
 };
 
-std::string generateMutableAccessExpression(const Expr& expr, int lineNumber, bool emitRuntimeChecks) {
+std::string generateMutableAccessExpression(
+    const Expr& expr,
+    int lineNumber,
+    bool emitRuntimeChecks,
+    const std::map<std::string, FunctionSignature>& declaredFunctions
+) {
     if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
         return variable->name;
     }
     if (const auto* index = dynamic_cast<const IndexExpr*>(&expr)) {
-        const std::string base = generateMutableAccessExpression(*index->base, lineNumber, emitRuntimeChecks);
-        ExpressionCodegen codegen(lineNumber, emitRuntimeChecks);
+        const std::string base = generateMutableAccessExpression(*index->base, lineNumber, emitRuntimeChecks, declaredFunctions);
+        ExpressionCodegen codegen(lineNumber, emitRuntimeChecks, declaredFunctions);
         std::string generatedIndex = codegen.generate(*index->index);
         if (index->index->inferredType != PrimitiveType::Int) {
             generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
@@ -929,9 +1013,9 @@ std::string generateMutableAccessExpression(const Expr& expr, int lineNumber, bo
             requireRuntimeHelper("CPPPListRef");
             return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
         }
-        return "([&]() -> auto& { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
+        return "([&]() -> decltype(auto) { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
     }
-    return ExpressionCodegen(lineNumber, emitRuntimeChecks).generate(expr);
+    return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expr);
 }
 }
 
@@ -942,6 +1026,7 @@ ExpressionParser::ExpressionParser(
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
     bool emitRuntimeChecks
 ) :
     inputFile(inputFile),
@@ -950,6 +1035,7 @@ ExpressionParser::ExpressionParser(
     expressionColumn(expressionColumn),
     sourceLines(sourceLines),
     declaredVariables(declaredVariables),
+    declaredFunctions(declaredFunctions),
     emitRuntimeChecks(emitRuntimeChecks),
     tokens(tokenize(expressionText)) {}
 
@@ -967,12 +1053,12 @@ ExpressionEmitResult ExpressionParser::parse() {
         return {false, "", PrimitiveType::Unknown, false, {}};
     }
 
-    ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables);
+    ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables, declaredFunctions);
     if (!analyzer.analyze(*expression)) {
         return {false, "", PrimitiveType::Unknown, false, {}};
     }
 
-    ExpressionCodegen codegen(lineNumber, emitRuntimeChecks);
+    ExpressionCodegen codegen(lineNumber, emitRuntimeChecks, declaredFunctions);
     return {
         true,
         codegen.generate(*expression),
@@ -996,6 +1082,29 @@ LvalueEmitResult emitLvalueExpression(
     const std::map<std::string, Type>& declaredVariables,
     bool emitRuntimeChecks
 ) {
+    static const std::map<std::string, FunctionSignature> emptyFunctions;
+    return emitLvalueExpression(
+        inputFile,
+        lineNumber,
+        expressionText,
+        expressionColumn,
+        sourceLines,
+        declaredVariables,
+        emptyFunctions,
+        emitRuntimeChecks
+    );
+}
+
+LvalueEmitResult emitLvalueExpression(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
+    bool emitRuntimeChecks
+) {
     ExpressionParser parser(
         inputFile,
         lineNumber,
@@ -1003,6 +1112,7 @@ LvalueEmitResult emitLvalueExpression(
         expressionColumn,
         sourceLines,
         declaredVariables,
+        declaredFunctions,
         emitRuntimeChecks
     );
 
@@ -1026,7 +1136,7 @@ LvalueEmitResult emitLvalueExpression(
         return {false, "", PrimitiveType::Unknown, expressionColumn};
     }
 
-    ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables);
+    ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables, declaredFunctions);
     if (!analyzer.analyze(*expression)) {
         return {false, "", PrimitiveType::Unknown, expressionColumn};
     }
@@ -1038,7 +1148,7 @@ LvalueEmitResult emitLvalueExpression(
 
     return {
         true,
-        generateMutableAccessExpression(*expression, lineNumber, emitRuntimeChecks),
+        generateMutableAccessExpression(*expression, lineNumber, emitRuntimeChecks, declaredFunctions),
         expression->inferredType,
         expression->sourceColumn
     };
@@ -1405,6 +1515,24 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             reportInputUsageError(identifier);
             ok = false;
             return nullptr;
+        }
+        if (match(TokenKind::LeftParen)) {
+            const Token& leftParen = previous();
+            std::vector<std::unique_ptr<Expr>> arguments;
+            if (!match(TokenKind::RightParen)) {
+                arguments.push_back(parseExpression(ok));
+                if (!ok) return nullptr;
+                while (match(TokenKind::Comma)) {
+                    arguments.push_back(parseExpression(ok));
+                    if (!ok) return nullptr;
+                }
+                if (!match(TokenKind::RightParen)) {
+                    report(leftParen, "unclosed parenthesis in function call");
+                    ok = false;
+                    return nullptr;
+                }
+            }
+            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier));
         }
         return std::make_unique<VariableExpr>(identifier.text, absoluteColumn(identifier));
     }
