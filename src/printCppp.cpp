@@ -352,6 +352,7 @@ PrintEmitResult emitPrintStatement(
     std::string generatedEnd = "cout << '\\n';";
     std::string generatedDelim;
     bool hasDelim = false;
+    bool delimNeedsStringHelper = false;
     for (const PrintOption& option : options) {
         if (option.name == "end") {
             const Token& endValue = option.valueTokens[0];
@@ -404,6 +405,7 @@ PrintEmitResult emitPrintStatement(
         }
         generatedDelim = expression.generatedExpression;
         hasDelim = true;
+        delimNeedsStringHelper = isStringType(expression.type);
     }
 
     std::string generatedStatement = "    ";
@@ -437,7 +439,7 @@ PrintEmitResult emitPrintStatement(
             } else {
                 requireRuntimeHelper("CPPPPrintValue");
             }
-            if (printedTypeNeedsStringHelper(expression.type) || (hasDelim && isStringType(expression.type.subtypes[0]))) {
+            if (printedTypeNeedsStringHelper(expression.type) || delimNeedsStringHelper) {
                 requireRuntimeHelper("CPPPPrintValueString");
             }
             generatedStatement += hasDelim ? "CPPPPrintDelimited(cout, " : "CPPPPrintValue(cout, ";

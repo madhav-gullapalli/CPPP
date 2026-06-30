@@ -548,6 +548,24 @@ print delim option output
     [1] [2]
     a-b-c
 
+print list string delimiter integration
+  String delimiters on Lists print as plain text instead of List<char>
+  formatting.
+
+  Example:
+    List<int>x;
+    rep(10){
+        int y = input();
+        x.add(y);
+    }
+    print(x, delim = "gay bowser");
+
+  Input:
+    1 2 3 4 1 2 3 1 2 1
+
+  Output:
+    1gay bowser2gay bowser3gay bowser4gay bowser1gay bowser2gay bowser3gay bowser1gay bowser2gay bowser1
+
 empty print output
   print() emits a newline.
 
@@ -1699,6 +1717,73 @@ count vowels in a string
 
   Output:
     4 2 4
+
+brainfuck interpreter
+  A Brainf*ck interpreter can be written in CP++ using string input, a tape,
+  and a loop stack.
+
+  Example:
+    string s = input(); //input string
+    List<int>loops;
+    List<char>backing;
+    rep(10000){
+        backing.add((char)0);
+    }
+    int ptr = 0; int idx = 0;
+    while(idx < len(s)){
+        char c = s[idx];
+        if(c=='+'){
+            backing[ptr]++;
+        }else if(c == '-'){
+            backing[ptr]--;
+        }else if(c=='<'){
+            ptr+=9999;
+            ptr%=10000;
+        }else if(c=='>'){
+            ptr++;
+            ptr%=10000;
+        }else if (c=='.'){
+            print(backing[ptr], end="");
+        }else if(c==','){
+            backing[ptr] = input();
+        }else if(c=='['){
+            loops.add(idx);
+        }else if(c==']'){
+            if(backing[ptr]){
+                idx = loops[-1];
+            }else{
+                loops.remove();
+            }
+        }
+        idx++;
+    }
+
+  Input:
+    +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++.
+
+  Output:
+    A
+
+  Input:
+    ,.
+    Z
+
+  Output:
+    Z
+
+  Input:
+    ,>,.<.
+    A
+    B
+
+  Output:
+    BA
+
+  Input:
+    ++++++++[>++++++++<-]>+.+.+.
+
+  Output:
+    ABC
 
 palindrome ignoring spaces
   Ignore spaces before checking for a palindrome.
