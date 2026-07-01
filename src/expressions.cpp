@@ -555,6 +555,54 @@ void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSign
     declaredFunctionsForExpressions() = declaredFunctions;
 }
 
+std::unique_ptr<Expr> parseExpressionAst(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables
+) {
+    static const std::map<std::string, FunctionSignature> emptyFunctions;
+    const std::map<std::string, FunctionSignature>* declaredFunctions = declaredFunctionsForExpressions();
+    return parseExpressionAst(
+        inputFile,
+        lineNumber,
+        expressionText,
+        expressionColumn,
+        sourceLines,
+        declaredVariables,
+        declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions
+    );
+}
+
+std::unique_ptr<Expr> parseExpressionAst(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions
+) {
+    ExpressionParser parser(
+        inputFile,
+        lineNumber,
+        expressionText,
+        expressionColumn,
+        sourceLines,
+        declaredVariables,
+        declaredFunctions.empty() && declaredFunctionsForExpressions() != nullptr ? *declaredFunctionsForExpressions() : declaredFunctions,
+        expressionRuntimeChecksEnabled()
+    );
+    bool ok = true;
+    std::unique_ptr<Expr> expression = parser.parseAst(ok);
+    if (!ok) {
+        return nullptr;
+    }
+    return expression;
+}
+
 bool hasArithmeticOperator(const std::vector<Token>& tokens) {
     for (const Token& token : tokens) {
         if (token.kind == TokenKind::Operator &&

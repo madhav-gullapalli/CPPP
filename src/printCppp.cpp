@@ -1,5 +1,6 @@
 #include "printCppp.h"
 
+#include "exprAst.h"
 #include "expressions.h"
 #include "tokenizer.h"
 #include "typesCppp.h"
@@ -7,17 +8,26 @@
 #include <algorithm>
 
 namespace {
-struct PrintArgument {
+struct CallArgumentAst {
+    enum class Kind {
+        Positional,
+        Named
+    };
+
+    Kind kind = Kind::Positional;
+    std::string text;
+    int column = 0;
+    std::string name;
+    int nameColumn = 0;
+    std::string valueText;
+    int valueColumn = 0;
+    std::unique_ptr<Expr> valueAst;
+};
+
+struct RawArgumentSegment {
     std::string text;
     int column;
     std::vector<Token> tokens;
-};
-
-struct PrintOption {
-    std::string name;
-    std::string valueText;
-    int valueColumn = 0;
-    std::vector<Token> valueTokens;
 };
 
 std::string trim(const std::string& text) {
@@ -58,8 +68,8 @@ std::string escapeForCppStringLiteral(const std::string& text) {
     return escaped;
 }
 
-std::vector<PrintArgument> splitPrintArguments(const std::string& text, const std::vector<Token>& tokens, int startColumn) {
-    std::vector<PrintArgument> arguments;
+std::vector<RawArgumentSegment> splitCallArguments(const std::string& text, const std::vector<Token>& tokens, int startColumn) {
+    std::vector<RawArgumentSegment> arguments;
     int parenDepth = 0;
     int bracketDepth = 0;
     size_t argumentStartTokenIndex = 0;
@@ -130,38 +140,7 @@ bool isUnterminatedQuotedToken(const Token& token) {
     return token.text.size() < 2 || token.text.front() != token.text.back();
 }
 
-bool isEndOption(const PrintArgument& argument) {
-    return argument.tokens.size() == 3 &&
-        argument.tokens[0].kind == TokenKind::Identifier &&
-        argument.tokens[0].text == "end" &&
-        argument.tokens[1].kind == TokenKind::Equals;
-}
-
-bool isDelimOption(const PrintArgument& argument) {
-    return argument.tokens.size() == 3 &&
-        argument.tokens[0].kind == TokenKind::Identifier &&
-        argument.tokens[0].text == "delim" &&
-        argument.tokens[1].kind == TokenKind::Equals;
-}
-
-bool isPrintOption(const PrintArgument& argument) {
-    return isEndOption(argument) || isDelimOption(argument);
-}
-
-PrintOption toPrintOption(const PrintArgument& argument) {
-    const size_t equalsIndex = argument.text.find('=');
-    const std::string rawValueText = equalsIndex == std::string::npos ? "" : argument.text.substr(equalsIndex + 1);
-    const size_t trimStart = rawValueText.find_first_not_of(" \t\r\n");
-    const std::string valueText = trimStart == std::string::npos ? "" : rawValueText.substr(trimStart);
-    return {
-        argument.tokens[0].text,
-        valueText,
-        argument.column + static_cast<int>(equalsIndex == std::string::npos ? argument.text.size() : equalsIndex + 1 + (trimStart == std::string::npos ? 0 : trimStart)),
-        {argument.tokens[2]}
-    };
-}
-
-bool looksLikeMissingPrintComma(const PrintArgument& argument) {
+bool looksLikeMissingPrintComma(const RawArgumentSegment& argument) {
     if (argument.tokens.size() < 2) {
         return false;
     }
@@ -181,6 +160,87 @@ bool looksLikeMissingPrintComma(const PrintArgument& argument) {
     }
 
     return true;
+}
+
+bool parseCallArgumentAst(
+    const std::string& inputFile,
+    int lineNumber,
+    const RawArgumentSegment& segment,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    CallArgumentAst& argument
+) {
+    argument.text = segment.text;
+    argument.column = segment.column;
+    if (segment.text.empty()) {
+        return true;
+    }
+
+    int parenDepth = 0;
+    int bracketDepth = 0;
+    for (size_t i = 0; i < segment.tokens.size(); ++i) {
+        const Token& token = segment.tokens[i];
+        if (token.kind == TokenKind::LeftParen) {
+            ++parenDepth;
+        } else if (token.kind == TokenKind::RightParen && parenDepth > 0) {
+            --parenDepth;
+        } else if (token.kind == TokenKind::LeftBracket) {
+            ++bracketDepth;
+        } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
+            --bracketDepth;
+        } else if (token.kind == TokenKind::Equals && parenDepth == 0 && bracketDepth == 0) {
+            if (i != 1 ||
+                segment.tokens[0].kind != TokenKind::Identifier ||
+                segment.tokens.size() < 3) {
+                break;
+            }
+
+            const Token& nameToken = segment.tokens[0];
+            const Token& firstValueToken = segment.tokens[2];
+            const Token& lastValueToken = segment.tokens.back();
+            const size_t rawValueStart = static_cast<size_t>(firstValueToken.span.startColumn - 1);
+            const size_t rawValueLength = static_cast<size_t>(lastValueToken.span.endColumn - firstValueToken.span.startColumn + 1);
+            const std::string rawValueText = segment.text.substr(rawValueStart, rawValueLength);
+            const size_t trimStart = rawValueText.find_first_not_of(" \t\r\n");
+            const std::string valueText = trim(rawValueText);
+            const int valueColumn = trimStart == std::string::npos
+                ? segment.column + firstValueToken.span.startColumn - 1
+                : segment.column + firstValueToken.span.startColumn - 1 + static_cast<int>(trimStart);
+
+            argument.kind = CallArgumentAst::Kind::Named;
+            argument.name = nameToken.text;
+            argument.nameColumn = segment.column + nameToken.span.startColumn - 1;
+            argument.valueText = valueText;
+            argument.valueColumn = valueColumn;
+
+            if (valueText.empty()) {
+                return true;
+            }
+
+            argument.valueAst = parseExpressionAst(
+                inputFile,
+                lineNumber,
+                valueText,
+                valueColumn,
+                sourceLines,
+                declaredVariables
+            );
+            return argument.valueAst != nullptr;
+        }
+    }
+
+    argument.kind = CallArgumentAst::Kind::Positional;
+    argument.valueText = segment.text;
+    argument.valueColumn = segment.column;
+    argument.valueAst = parseExpressionAst(
+        inputFile,
+        lineNumber,
+        segment.text,
+        segment.column,
+        sourceLines,
+        declaredVariables
+    );
+    return argument.valueAst != nullptr;
 }
 
 bool parseCallArguments(
@@ -287,25 +347,44 @@ PrintEmitResult emitPrintStatement(
         return {true, "    cout << '\\n';", {}};
     }
 
-    const std::vector<PrintArgument> arguments = splitPrintArguments(printArguments, tokens, argumentsStartColumn);
+    const std::vector<RawArgumentSegment> rawArguments = splitCallArguments(printArguments, tokens, argumentsStartColumn);
 
-    if (arguments.empty() || std::any_of(arguments.begin(), arguments.end(), [](const PrintArgument& arg) {
+    if (rawArguments.empty() || std::any_of(rawArguments.begin(), rawArguments.end(), [](const RawArgumentSegment& arg) {
             return arg.text.empty();
         })) {
         recordSourceError(inputFile, lineNumber, argumentsStartColumn, "empty print argument", sourceLines);
         return {false, "", {}};
     }
 
+    std::vector<CallArgumentAst> arguments;
+    arguments.reserve(rawArguments.size());
+    for (const RawArgumentSegment& rawArgument : rawArguments) {
+        CallArgumentAst argument;
+        if (!parseCallArgumentAst(inputFile, lineNumber, rawArgument, sourceLines, declaredVariables, argument)) {
+            return {false, "", {}};
+        }
+        arguments.push_back(std::move(argument));
+    }
+
     size_t printableArgumentCount = arguments.size();
-    std::vector<PrintOption> options;
     bool sawOption = false;
     for (size_t i = 0; i < arguments.size(); ++i) {
-        if (isPrintOption(arguments[i])) {
+        if (arguments[i].kind == CallArgumentAst::Kind::Named &&
+            (arguments[i].name == "end" || arguments[i].name == "delim")) {
             if (!sawOption) {
                 printableArgumentCount = i;
                 sawOption = true;
             }
-            options.push_back(toPrintOption(arguments[i]));
+            if (arguments[i].valueText.empty()) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    arguments[i].nameColumn,
+                    "expected " + arguments[i].name + " = value",
+                    sourceLines
+                );
+                return {false, "", {}};
+            }
             continue;
         }
 
@@ -314,32 +393,18 @@ PrintEmitResult emitPrintStatement(
             return {false, "", {}};
         }
 
-        for (const Token& token : arguments[i].tokens) {
-            if (token.kind == TokenKind::Identifier && token.text == "end") {
-                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "expected end = value", sourceLines);
+        if (arguments[i].kind == CallArgumentAst::Kind::Named) {
+            if (arguments[i].name == "flush") {
+                recordSourceError(inputFile, lineNumber, arguments[i].nameColumn, "use end = flush instead of flush argument", sourceLines);
                 return {false, "", {}};
             }
 
-            if (token.kind == TokenKind::Identifier && token.text == "delim") {
-                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "expected delim = value", sourceLines);
-                return {false, "", {}};
-            }
-
-            if (token.kind == TokenKind::Identifier && token.text == "flush") {
-                recordSourceError(inputFile, lineNumber, arguments[i].column + token.span.startColumn - 1, "use end = flush instead of flush argument", sourceLines);
-                return {false, "", {}};
-            }
-        }
-
-        if (arguments[i].tokens.size() == 1 &&
-            arguments[i].tokens[0].kind == TokenKind::Identifier &&
-            declaredVariables.count(arguments[i].text) == 0) {
-            recordSourceError(inputFile, lineNumber, arguments[i].column, "use of undeclared variable '" + arguments[i].text + "'", sourceLines);
+            recordSourceError(inputFile, lineNumber, arguments[i].nameColumn, "unexpected print option '" + arguments[i].name + "'", sourceLines);
             return {false, "", {}};
         }
 
-        if (looksLikeMissingPrintComma(arguments[i])) {
-            recordSourceError(inputFile, lineNumber, arguments[i].column, "expected ',' between print arguments", sourceLines);
+        if (looksLikeMissingPrintComma(rawArguments[i])) {
+            recordSourceError(inputFile, lineNumber, rawArguments[i].column, "expected ',' between print arguments", sourceLines);
             return {false, "", {}};
         }
     }
@@ -353,10 +418,12 @@ PrintEmitResult emitPrintStatement(
     std::string generatedDelim;
     bool hasDelim = false;
     bool delimNeedsStringHelper = false;
-    for (const PrintOption& option : options) {
+    for (size_t i = printableArgumentCount; i < arguments.size(); ++i) {
+        const CallArgumentAst& option = arguments[i];
         if (option.name == "end") {
-            const Token& endValue = option.valueTokens[0];
-            if (endValue.kind == TokenKind::Identifier && endValue.text == "flush") {
+            if (option.valueAst &&
+                dynamic_cast<VariableExpr*>(option.valueAst.get()) != nullptr &&
+                static_cast<VariableExpr*>(option.valueAst.get())->name == "flush") {
                 generatedEnd = "cout << '\\n' << flush;";
             } else {
                 const ExpressionEmitResult expression = emitExpression(
@@ -384,7 +451,9 @@ PrintEmitResult emitPrintStatement(
             continue;
         }
 
-        if (option.valueTokens[0].kind == TokenKind::Identifier && option.valueTokens[0].text == "flush") {
+        if (option.valueAst &&
+            dynamic_cast<VariableExpr*>(option.valueAst.get()) != nullptr &&
+            static_cast<VariableExpr*>(option.valueAst.get())->name == "flush") {
             recordSourceError(inputFile, lineNumber, option.valueColumn, "print delim must be a string or char", sourceLines);
             return {false, "", {}};
         }
@@ -490,11 +559,32 @@ PrintEmitResult emitDescribeStatement(
         return {false, "", {}};
     }
 
+    const std::vector<RawArgumentSegment> rawArguments = splitCallArguments(describeArgument, tokens, argumentStartColumn);
+    if (rawArguments.empty() || std::any_of(rawArguments.begin(), rawArguments.end(), [](const RawArgumentSegment& arg) {
+            return arg.text.empty();
+        })) {
+        recordSourceError(inputFile, lineNumber, argumentStartColumn, "describe requires a value", sourceLines);
+        return {false, "", {}};
+    }
+    if (rawArguments.size() != 1) {
+        recordSourceError(inputFile, lineNumber, rawArguments[1].column, "describe takes exactly one value", sourceLines);
+        return {false, "", {}};
+    }
+
+    CallArgumentAst argument;
+    if (!parseCallArgumentAst(inputFile, lineNumber, rawArguments[0], sourceLines, declaredVariables, argument)) {
+        return {false, "", {}};
+    }
+    if (argument.kind == CallArgumentAst::Kind::Named) {
+        recordSourceError(inputFile, lineNumber, argument.nameColumn, "describe does not support named arguments", sourceLines);
+        return {false, "", {}};
+    }
+
     const ExpressionEmitResult expression = emitExpression(
         inputFile,
         lineNumber,
-        describeArgument,
-        argumentStartColumn,
+        argument.valueText,
+        argument.valueColumn,
         sourceLines,
         declaredVariables
     );
@@ -502,7 +592,7 @@ PrintEmitResult emitDescribeStatement(
         return {false, "", {}};
     }
 
-    const std::string label = escapeForCppStringLiteral(trim(describeArgument));
+    const std::string label = escapeForCppStringLiteral(trim(argument.valueText));
     requireRuntimeHelper("CPPPPrintValue");
     if (printedTypeNeedsStringHelper(expression.type)) {
         requireRuntimeHelper("CPPPPrintValueString");
@@ -515,7 +605,7 @@ PrintEmitResult emitDescribeStatement(
         generatedStatement,
         {{
             lineNumber,
-            argumentStartColumn,
+            argument.valueColumn,
             34,
             33 + static_cast<int>(expression.generatedExpression.size())
         }}

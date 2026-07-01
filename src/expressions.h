@@ -4,6 +4,7 @@
 #include "tokenizer.h"
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -67,6 +68,7 @@ struct InputArgument {
 };
 
 struct FunctionSignature;
+struct Expr;
 
 int primitiveArity(PrimitiveType primitive);
 std::string cpppTypeName(const Type& type);
@@ -90,6 +92,23 @@ bool emitInputCallForType(
 );
 void setExpressionRuntimeChecksEnabled(bool enabled);
 void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSignature>* declaredFunctions);
+std::unique_ptr<Expr> parseExpressionAst(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables
+);
+std::unique_ptr<Expr> parseExpressionAst(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& expressionText,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions
+);
 
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
