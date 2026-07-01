@@ -11,7 +11,6 @@
 #include "typesCppp.h"
 
 #include <algorithm>
-#include <cctype>
 #include <set>
 #include <string>
 
@@ -54,11 +53,11 @@ bool isRepCountType(Type type) {
         type == PrimitiveType::Float;
 }
 
-bool startsWithKeyword(const std::string& text, const std::string& keyword) {
-    if (text.rfind(keyword, 0) != 0) {
-        return false;
-    }
-    return text.size() == keyword.size() || std::isspace(static_cast<unsigned char>(text[keyword.size()])) != 0;
+bool isNamedCallStatement(const std::vector<Token>& tokens, const std::string& name) {
+    return tokens.size() >= 3 &&
+        tokens[0].kind == TokenKind::Identifier &&
+        tokens[0].text == name &&
+        tokens[1].kind == TokenKind::LeftParen;
 }
 
 bool isBuiltinCallName(const std::string& name) {
@@ -74,10 +73,9 @@ bool isBuiltinCallName(const std::string& name) {
 }
 
 bool isUnsupportedBareCallStatement(
-    const std::string& statementBody,
+    const std::vector<Token>& tokens,
     const std::map<std::string, FunctionSignature>& declaredFunctions
 ) {
-    const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 4 ||
         tokens[0].kind != TokenKind::Identifier ||
         tokens[1].kind != TokenKind::LeftParen ||
@@ -87,6 +85,15 @@ bool isUnsupportedBareCallStatement(
     }
 
     return declaredFunctions.count(tokens[0].text) == 0 && !isBuiltinCallName(tokens[0].text);
+}
+
+bool containsIncrementOrDecrement(const std::vector<Token>& tokens) {
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::Operator && (token.text == "++" || token.text == "--")) {
+            return true;
+        }
+    }
+    return false;
 }
 }
 
@@ -824,6 +831,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const std::string statementBody = trim(statement.substr(0, statement.size() - 1));
+        const std::vector<Token> statementTokens = tokenize(statementBody);
         if (statementBody == "break") {
             const std::string breakFlagName = context.nearestLoopBreakFlag();
             if (breakFlagName.empty()) {
@@ -845,7 +853,9 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if (statementBody == "return" || startsWithKeyword(statementBody, "return")) {
+        if (statementTokens.size() >= 2 &&
+            statementTokens[0].kind == TokenKind::Identifier &&
+            statementTokens[0].text == "return") {
             if (!context.inFunction) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "return can only be used inside a function", context.sourceLines);
                 continue;
@@ -973,7 +983,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if (statementBody.rfind("describe", 0) == 0) {
+        if (isNamedCallStatement(statementTokens, "describe")) {
             const PrintEmitResult describeResult = emitDescribeStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
             if (!describeResult.ok) {
                 continue;
@@ -987,9 +997,9 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if ((statementBody.find("++") != std::string::npos || statementBody.find("--") != std::string::npos) &&
-            statementBody.rfind("print", 0) != 0 &&
-            statementBody.rfind("describe", 0) != 0) {
+        if (containsIncrementOrDecrement(statementTokens) &&
+            !isNamedCallStatement(statementTokens, "print") &&
+            !isNamedCallStatement(statementTokens, "describe")) {
             const ExpressionEmitResult expression = emitExpression(
                 context.options.inputFile,
                 lineNumber,
@@ -1007,7 +1017,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const PrintEmitResult printResult = emitPrintStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
-        if (statementBody.rfind("print", 0) == 0) {
+        if (isNamedCallStatement(statementTokens, "print")) {
             if (!printResult.ok) {
                 continue;
             }
@@ -1020,7 +1030,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if (isUnsupportedBareCallStatement(statementBody, context.declaredFunctions)) {
+        if (isUnsupportedBareCallStatement(statementTokens, context.declaredFunctions)) {
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unsupported statement", context.sourceLines);
             continue;
         }

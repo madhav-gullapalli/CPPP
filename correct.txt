@@ -668,6 +668,27 @@ void recursive function
   Output:
     0 1 3 2
 
+recursive string builder
+  Recursive functions may also build strings through concatenation and print
+  every leaf result.
+
+  Example:
+    void printBinary(deep string tmp, int dep){
+        if(dep){
+            printBinary(tmp + "0", dep-1);
+            printBinary(tmp + "1", dep -1 );
+        }else{
+            print(tmp);
+        }
+    }
+    printBinary("",2);
+
+  Output:
+    00
+    01
+    10
+    11
+
 deep container parameter
   Prefixing a container parameter with `deep` passes that argument by copy
   instead of by reference.

@@ -53,7 +53,7 @@ $(SRC_DIR)/tokenizer.h \
 $(SRC_DIR)/typesCppp.h
 
 INPUT ?= in.cppp
-PROGRAM := $(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
+PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
 .PHONY: all transpile compile run submit subrun test clean
 

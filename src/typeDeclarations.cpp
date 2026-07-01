@@ -4,7 +4,6 @@
 
 #include <cctype>
 #include <map>
-#include <regex>
 
 namespace {
 struct TypeInfo {
@@ -58,8 +57,25 @@ bool isMalformedCharLiteral(const std::string& text) {
 }
 
 bool isIntegerLiteral(const std::string& text) {
-    static const std::regex pattern(R"([+-]?[0-9]+)");
-    return std::regex_match(text, pattern);
+    if (text.empty()) {
+        return false;
+    }
+
+    size_t start = 0;
+    if (text[0] == '+' || text[0] == '-') {
+        if (text.size() == 1) {
+            return false;
+        }
+        start = 1;
+    }
+
+    for (size_t i = start; i < text.size(); ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(text[i]))) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool fitsLongLong(const std::string& text) {

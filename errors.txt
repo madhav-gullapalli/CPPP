@@ -23,7 +23,7 @@ unsupported statement
   for loops, and rep loops.
 
   Example:
-    doThing();
+    printBinary();
 
   Diagnostic:
     error: unsupported statement
