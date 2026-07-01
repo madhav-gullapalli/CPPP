@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -9,6 +10,12 @@ from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 COMPILER = ROOT / "build" / ("cppp.exe" if os.name == "nt" else "cppp")
+MAKE_CMD = os.environ.get("MAKE_CMD")
+if not MAKE_CMD:
+    if os.name == "nt" and shutil.which("mingw32-make"):
+        MAKE_CMD = "mingw32-make"
+    else:
+        MAKE_CMD = shutil.which("make") or "make"
 
 
 @dataclass
@@ -20,6 +27,7 @@ class RunScenario:
 @dataclass
 class Case:
     key: str
+    section: str
     title: str
     title_line: int
     example: str
@@ -92,8 +100,16 @@ def parse_cases(doc_path: Path) -> List[Case]:
     lines = doc_path.read_text(encoding="utf-8").splitlines()
     cases: List[Case] = []
     title_counts: Dict[str, int] = {}
+    current_section = ""
     i = 0
     while i < len(lines):
+        if i + 1 < len(lines):
+            underline = lines[i + 1].strip()
+            if lines[i].strip() and underline and set(underline) <= {"=", "-"}:
+                current_section = lines[i].strip()
+                i += 2
+                continue
+
         line = lines[i]
         if not is_title(lines, i):
             i += 1
@@ -105,13 +121,23 @@ def parse_cases(doc_path: Path) -> List[Case]:
         output_lines: List[str] = []
         scenarios: List[RunScenario] = []
         pending_input_lines: Optional[List[str]] = None
-        while j < len(lines) and not is_title(lines, j):
+        while j < len(lines):
+            if is_title(lines, j):
+                break
+            if j + 1 < len(lines):
+                underline = lines[j + 1].strip()
+                if lines[j].strip() and underline and set(underline) <= {"=", "-"}:
+                    break
             if lines[j].strip() == "Example:":
                 j += 1
                 while j < len(lines):
                     current = lines[j]
                     if current.strip() in {"Diagnostic:", "Output:"} or is_title(lines, j):
                         break
+                    if j + 1 < len(lines):
+                        underline = lines[j + 1].strip()
+                        if lines[j].strip() and underline and set(underline) <= {"=", "-"}:
+                            break
                     if current.startswith("    "):
                         example_lines.append(current[4:])
                     elif current.strip() == "":
@@ -127,6 +153,10 @@ def parse_cases(doc_path: Path) -> List[Case]:
                     current = lines[j]
                     if current.strip() in {"Diagnostic:", "Output:", "Input:"} or is_title(lines, j):
                         break
+                    if j + 1 < len(lines):
+                        underline = lines[j + 1].strip()
+                        if lines[j].strip() and underline and set(underline) <= {"=", "-"}:
+                            break
                     if current.startswith("    "):
                         input_lines.append(current[4:])
                     elif current.strip() == "":
@@ -150,6 +180,10 @@ def parse_cases(doc_path: Path) -> List[Case]:
                     current = lines[j]
                     if current.strip() == "Input:" or is_title(lines, j):
                         break
+                    if j + 1 < len(lines):
+                        underline = lines[j + 1].strip()
+                        if lines[j].strip() and underline and set(underline) <= {"=", "-"}:
+                            break
                     if current.startswith("    "):
                         current_output_lines.append(current[4:])
                     elif current.strip() == "":
@@ -176,6 +210,7 @@ def parse_cases(doc_path: Path) -> List[Case]:
             cases.append(
                 Case(
                     key=slugify(title) + suffix,
+                    section=current_section,
                     title=title,
                     title_line=i + 1,
                     example="\n".join(example_lines).strip("\n"),
@@ -206,9 +241,35 @@ def write_case(case: Case, case_dir: Path, rules: Dict[str, Dict[str, object]]) 
     return path
 
 
+def write_case_variant(case: Case, case_dir: Path, rules: Dict[str, Dict[str, object]], suffix: str) -> Path:
+    override = rules.get(case.title, {})
+    text = str(override.get("example", case.example)).rstrip() + "\n"
+    path = case_dir / f"{case.key}{suffix}.cppp"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def run_command(args: List[str], log_path: Path, stdin_text: Optional[str] = None) -> int:
     result = subprocess.run(
         args,
+        cwd=ROOT,
+        input=stdin_text,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    log_path.write_text(result.stdout, encoding="utf-8")
+    return result.returncode
+
+
+def executable_for(source: Path) -> Path:
+    suffix = ".exe" if os.name == "nt" else ""
+    return source.parent / "build" / f"{source.stem}{suffix}"
+
+
+def run_subrun(source: Path, log_path: Path, stdin_text: Optional[str] = None) -> int:
+    result = subprocess.run(
+        [MAKE_CMD, "subrun", f"INPUT={source.relative_to(ROOT)}"],
         cwd=ROOT,
         input=stdin_text,
         stdout=subprocess.PIPE,
@@ -241,21 +302,29 @@ def print_progress(current: int, total: int, label: str) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) > 3:
-        raise SystemExit("usage: errors_coverage.py [doc-path|start-line] [start-line]")
+    if len(sys.argv) > 4:
+        raise SystemExit("usage: errors_coverage.py [doc-path|start-line] [start-line] [--subrun-only]")
 
     doc_arg: Optional[str] = None
     start_line: Optional[int] = None
-    if len(sys.argv) == 2:
-        if sys.argv[1].isdigit():
-            start_line = int(sys.argv[1])
+    subrun_only = False
+    args = sys.argv[1:]
+    if args and args[-1] == "--subrun-only":
+        subrun_only = True
+        args = args[:-1]
+
+    if len(args) == 1:
+        if args[0].isdigit():
+            start_line = int(args[0])
         else:
-            doc_arg = sys.argv[1]
-    elif len(sys.argv) == 3:
-        doc_arg = sys.argv[1]
-        if not sys.argv[2].isdigit():
+            doc_arg = args[0]
+    elif len(args) == 2:
+        doc_arg = args[0]
+        if not args[1].isdigit():
             raise SystemExit("start-line must be an integer")
-        start_line = int(sys.argv[2])
+        start_line = int(args[1])
+    elif len(args) > 2:
+        raise SystemExit("usage: errors_coverage.py [doc-path|start-line] [start-line] [--subrun-only]")
 
     doc_path = ROOT / (doc_arg or "errors.txt")
     if not doc_path.exists():
@@ -275,9 +344,11 @@ def main() -> int:
     cases = parse_cases(doc_path)
     if start_line is not None:
         cases = [case for case in cases if case.title_line >= start_line]
-        print(f"Running {doc_path.name} coverage from line {start_line} for {len(cases)} documented examples...")
+        mode_label = " subrun-only" if subrun_only else ""
+        print(f"Running {doc_path.name}{mode_label} coverage from line {start_line} for {len(cases)} documented examples...")
     else:
-        print(f"Running {doc_path.name} coverage for {len(cases)} documented examples...")
+        mode_label = " subrun-only" if subrun_only else ""
+        print(f"Running {doc_path.name}{mode_label} coverage for {len(cases)} documented examples...")
     failures: List[str] = []
     total_cases = len(cases)
 
@@ -299,6 +370,39 @@ def main() -> int:
                 if code != 0:
                     raise AssertionError(f"{case.title}: expected submit success\n{log.read_text(encoding='utf-8')}")
             elif mode == "run_ok":
+                if subrun_only and doc_path.name == "correct.txt" and case.section == "Synthesis tests":
+                    if case.scenarios:
+                        for index, scenario in enumerate(case.scenarios, start=1):
+                            subrun_source = write_case_variant(case, case_dir, rules, "_subrun")
+                            subrun_log = log_dir / f"{case.key}_{index}_subrun.log"
+                            subrun_code = run_subrun(
+                                subrun_source,
+                                subrun_log,
+                                scenario.input_text + "\n",
+                            )
+                            if subrun_code != 0:
+                                raise AssertionError(
+                                    f"{case.title} scenario {index}: expected subrun success\n{subrun_log.read_text(encoding='utf-8')}"
+                                )
+                            expect_contains(
+                                filtered_output(subrun_log.read_text(encoding="utf-8")),
+                                scenario.output_text.strip(),
+                                f"{case.title} scenario {index} subrun",
+                            )
+                    else:
+                        subrun_source = write_case_variant(case, case_dir, rules, "_subrun")
+                        subrun_log = log_dir / f"{case.key}_subrun.log"
+                        subrun_code = run_subrun(subrun_source, subrun_log)
+                        if subrun_code != 0:
+                            raise AssertionError(f"{case.title}: expected subrun success\n{subrun_log.read_text(encoding='utf-8')}")
+                        expected_output = str(rules.get(case.title, {}).get("expect_output", case.output or "")).strip()
+                        if expected_output:
+                            expect_contains(
+                                filtered_output(subrun_log.read_text(encoding="utf-8")),
+                                expected_output,
+                                f"{case.title} subrun",
+                            )
+                    continue
                 args.append("--run")
                 if case.scenarios:
                     for index, scenario in enumerate(case.scenarios, start=1):
@@ -313,6 +417,30 @@ def main() -> int:
                             scenario.output_text.strip(),
                             f"{case.title} scenario {index}",
                         )
+                        if doc_path.name == "correct.txt" and case.section == "Synthesis tests":
+                            run_cpp_size = source.with_suffix(".cpp").stat().st_size
+                            subrun_source = write_case_variant(case, case_dir, rules, "_subrun")
+                            subrun_log = log_dir / f"{case.key}_{index}_subrun.log"
+                            subrun_code = run_subrun(
+                                subrun_source,
+                                subrun_log,
+                                scenario.input_text + "\n",
+                            )
+                            if subrun_code != 0:
+                                raise AssertionError(
+                                    f"{case.title} scenario {index}: expected subrun success\n{subrun_log.read_text(encoding='utf-8')}"
+                                )
+                            submit_cpp_size = subrun_source.with_suffix(".cpp").stat().st_size
+                            if submit_cpp_size >= run_cpp_size:
+                                raise AssertionError(
+                                    f"{case.title} scenario {index}: expected subrun submit output to be smaller than run output "
+                                    f"for helper pruning ({submit_cpp_size} >= {run_cpp_size})"
+                                )
+                            expect_contains(
+                                filtered_output(subrun_log.read_text(encoding="utf-8")),
+                                scenario.output_text.strip(),
+                                f"{case.title} scenario {index} subrun",
+                            )
                 else:
                     code = run_command(args, log)
                     if code != 0:
@@ -320,6 +448,25 @@ def main() -> int:
                     expected_output = str(rules.get(case.title, {}).get("expect_output", case.output or "")).strip()
                     if expected_output:
                         expect_contains(filtered_output(log.read_text(encoding="utf-8")), expected_output, case.title)
+                    if doc_path.name == "correct.txt" and case.section == "Synthesis tests":
+                        run_cpp_size = source.with_suffix(".cpp").stat().st_size
+                        subrun_source = write_case_variant(case, case_dir, rules, "_subrun")
+                        subrun_log = log_dir / f"{case.key}_subrun.log"
+                        subrun_code = run_subrun(subrun_source, subrun_log)
+                        if subrun_code != 0:
+                            raise AssertionError(f"{case.title}: expected subrun success\n{subrun_log.read_text(encoding='utf-8')}")
+                        submit_cpp_size = subrun_source.with_suffix(".cpp").stat().st_size
+                        if submit_cpp_size >= run_cpp_size:
+                            raise AssertionError(
+                                f"{case.title}: expected subrun submit output to be smaller than run output "
+                                f"for helper pruning ({submit_cpp_size} >= {run_cpp_size})"
+                            )
+                        if expected_output:
+                            expect_contains(
+                                filtered_output(subrun_log.read_text(encoding="utf-8")),
+                                expected_output,
+                                f"{case.title} subrun",
+                            )
             elif mode == "compile_fail":
                 code = run_command(args, log)
                 if code == 0:
