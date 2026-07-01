@@ -196,20 +196,17 @@ bool parseCallArgumentAst(
             }
 
             const Token& nameToken = segment.tokens[0];
-            const Token& firstValueToken = segment.tokens[2];
-            const Token& lastValueToken = segment.tokens.back();
-            const size_t rawValueStart = static_cast<size_t>(firstValueToken.span.startColumn - 1);
-            const size_t rawValueLength = static_cast<size_t>(lastValueToken.span.endColumn - firstValueToken.span.startColumn + 1);
-            const std::string rawValueText = segment.text.substr(rawValueStart, rawValueLength);
+            const size_t equalsIndex = segment.text.find('=');
+            const std::string rawValueText = equalsIndex == std::string::npos ? "" : segment.text.substr(equalsIndex + 1);
             const size_t trimStart = rawValueText.find_first_not_of(" \t\r\n");
             const std::string valueText = trim(rawValueText);
             const int valueColumn = trimStart == std::string::npos
-                ? segment.column + firstValueToken.span.startColumn - 1
-                : segment.column + firstValueToken.span.startColumn - 1 + static_cast<int>(trimStart);
+                ? segment.column + static_cast<int>(equalsIndex == std::string::npos ? segment.text.size() : equalsIndex + 1)
+                : segment.column + static_cast<int>(equalsIndex + 1 + trimStart);
 
             argument.kind = CallArgumentAst::Kind::Named;
             argument.name = nameToken.text;
-            argument.nameColumn = segment.column + nameToken.span.startColumn - 1;
+            argument.nameColumn = segment.column;
             argument.valueText = valueText;
             argument.valueColumn = valueColumn;
 
