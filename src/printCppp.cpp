@@ -353,6 +353,38 @@ PrintEmitResult emitPrintStatement(
         return {false, "", {}};
     }
 
+    for (const RawArgumentSegment& rawArgument : rawArguments) {
+        const bool startsWithNamedOption =
+            rawArgument.tokens.size() >= 2 &&
+            rawArgument.tokens[0].kind == TokenKind::Identifier &&
+            rawArgument.tokens[1].kind == TokenKind::Equals;
+        if (startsWithNamedOption) {
+            continue;
+        }
+
+        for (const Token& token : rawArgument.tokens) {
+            if (token.kind == TokenKind::Identifier && token.text == "end") {
+                recordSourceError(inputFile, lineNumber, rawArgument.column + token.span.startColumn - 1, "expected end = value", sourceLines);
+                return {false, "", {}};
+            }
+
+            if (token.kind == TokenKind::Identifier && token.text == "delim") {
+                recordSourceError(inputFile, lineNumber, rawArgument.column + token.span.startColumn - 1, "expected delim = value", sourceLines);
+                return {false, "", {}};
+            }
+
+            if (token.kind == TokenKind::Identifier && token.text == "flush") {
+                recordSourceError(inputFile, lineNumber, rawArgument.column + token.span.startColumn - 1, "use end = flush instead of flush argument", sourceLines);
+                return {false, "", {}};
+            }
+        }
+
+        if (looksLikeMissingPrintComma(rawArgument)) {
+            recordSourceError(inputFile, lineNumber, rawArgument.column, "expected ',' between print arguments", sourceLines);
+            return {false, "", {}};
+        }
+    }
+
     std::vector<CallArgumentAst> arguments;
     arguments.reserve(rawArguments.size());
     for (const RawArgumentSegment& rawArgument : rawArguments) {
@@ -400,10 +432,6 @@ PrintEmitResult emitPrintStatement(
             return {false, "", {}};
         }
 
-        if (looksLikeMissingPrintComma(rawArguments[i])) {
-            recordSourceError(inputFile, lineNumber, rawArguments[i].column, "expected ',' between print arguments", sourceLines);
-            return {false, "", {}};
-        }
     }
 
     if (printableArgumentCount == 0) {
