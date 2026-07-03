@@ -2,6 +2,7 @@
 
 #include "typesCppp.h"
 
+#include <climits>
 #include <memory>
 
 namespace {
