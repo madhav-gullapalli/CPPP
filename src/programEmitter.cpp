@@ -62,7 +62,33 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
         }
     };
 
-    emitLine("#include <bits/stdc++.h>");
+    emitLine("#include <algorithm>\n"
+"#include <array>\n"
+"#include <bitset>\n"
+"#include <cassert>\n"
+"#include <cmath>\n"
+"#include <cstdint>\n"
+"#include <cstdlib>\n"
+"#include <cstring>\n"
+"#include <deque>\n"
+"#include <functional>\n"
+"#include <iomanip>\n"
+"#include <iostream>\n"
+"#include <limits>\n"
+"#include <map>\n"
+"#include <numeric>\n"
+"#include <queue>\n"
+"#include <set>\n"
+"#include <sstream>\n"
+"#include <stdexcept>\n"
+"#include <string>\n"
+"#include <tuple>\n"
+"#include <type_traits>\n"
+"#include <unordered_map>\n"
+"#include <unordered_set>\n"
+"#include <utility>\n"
+"#include <vector>\n"
+"\n");
     emitLine("using namespace std;");
     emitLine("");
     const std::vector<std::string> preambleLines = options.shouldSubmit
