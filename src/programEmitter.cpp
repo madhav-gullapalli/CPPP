@@ -66,6 +66,7 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
 "#include <array>\n"
 "#include <bitset>\n"
 "#include <cassert>\n"
+"#include <climits>\n"
 "#include <cmath>\n"
 "#include <cstdint>\n"
 "#include <cstdlib>\n"
