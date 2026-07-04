@@ -1,3 +1,11 @@
+/*
+ * functions.h
+ *
+ * Declares function signatures, parameters, and related metadata structures.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -8,6 +16,7 @@
 #include <string>
 #include <vector>
 
+// FunctionParameter implements the FunctionParameter behavior for the functions.h module.
 struct FunctionParameter {
     std::string name;
     Type type;
@@ -15,6 +24,7 @@ struct FunctionParameter {
     int column = 0;
 };
 
+// FunctionSignature implements the FunctionSignature behavior for the functions.h module.
 struct FunctionSignature {
     std::string name;
     Type returnType;
@@ -22,6 +32,7 @@ struct FunctionSignature {
     std::vector<FunctionParameter> parameters;
 };
 
+// ParsedFunctionHeader parses dfunctionheaders for the compiler pipeline.
 struct ParsedFunctionHeader {
     bool matched = false;
     bool ok = true;
@@ -38,5 +49,7 @@ ParsedFunctionHeader parseFunctionHeader(
     const std::map<int, std::string>& sourceLines
 );
 
+// functionParameterTypesDescription implements the functionParameterTypesDescription behavior for the functions.h module.
 std::string functionParameterTypesDescription(const FunctionSignature& signature);
+// functionArgumentTypesDescription implements the functionArgumentTypesDescription behavior for the functions.h module.
 std::string functionArgumentTypesDescription(const std::vector<Type>& argumentTypes);

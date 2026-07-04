@@ -1,3 +1,11 @@
+/*
+ * exprAst.h
+ *
+ * Declares the expression AST node hierarchy for parsed CP++ expressions.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "expressions.h"
@@ -6,6 +14,7 @@
 #include <string>
 #include <vector>
 
+// Expr implements the Expr behavior for the exprAst.h module.
 struct Expr {
     int sourceColumn = 0;
     Type inferredType = PrimitiveType::Unknown;
@@ -15,6 +24,7 @@ struct Expr {
     virtual ~Expr() = default;
 };
 
+// LiteralExpr implements the LiteralExpr behavior for the exprAst.h module.
 struct LiteralExpr : Expr {
     enum class Kind {
         Bool,
@@ -34,6 +44,7 @@ struct LiteralExpr : Expr {
     }
 };
 
+// VariableExpr implements the VariableExpr behavior for the exprAst.h module.
 struct VariableExpr : Expr {
     std::string name;
 
@@ -42,6 +53,7 @@ struct VariableExpr : Expr {
     }
 };
 
+// UnaryExpr implements the UnaryExpr behavior for the exprAst.h module.
 struct UnaryExpr : Expr {
     std::string op;
     std::unique_ptr<Expr> operand;
@@ -55,6 +67,7 @@ struct UnaryExpr : Expr {
     }
 };
 
+// BinaryExpr implements the BinaryExpr behavior for the exprAst.h module.
 struct BinaryExpr : Expr {
     std::string op;
     std::unique_ptr<Expr> left;
@@ -68,6 +81,7 @@ struct BinaryExpr : Expr {
     }
 };
 
+// CastExpr implements the CastExpr behavior for the exprAst.h module.
 struct CastExpr : Expr {
     Type targetType;
     std::unique_ptr<Expr> operand;
@@ -80,6 +94,7 @@ struct CastExpr : Expr {
     }
 };
 
+// CallExpr implements the CallExpr behavior for the exprAst.h module.
 struct CallExpr : Expr {
     std::string callee;
     std::unique_ptr<Expr> receiver;
@@ -98,6 +113,7 @@ struct CallExpr : Expr {
     }
 };
 
+// IndexExpr implements the IndexExpr behavior for the exprAst.h module.
 struct IndexExpr : Expr {
     std::unique_ptr<Expr> base;
     std::unique_ptr<Expr> index;
@@ -109,6 +125,7 @@ struct IndexExpr : Expr {
     }
 };
 
+// SliceExpr implements the SliceExpr behavior for the exprAst.h module.
 struct SliceExpr : Expr {
     std::unique_ptr<Expr> base;
     std::unique_ptr<Expr> start;
@@ -122,6 +139,7 @@ struct SliceExpr : Expr {
     }
 };
 
+// ListLiteralExpr handles list-specific behavior for the compiler or runtime.
 struct ListLiteralExpr : Expr {
     std::vector<std::unique_ptr<Expr>> elements;
 

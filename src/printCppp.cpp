@@ -1,3 +1,11 @@
+/*
+ * printCppp.cpp
+ *
+ * Parses and lowers print statements, including argument splitting and string emission.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "printCppp.h"
 
 #include "exprAst.h"
@@ -8,6 +16,7 @@
 #include <algorithm>
 
 namespace {
+// CallArgumentAst implements the CallArgumentAst behavior for the printCppp.cpp module.
 struct CallArgumentAst {
     enum class Kind {
         Positional,
@@ -24,12 +33,14 @@ struct CallArgumentAst {
     std::unique_ptr<Expr> valueAst;
 };
 
+// RawArgumentSegment implements the RawArgumentSegment behavior for the printCppp.cpp module.
 struct RawArgumentSegment {
     std::string text;
     int column;
     std::vector<Token> tokens;
 };
 
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -40,6 +51,7 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// escapeForCppStringLiteral implements the escapeForCppStringLiteral behavior for the printCppp.cpp module.
 std::string escapeForCppStringLiteral(const std::string& text) {
     std::string escaped;
     escaped.reserve(text.size());
@@ -68,6 +80,7 @@ std::string escapeForCppStringLiteral(const std::string& text) {
     return escaped;
 }
 
+// splitCallArguments splits the input into smaller logical pieces.
 std::vector<RawArgumentSegment> splitCallArguments(const std::string& text, const std::vector<Token>& tokens, int startColumn) {
     std::vector<RawArgumentSegment> arguments;
     int parenDepth = 0;
@@ -132,6 +145,7 @@ std::vector<RawArgumentSegment> splitCallArguments(const std::string& text, cons
     return arguments;
 }
 
+// isUnterminatedQuotedToken returns whether the supplied input satisfies the relevant condition.
 bool isUnterminatedQuotedToken(const Token& token) {
     if (token.kind != TokenKind::String && token.kind != TokenKind::Char) {
         return false;
@@ -140,6 +154,7 @@ bool isUnterminatedQuotedToken(const Token& token) {
     return token.text.size() < 2 || token.text.front() != token.text.back();
 }
 
+// looksLikeMissingPrintComma implements the looksLikeMissingPrintComma behavior for the printCppp.cpp module.
 bool looksLikeMissingPrintComma(const RawArgumentSegment& argument) {
     if (argument.tokens.size() < 2) {
         return false;
@@ -282,10 +297,12 @@ bool parseCallArguments(
     return true;
 }
 
+// isListType returns whether the supplied input satisfies the relevant condition.
 bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+// printedTypeNeedsStringHelper prints the relevant diagnostic or output text.
 bool printedTypeNeedsStringHelper(const Type& type) {
     if (isStringType(type)) {
         return true;

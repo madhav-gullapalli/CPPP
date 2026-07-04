@@ -1,3 +1,11 @@
+/*
+ * typesCppp.h
+ *
+ * Declares the runtime helper and type-emission structures used across compiler passes.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -8,6 +16,7 @@
 #include <string>
 #include <vector>
 
+// TypeEmitResult implements the TypeEmitResult behavior for the typesCppp.h module.
 struct TypeEmitResult {
     bool matched;
     bool ok;
@@ -15,6 +24,7 @@ struct TypeEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+// RuntimeHelper provides runtime support for generated code.
 struct RuntimeHelper {
     std::string name;
     std::vector<std::string> code;
@@ -22,6 +32,7 @@ struct RuntimeHelper {
     std::vector<std::string> triggers;
 };
 
+// ParsedTypeResult parses dtyperesult for the compiler pipeline.
 struct ParsedTypeResult {
     bool matched = false;
     bool ok = true;
@@ -30,12 +41,16 @@ struct ParsedTypeResult {
     size_t nextTokenIndex = 0;
 };
 
+// runtimeHelpers provides runtime support for generated code.
 std::vector<RuntimeHelper> runtimeHelpers();
+// typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.h module.
 std::vector<std::string> typeSupportPreamble();
+// typeSupportPreambleForSubmit implements the typeSupportPreambleForSubmit behavior for the typesCppp.h module.
 std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string>& requiredHelpers);
 void clearRequiredRuntimeHelpers();
 void requireRuntimeHelper(const std::string& helperName);
 const std::set<std::string>& requiredRuntimeHelpers();
+// cppTypeForType implements the cppTypeForType behavior for the typesCppp.h module.
 std::string cppTypeForType(const Type& type);
 ParsedTypeResult parseDeclaredTypeTokens(
     const std::string& inputFile,

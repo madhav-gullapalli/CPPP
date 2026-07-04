@@ -1,3 +1,11 @@
+/*
+ * controlFlow.cpp
+ *
+ * Parses and lowers control-flow constructs such as loops, conditionals, and break/continue helpers.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "controlFlow.h"
 
 #include "tokenizer.h"
@@ -6,6 +14,7 @@
 #include <vector>
 
 namespace {
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -16,6 +25,7 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// startsWithWord returns whether the text starts with the given prefix.
 bool startsWithWord(const std::string& text, const std::string& word) {
     if (text.rfind(word, 0) != 0) {
         return false;
@@ -25,6 +35,7 @@ bool startsWithWord(const std::string& text, const std::string& word) {
         !(std::isalnum(static_cast<unsigned char>(text[word.size()])) || text[word.size()] == '_');
 }
 
+// topLevelSemicolons implements the topLevelSemicolons behavior for the controlFlow.cpp module.
 std::vector<size_t> topLevelSemicolons(const std::string& text) {
     std::vector<size_t> semicolons;
     int parenDepth = 0;
@@ -71,16 +82,19 @@ std::vector<size_t> topLevelSemicolons(const std::string& text) {
     return semicolons;
 }
 
+// trimHeaderPart removes surrounding whitespace from a string.
 std::string trimHeaderPart(const std::string& raw, size_t baseOffset, size_t& offset) {
     const size_t trimStart = raw.find_first_not_of(" \t\r\n");
     offset = baseOffset + (trimStart == std::string::npos ? 0 : trimStart);
     return trim(raw);
 }
 
+// isTypeRootName returns whether the supplied input satisfies the relevant condition.
 bool isTypeRootName(const std::string& text) {
     return text == "bool" || text == "char" || text == "int" || text == "float" || text == "List" || text == "string";
 }
 
+// TypeTokenParseResult implements the TypeTokenParseResult behavior for the controlFlow.cpp module.
 struct TypeTokenParseResult {
     bool matched = false;
     bool ok = false;
@@ -137,6 +151,7 @@ ConditionParseResult makeConditionError(size_t errorOffset, const std::string& m
 }
 }
 
+// parseConditionHeader parses conditionheaders for the compiler pipeline.
 bool parseConditionHeader(const std::string& statement, const std::string& keyword, ConditionHeader& header) {
     if (statement.empty() || statement.back() != '{') {
         return false;
@@ -165,6 +180,7 @@ bool parseConditionHeader(const std::string& statement, const std::string& keywo
     return true;
 }
 
+// parseForHeader parses forheaders for the compiler pipeline.
 bool parseForHeader(const std::string& statement, ForHeader& header) {
     if (statement.empty() || statement.back() != '{') {
         return false;
@@ -433,6 +449,7 @@ ForParseResult parseForHeaderDetailed(const std::string& statement) {
     return result;
 }
 
+// parseElseHeader parses elseheaders for the compiler pipeline.
 bool parseElseHeader(const std::string& statement) {
     if (statement.empty() || statement.back() != '{') {
         return false;
@@ -441,6 +458,7 @@ bool parseElseHeader(const std::string& statement) {
     return trim(statement.substr(0, statement.size() - 1)) == "else";
 }
 
+// parseElseIfHeader parses elseifheaders for the compiler pipeline.
 bool parseElseIfHeader(const std::string& statement, ConditionHeader& header) {
     if (statement.empty() || statement.back() != '{') {
         return false;

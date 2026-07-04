@@ -1,3 +1,11 @@
+/*
+ * assignmentCppp.h
+ *
+ * Declares the assignment emission helpers and result types used by the assignment lowering pass.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -7,6 +15,7 @@
 #include <string>
 #include <vector>
 
+// AssignmentEmitResult implements the AssignmentEmitResult behavior for the assignmentCppp.h module.
 struct AssignmentEmitResult {
     bool matched;
     bool ok;

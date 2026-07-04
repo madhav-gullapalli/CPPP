@@ -1,3 +1,11 @@
+/*
+ * listsCppp.h
+ *
+ * Declares list-related emission results and helper interfaces.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -8,6 +16,7 @@
 #include <string>
 #include <vector>
 
+// ListEmitResult handles list-specific behavior for the compiler or runtime.
 struct ListEmitResult {
     bool matched;
     bool ok;
@@ -15,6 +24,7 @@ struct ListEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+// listRuntimeHelpers handles list-specific behavior for the compiler or runtime.
 std::vector<RuntimeHelper> listRuntimeHelpers();
 
 ListEmitResult emitListStatement(

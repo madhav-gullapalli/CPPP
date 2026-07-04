@@ -1,3 +1,11 @@
+/*
+ * typeDeclarations.cpp
+ *
+ * Parses and validates type declarations and user-defined type syntax.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "typesCppp.h"
 
 #include "tokenizer.h"
@@ -6,16 +14,19 @@
 #include <map>
 
 namespace {
+// TypeInfo implements the TypeInfo behavior for the typeDeclarations.cpp module.
 struct TypeInfo {
     std::string cppType;
     std::string defaultValue;
 };
 
+// DeclaredName implements the DeclaredName behavior for the typeDeclarations.cpp module.
 struct DeclaredName {
     std::string name;
     int column;
 };
 
+// ParsedTypeName parses dtypename for the compiler pipeline.
 struct ParsedTypeName {
     bool ok = true;
     Type type;
@@ -24,6 +35,7 @@ struct ParsedTypeName {
     int pendingRightClosers = 0;
 };
 
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -34,6 +46,7 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// isIdentifier returns whether the supplied input satisfies the relevant condition.
 bool isIdentifier(const std::string& text) {
     if (text.empty() || !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) {
         return false;
@@ -48,14 +61,17 @@ bool isIdentifier(const std::string& text) {
     return true;
 }
 
+// isCharLiteral returns whether the supplied input satisfies the relevant condition.
 bool isCharLiteral(const std::string& text) {
     return text.size() == 3 && text.front() == '\'' && text.back() == '\'';
 }
 
+// isMalformedCharLiteral returns whether the supplied input satisfies the relevant condition.
 bool isMalformedCharLiteral(const std::string& text) {
     return !text.empty() && text.front() == '\'';
 }
 
+// isIntegerLiteral returns whether the supplied input satisfies the relevant condition.
 bool isIntegerLiteral(const std::string& text) {
     if (text.empty()) {
         return false;
@@ -78,6 +94,7 @@ bool isIntegerLiteral(const std::string& text) {
     return true;
 }
 
+// fitsLongLong implements the fitsLongLong behavior for the typeDeclarations.cpp module.
 bool fitsLongLong(const std::string& text) {
     std::string value = text;
     bool negative = false;
@@ -94,6 +111,7 @@ bool fitsLongLong(const std::string& text) {
     return value.size() < limit.size() || (value.size() == limit.size() && value <= limit);
 }
 
+// shouldParseAsExpression returns whether the supplied input satisfies the relevant condition.
 bool shouldParseAsExpression(const std::vector<Token>& tokens) {
     if (hasArithmeticOperator(tokens)) {
         return true;
@@ -108,6 +126,7 @@ bool shouldParseAsExpression(const std::vector<Token>& tokens) {
     return false;
 }
 
+// nonEndTokenCount implements the nonEndTokenCount behavior for the typeDeclarations.cpp module.
 size_t nonEndTokenCount(const std::vector<Token>& tokens) {
     size_t count = 0;
     for (const Token& token : tokens) {
@@ -130,14 +149,17 @@ const std::map<std::string, TypeInfo>& primitiveTypes() {
     return types;
 }
 
+// isBoolLiteral returns whether the supplied input satisfies the relevant condition.
 bool isBoolLiteral(const std::string& text) {
     return text == "true" || text == "false";
 }
 
+// isListType returns whether the supplied input satisfies the relevant condition.
 bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+// needsCharRuntimeHelper implements the needsCharRuntimeHelper behavior for the typeDeclarations.cpp module.
 bool needsCharRuntimeHelper(const Type& type) {
     if (type == PrimitiveType::Char) {
         return true;
@@ -152,6 +174,7 @@ bool needsCharRuntimeHelper(const Type& type) {
     return false;
 }
 
+// typeInfoFor implements the typeInfoFor behavior for the typeDeclarations.cpp module.
 TypeInfo typeInfoFor(const Type& type) {
     if (type.primitive == PrimitiveType::List && type.subtypes.size() == 1) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
@@ -584,6 +607,7 @@ bool parseTypeAt(
     return true;
 }
 
+// isVoidTypeToken returns whether the supplied input satisfies the relevant condition.
 bool isVoidTypeToken(const std::vector<Token>& tokens, size_t startIndex) {
     return startIndex < tokens.size() &&
         tokens[startIndex].kind == TokenKind::Identifier &&
@@ -1109,6 +1133,7 @@ TypeEmitResult emitTypeDeclaration(
     };
 }
 
+// cppTypeForType implements the cppTypeForType behavior for the typeDeclarations.cpp module.
 std::string cppTypeForType(const Type& type) {
     return typeInfoFor(type).cppType;
 }

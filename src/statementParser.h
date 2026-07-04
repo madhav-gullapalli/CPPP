@@ -1,3 +1,11 @@
+/*
+ * statementParser.h
+ *
+ * Declares the statement parser interface and result metadata.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "stmtAst.h"
@@ -5,6 +13,7 @@
 #include <memory>
 #include <string>
 
+// StatementParseResult implements the StatementParseResult behavior for the statementParser.h module.
 struct StatementParseResult {
     enum class Kind {
         Empty,
@@ -26,4 +35,5 @@ struct StatementParseResult {
     std::unique_ptr<Stmt> statement;
 };
 
+// parseStatementAst parses statementsast for the compiler pipeline.
 StatementParseResult parseStatementAst(const std::string& statement, int sourceColumn = 1);

@@ -1,3 +1,11 @@
+/*
+ * compilerDriver.cpp
+ *
+ * Implements the compiler driver entry points, file handling, and command-line orchestration for transpilation.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "compilerDriver.h"
 
 #include "compileContext.h"
@@ -15,6 +23,7 @@
 #include <string>
 
 namespace {
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -25,11 +34,13 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// startsWithTrimmed returns whether the text starts with the given prefix.
 bool startsWithTrimmed(const std::string& text, const std::string& prefix) {
     const std::string trimmed = trim(text);
     return trimmed.rfind(prefix, 0) == 0;
 }
 
+// loopBreakFlagNameFromDeclaration implements the loopBreakFlagNameFromDeclaration behavior for the compilerDriver.cpp module.
 std::string loopBreakFlagNameFromDeclaration(const std::string& text) {
     const std::string trimmed = trim(text);
     const std::string prefix = "bool __cppp_loop_completed_";
@@ -43,10 +54,12 @@ std::string loopBreakFlagNameFromDeclaration(const std::string& text) {
     return trimmed.substr(5, trimmed.size() - 5 - suffix.size());
 }
 
+// quotePath quotes a path string for safe output.
 std::string quotePath(const std::string& path) {
     return "\"" + path + "\"";
 }
 
+// commandPathFor returns the command path used to run a file.
 std::string commandPathFor(const std::string& path) {
 #ifdef _WIN32
     if (path.size() >= 2 && path[1] == ':') {
@@ -61,6 +74,7 @@ std::string commandPathFor(const std::string& path) {
 #endif
 }
 
+// executablePathFor builds the executable output path for an input source file.
 std::string executablePathFor(const std::string& inputFile, const std::string& extension) {
     const std::filesystem::path inputPath(inputFile);
     const std::filesystem::path directory = inputPath.parent_path();
@@ -78,6 +92,8 @@ std::string executablePathFor(const std::string& inputFile, const std::string& e
 }
 
 void pruneSubmitLoopHelpers(CompileContext& context) {
+    // Submit mode prefers cleaner contest-style output, so strip loop-completion
+    // helpers that are no longer referenced by any lowered loop-else code.
     std::vector<std::string> usedLoopFlags;
     for (const GeneratedLine& line : context.generatedMainLines) {
         const std::string trimmed = trim(line.text);
@@ -128,6 +144,8 @@ void pruneSubmitLoopHelpers(CompileContext& context) {
 }
 }
 
+// Keep the driver flow linear on purpose:
+// raw file -> SourceFragment list -> generated line buffers -> emitted C++.
 int runCompilerDriver(int argc, char* argv[]) {
     if ((argc != 3 && argc != 4) || std::string(argv[1]) != "--cppp") {
         std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run|--submit]\n";
@@ -169,6 +187,7 @@ int runCompilerDriver(int argc, char* argv[]) {
         return 1;
     }
 
+    // This is the shared state object for every later compiler stage.
     CompileContext context(options);
     setDeclaredFunctionsForExpressions(&context.declaredFunctions);
     compileSourceFragments(context, splitSourceFragments(input, context.sourceLines));

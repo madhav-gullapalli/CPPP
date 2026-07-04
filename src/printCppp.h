@@ -1,3 +1,11 @@
+/*
+ * printCppp.h
+ *
+ * Declares the print-emission result structures and helpers.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -7,6 +15,7 @@
 #include <string>
 #include <vector>
 
+// PrintEmitResult prints the relevant diagnostic or output text.
 struct PrintEmitResult {
     bool ok;
     std::string generatedStatement;

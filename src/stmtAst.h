@@ -1,3 +1,11 @@
+/*
+ * stmtAst.h
+ *
+ * Defines the statement AST node types used by the parser and compiler.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "controlFlow.h"
@@ -5,22 +13,27 @@
 #include <memory>
 #include <string>
 
+// Stmt implements the Stmt behavior for the stmtAst.h module.
 struct Stmt {
     int sourceColumn = 0;
     virtual ~Stmt() = default;
 };
 
+// EmptyStmt implements the EmptyStmt behavior for the stmtAst.h module.
 struct EmptyStmt : Stmt {
 };
 
+// RawStmt implements the RawStmt behavior for the stmtAst.h module.
 struct RawStmt : Stmt {
     std::string text;
 
+// RawStmt implements the RawStmt behavior for the stmtAst.h module.
     explicit RawStmt(std::string text, int sourceColumn) : text(std::move(text)) {
         this->sourceColumn = sourceColumn;
     }
 };
 
+// CloseBraceStmt implements the CloseBraceStmt behavior for the stmtAst.h module.
 struct CloseBraceStmt : Stmt {
     std::string trailingText;
 
@@ -29,12 +42,15 @@ struct CloseBraceStmt : Stmt {
     }
 };
 
+// ElseStmt implements the ElseStmt behavior for the stmtAst.h module.
 struct ElseStmt : Stmt {
+// ElseStmt implements the ElseStmt behavior for the stmtAst.h module.
     explicit ElseStmt(int sourceColumn) {
         this->sourceColumn = sourceColumn;
     }
 };
 
+// ElseIfStmt implements the ElseIfStmt behavior for the stmtAst.h module.
 struct ElseIfStmt : Stmt {
     ConditionHeader header;
 
@@ -43,6 +59,7 @@ struct ElseIfStmt : Stmt {
     }
 };
 
+// IfStmt implements the IfStmt behavior for the stmtAst.h module.
 struct IfStmt : Stmt {
     ConditionHeader header;
 
@@ -51,6 +68,7 @@ struct IfStmt : Stmt {
     }
 };
 
+// WhileStmt implements the WhileStmt behavior for the stmtAst.h module.
 struct WhileStmt : Stmt {
     ConditionHeader header;
 
@@ -59,6 +77,7 @@ struct WhileStmt : Stmt {
     }
 };
 
+// RepStmt implements the RepStmt behavior for the stmtAst.h module.
 struct RepStmt : Stmt {
     ConditionHeader header;
 
@@ -67,6 +86,7 @@ struct RepStmt : Stmt {
     }
 };
 
+// ForStmt implements the ForStmt behavior for the stmtAst.h module.
 struct ForStmt : Stmt {
     ForHeader header;
 
@@ -75,6 +95,7 @@ struct ForStmt : Stmt {
     }
 };
 
+// ForEachStmt implements the ForEachStmt behavior for the stmtAst.h module.
 struct ForEachStmt : Stmt {
     ForEachHeader header;
 

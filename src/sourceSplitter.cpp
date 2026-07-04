@@ -1,9 +1,18 @@
+/*
+ * sourceSplitter.cpp
+ *
+ * Splits source text into statement fragments and handles continuation and semicolon behavior.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "sourceSplitter.h"
 
 #include <string>
 #include <vector>
 
 namespace {
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -14,11 +23,13 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// firstCodeColumn implements the firstCodeColumn behavior for the sourceSplitter.cpp module.
 int firstCodeColumn(const std::string& text) {
     const size_t first = text.find_first_not_of(" \t\r\n");
     return static_cast<int>((first == std::string::npos ? 0 : first) + 1);
 }
 
+// splitSemicolonStatements splits the input into smaller logical pieces.
 std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, int lineNumber) {
     const size_t commentStart = findLineCommentStart(line);
     const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
@@ -93,6 +104,7 @@ std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, in
     return fragments;
 }
 
+// fragmentTerminatesStatement implements the fragmentTerminatesStatement behavior for the sourceSplitter.cpp module.
 bool fragmentTerminatesStatement(const std::string& text) {
     const std::string trimmed = trim(text);
     if (trimmed.empty()) {
@@ -103,6 +115,7 @@ bool fragmentTerminatesStatement(const std::string& text) {
     return last == ';' || last == '{' || last == '}';
 }
 
+// unmatchedParenthesisDepth implements the unmatchedParenthesisDepth behavior for the sourceSplitter.cpp module.
 int unmatchedParenthesisDepth(const std::string& text) {
     int parenDepth = 0;
     bool inString = false;
@@ -144,6 +157,7 @@ int unmatchedParenthesisDepth(const std::string& text) {
     return parenDepth;
 }
 
+// mergeContinuationFragments implements the mergeContinuationFragments behavior for the sourceSplitter.cpp module.
 std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceFragment>& fragments) {
     std::vector<SourceFragment> merged;
     SourceFragment pending{0, 1, ""};
@@ -206,6 +220,7 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
     return merged;
 }
 
+// attachDetachedOpeningBraces implements the attachDetachedOpeningBraces behavior for the sourceSplitter.cpp module.
 std::vector<SourceFragment> attachDetachedOpeningBraces(const std::vector<SourceFragment>& fragments) {
     std::vector<SourceFragment> attached;
     for (const SourceFragment& fragment : fragments) {
@@ -221,6 +236,7 @@ std::vector<SourceFragment> attachDetachedOpeningBraces(const std::vector<Source
 }
 }
 
+// findLineCommentStart implements the findLineCommentStart behavior for the sourceSplitter.cpp module.
 size_t findLineCommentStart(const std::string& text) {
     bool inString = false;
     bool inChar = false;
@@ -257,6 +273,7 @@ size_t findLineCommentStart(const std::string& text) {
     return std::string::npos;
 }
 
+// splitSourceFragments splits the input into smaller logical pieces.
 std::vector<SourceFragment> splitSourceFragments(std::istream& input, std::map<int, std::string>& sourceLines) {
     std::vector<SourceFragment> sourceFragments;
     std::string rawLine;

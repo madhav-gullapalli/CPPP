@@ -1,26 +1,39 @@
+/*
+ * tokenizer.cpp
+ *
+ * Tokenizes CP++ source into the language tokens used by later passes.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "tokenizer.h"
 
 #include <cctype>
 
 namespace {
+// Scanner implements the Scanner behavior for the tokenizer.cpp module.
 struct Scanner {
     const std::string& source;
     size_t index = 0;
     int line = 1;
     int column = 1;
 
+// atEnd implements the atEnd behavior for the tokenizer.cpp module.
     bool atEnd() const {
         return index >= source.size();
     }
 
+// peek implements the peek behavior for the tokenizer.cpp module.
     char peek() const {
         return atEnd() ? '\0' : source[index];
     }
 
+// peekNext implements the peekNext behavior for the tokenizer.cpp module.
     char peekNext() const {
         return index + 1 >= source.size() ? '\0' : source[index + 1];
     }
 
+// advance implements the advance behavior for the tokenizer.cpp module.
     char advance() {
         const char ch = source[index++];
         if (ch == '\n') {
@@ -34,18 +47,22 @@ struct Scanner {
     }
 };
 
+// isIdentifierStart returns whether the supplied input satisfies the relevant condition.
 bool isIdentifierStart(char ch) {
     return std::isalpha(static_cast<unsigned char>(ch)) || ch == '_';
 }
 
+// isIdentifierPart returns whether the supplied input satisfies the relevant condition.
 bool isIdentifierPart(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
 }
 
+// makeToken creates the requested object or intermediate value.
 Token makeToken(TokenKind kind, const std::string& text, int startLine, int startColumn, int endLine, int endColumn) {
     return {kind, text, {startLine, startColumn, endLine, endColumn}};
 }
 
+// scanIdentifier implements the scanIdentifier behavior for the tokenizer.cpp module.
 Token scanIdentifier(Scanner& scanner) {
     const int startLine = scanner.line;
     const int startColumn = scanner.column;
@@ -58,6 +75,7 @@ Token scanIdentifier(Scanner& scanner) {
     return makeToken(TokenKind::Identifier, text, startLine, startColumn, scanner.line, scanner.column - 1);
 }
 
+// scanNumber implements the scanNumber behavior for the tokenizer.cpp module.
 Token scanNumber(Scanner& scanner) {
     const int startLine = scanner.line;
     const int startColumn = scanner.column;
@@ -91,10 +109,12 @@ Token scanNumber(Scanner& scanner) {
     return makeToken(isFloat ? TokenKind::Float : TokenKind::Integer, text, startLine, startColumn, scanner.line, scanner.column - 1);
 }
 
+// scanQuoted implements the scanQuoted behavior for the tokenizer.cpp module.
 Token scanQuoted(Scanner& scanner, TokenKind kind) {
     const int startLine = scanner.line;
     const int startColumn = scanner.column;
     const char quote = scanner.advance();
+// text implements the text behavior for the tokenizer.cpp module.
     std::string text(1, quote);
     bool escaped = false;
 
@@ -117,6 +137,7 @@ Token scanQuoted(Scanner& scanner, TokenKind kind) {
 }
 }
 
+// tokenize tokenizes the input source into the stream consumed by later passes.
 std::vector<Token> tokenize(const std::string& source) {
     Scanner scanner{source};
     std::vector<Token> tokens;
@@ -235,6 +256,7 @@ std::vector<Token> tokenize(const std::string& source) {
     return tokens;
 }
 
+// tokenKindName implements the tokenKindName behavior for the tokenizer.cpp module.
 std::string tokenKindName(TokenKind kind) {
     switch (kind) {
         case TokenKind::Identifier:

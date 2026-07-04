@@ -1,8 +1,17 @@
+/*
+ * statementParser.cpp
+ *
+ * Parses statement-level syntax and constructs the intermediate statement AST.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "statementParser.h"
 
 #include "controlFlow.h"
 
 namespace {
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -14,6 +23,7 @@ std::string trim(const std::string& text) {
 }
 }
 
+// parseStatementAst parses statementsast for the compiler pipeline.
 StatementParseResult parseStatementAst(const std::string& statement, int sourceColumn) {
     StatementParseResult result;
     const std::string trimmed = trim(statement);

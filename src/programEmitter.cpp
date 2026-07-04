@@ -1,3 +1,11 @@
+/*
+ * programEmitter.cpp
+ *
+ * Emits the translated C++ program, including generated headers, runtime support, and main function scaffolding.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "programEmitter.h"
 
 #include "typesCppp.h"
@@ -6,6 +14,7 @@
 #include <vector>
 
 namespace {
+// cppStringLiteral implements the cppStringLiteral behavior for the programEmitter.cpp module.
 std::string cppStringLiteral(const std::string& text) {
     std::string escaped = "\"";
     for (char ch : text) {

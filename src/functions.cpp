@@ -1,16 +1,27 @@
+/*
+ * functions.cpp
+ *
+ * Implements function parameter typing and runtime helper selection for function lowering.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "functions.h"
 
 #include "typesCppp.h"
 
 namespace {
+// isReferenceParameterType returns whether the supplied input satisfies the relevant condition.
 bool isReferenceParameterType(const Type& type) {
     return isStringType(type) || (type.primitive == PrimitiveType::List && type.subtypes.size() == 1);
 }
 
+// isDeepEligibleType returns whether the supplied input satisfies the relevant condition.
 bool isDeepEligibleType(const Type& type) {
     return isReferenceParameterType(type);
 }
 
+// cppParameterType implements the cppParameterType behavior for the functions.cpp module.
 std::string cppParameterType(const Type& type, bool deepCopy) {
     const std::string cppType = cppTypeForType(type);
     if (cppType.empty()) {
@@ -23,6 +34,7 @@ std::string cppParameterType(const Type& type, bool deepCopy) {
 }
 }
 
+// functionParameterTypesDescription implements the functionParameterTypesDescription behavior for the functions.cpp module.
 std::string functionParameterTypesDescription(const FunctionSignature& signature) {
     if (signature.parameters.empty()) {
         return "no";
@@ -38,6 +50,7 @@ std::string functionParameterTypesDescription(const FunctionSignature& signature
     return description;
 }
 
+// functionArgumentTypesDescription implements the functionArgumentTypesDescription behavior for the functions.cpp module.
 std::string functionArgumentTypesDescription(const std::vector<Type>& argumentTypes) {
     if (argumentTypes.empty()) {
         return "no";

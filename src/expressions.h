@@ -1,3 +1,11 @@
+/*
+ * expressions.h
+ *
+ * Defines expression-related types, primitive types, and helper result structures.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -20,6 +28,7 @@ enum class PrimitiveType {
     List
 };
 
+// Type implements the Type behavior for the expressions.h module.
 struct Type {
     PrimitiveType primitive = PrimitiveType::Unknown;
     std::vector<Type> subtypes;
@@ -47,6 +56,7 @@ inline bool operator!=(const Type& left, PrimitiveType right) {
     return !(left == right);
 }
 
+// ExpressionEmitResult implements the ExpressionEmitResult behavior for the expressions.h module.
 struct ExpressionEmitResult {
     bool ok;
     std::string generatedExpression;
@@ -55,6 +65,7 @@ struct ExpressionEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+// LvalueEmitResult implements the LvalueEmitResult behavior for the expressions.h module.
 struct LvalueEmitResult {
     bool ok;
     std::string generatedExpression;
@@ -62,23 +73,36 @@ struct LvalueEmitResult {
     int sourceColumn;
 };
 
+// InputArgument implements the InputArgument behavior for the expressions.h module.
 struct InputArgument {
     std::string text;
     int column;
 };
 
+// FunctionSignature implements the FunctionSignature behavior for the expressions.h module.
 struct FunctionSignature;
+// Expr implements the Expr behavior for the expressions.h module.
 struct Expr;
 
+// primitiveArity implements the primitiveArity behavior for the expressions.h module.
 int primitiveArity(PrimitiveType primitive);
+// cpppTypeName implements the cpppTypeName behavior for the expressions.h module.
 std::string cpppTypeName(const Type& type);
+// isStringType returns whether the supplied input satisfies the relevant condition.
 bool isStringType(const Type& type);
+// isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to);
+// castExpressionTo implements the castExpressionTo behavior for the expressions.h module.
 std::string castExpressionTo(const std::string& expression, const Type& to);
+// castExpressionTo implements the castExpressionTo behavior for the expressions.h module.
 std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to);
+// declaredTypeForName implements the declaredTypeForName behavior for the expressions.h module.
 Type declaredTypeForName(const std::string& name);
+// isInputCall returns whether the supplied input satisfies the relevant condition.
 bool isInputCall(const std::vector<Token>& tokens);
+// inputFunctionForType implements the inputFunctionForType behavior for the expressions.h module.
 std::string inputFunctionForType(const Type& type);
+// parseInputCall parses inputcall for the compiler pipeline.
 bool parseInputCall(const std::string& text, int startColumn, std::vector<InputArgument>& arguments);
 bool emitInputCallForType(
     const std::string& inputFile,
@@ -152,4 +176,5 @@ LvalueEmitResult emitLvalueExpression(
     bool emitRuntimeChecks = false
 );
 
+// hasArithmeticOperator returns whether the supplied input satisfies the relevant condition.
 bool hasArithmeticOperator(const std::vector<Token>& tokens);

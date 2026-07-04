@@ -1,8 +1,17 @@
+/*
+ * listsCppp.cpp
+ *
+ * Implements list parsing, literal handling, and runtime helpers for CP++ list operations.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "listsCppp.h"
 
 #include "tokenizer.h"
 
 namespace {
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -13,15 +22,18 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// isListType returns whether the supplied input satisfies the relevant condition.
 bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+// ListArgument handles list-specific behavior for the compiler or runtime.
 struct ListArgument {
     std::string text;
     int column;
 };
 
+// splitListArguments splits the input into smaller logical pieces.
 std::vector<ListArgument> splitListArguments(const std::string& text, int startColumn) {
     std::vector<ListArgument> arguments;
     const std::vector<Token> tokens = tokenize(text);
@@ -287,6 +299,7 @@ bool emitTypedListLiteralAt(
 }
 }
 
+// listRuntimeHelpers handles list-specific behavior for the compiler or runtime.
 std::vector<RuntimeHelper> listRuntimeHelpers() {
     return {
         {

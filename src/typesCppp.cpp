@@ -1,3 +1,11 @@
+/*
+ * typesCppp.cpp
+ *
+ * Provides runtime helper definitions and type support for generated C++ output.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "typesCppp.h"
 
 #include "listsCppp.h"
@@ -13,6 +21,7 @@ std::set<std::string>& runtimeRequirementSet() {
 }
 }
 
+// runtimeHelpers provides runtime support for generated code.
 std::vector<RuntimeHelper> runtimeHelpers() {
     std::vector<RuntimeHelper> helpers = {
         {
@@ -294,6 +303,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
     return helpers;
 }
 
+// typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.cpp module.
 std::vector<std::string> typeSupportPreamble() {
     std::vector<std::string> preamble;
     for (const RuntimeHelper& helper : runtimeHelpers()) {
@@ -314,6 +324,7 @@ const std::set<std::string>& requiredRuntimeHelpers() {
     return runtimeRequirementSet();
 }
 
+// typeSupportPreambleForSubmit implements the typeSupportPreambleForSubmit behavior for the typesCppp.cpp module.
 std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string>& requiredHelpers) {
     const std::vector<RuntimeHelper> helpers = runtimeHelpers();
     std::map<std::string, RuntimeHelper> helpersByName;
@@ -322,6 +333,7 @@ std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string
     }
 
     std::set<std::string> resolvedHelpers = requiredHelpers;
+// worklist implements the worklist behavior for the typesCppp.cpp module.
     std::vector<std::string> worklist(requiredHelpers.begin(), requiredHelpers.end());
 
     for (size_t i = 0; i < worklist.size(); ++i) {

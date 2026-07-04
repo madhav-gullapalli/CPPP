@@ -1,3 +1,11 @@
+/*
+ * expressions.cpp
+ *
+ * Provides shared expression utilities such as coercion, casting, and runtime helper emission.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "expressions.h"
 
 #include "expressionParser.h"
@@ -14,6 +22,7 @@ const std::map<std::string, FunctionSignature>*& declaredFunctionsForExpressions
     return functions;
 }
 
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -24,6 +33,7 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// listDepth handles list-specific behavior for the compiler or runtime.
 int listDepth(const Type& type) {
     int depth = 0;
     Type current = type;
@@ -74,6 +84,7 @@ std::string emitListInputExpression(
 }
 }
 
+// primitiveArity implements the primitiveArity behavior for the expressions.cpp module.
 int primitiveArity(PrimitiveType primitive) {
     switch (primitive) {
         case PrimitiveType::Void:
@@ -91,6 +102,7 @@ int primitiveArity(PrimitiveType primitive) {
     return 0;
 }
 
+// cpppTypeName implements the cpppTypeName behavior for the expressions.cpp module.
 std::string cpppTypeName(const Type& type) {
     if (isStringType(type)) {
         return "string";
@@ -119,12 +131,14 @@ std::string cpppTypeName(const Type& type) {
     return "unknown";
 }
 
+// isStringType returns whether the supplied input satisfies the relevant condition.
 bool isStringType(const Type& type) {
     return type.primitive == PrimitiveType::List &&
         type.subtypes.size() == 1 &&
         type.subtypes[0] == PrimitiveType::Char;
 }
 
+// isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to) {
     if (to == PrimitiveType::Bool && from.primitive == PrimitiveType::List && from.subtypes.size() == 1) {
         return true;
@@ -165,10 +179,12 @@ bool isImplicitlyConvertible(const Type& from, const Type& to) {
     return false;
 }
 
+// castExpressionTo implements the castExpressionTo behavior for the expressions.cpp module.
 std::string castExpressionTo(const std::string& expression, const Type& to) {
     return castExpressionTo(expression, PrimitiveType::Unknown, to);
 }
 
+// castExpressionTo implements the castExpressionTo behavior for the expressions.cpp module.
 std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to) {
     switch (to.primitive) {
         case PrimitiveType::Void:
@@ -212,6 +228,7 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
     return expression;
 }
 
+// declaredTypeForName implements the declaredTypeForName behavior for the expressions.cpp module.
 Type declaredTypeForName(const std::string& name) {
     if (name == "bool") {
         return PrimitiveType::Bool;
@@ -241,6 +258,7 @@ Type declaredTypeForName(const std::string& name) {
     return PrimitiveType::Unknown;
 }
 
+// cppTypeForInput implements the cppTypeForInput behavior for the expressions.cpp module.
 std::string cppTypeForInput(const Type& type) {
     if (type == PrimitiveType::Bool) {
         return "bool";
@@ -263,6 +281,7 @@ std::string cppTypeForInput(const Type& type) {
     return "";
 }
 
+// isInputCall returns whether the supplied input satisfies the relevant condition.
 bool isInputCall(const std::vector<Token>& tokens) {
     return tokens.size() == 4 &&
         tokens[0].kind == TokenKind::Identifier &&
@@ -272,6 +291,7 @@ bool isInputCall(const std::vector<Token>& tokens) {
         tokens[3].kind == TokenKind::EndOfFile;
 }
 
+// parseInputCall parses inputcall for the compiler pipeline.
 bool parseInputCall(const std::string& text, int startColumn, std::vector<InputArgument>& arguments) {
     const std::vector<Token> tokens = tokenize(text);
     if (tokens.size() < 4 ||
@@ -332,6 +352,7 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
     return true;
 }
 
+// inputFunctionForType implements the inputFunctionForType behavior for the expressions.cpp module.
 std::string inputFunctionForType(const Type& type) {
     if (isStringType(type)) {
         requireRuntimeHelper("CPPPInputString");
@@ -603,6 +624,7 @@ std::unique_ptr<Expr> parseExpressionAst(
     return expression;
 }
 
+// hasArithmeticOperator returns whether the supplied input satisfies the relevant condition.
 bool hasArithmeticOperator(const std::vector<Token>& tokens) {
     for (const Token& token : tokens) {
         if (token.kind == TokenKind::Operator &&

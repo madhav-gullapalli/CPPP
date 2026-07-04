@@ -1,9 +1,18 @@
+/*
+ * errors.h
+ *
+ * Defines diagnostic and source-range data structures used by the compiler and runtime layers.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #pragma once
 
 #include <map>
 #include <string>
 #include <vector>
 
+// SourceRange implements the SourceRange behavior for the errors.h module.
 struct SourceRange {
     int sourceLine;
     int sourceColumn;
@@ -27,6 +36,7 @@ void recordSourceError(
     const std::map<int, std::string>& sourceLines
 );
 
+// hasRecordedSourceErrors returns whether the supplied input satisfies the relevant condition.
 bool hasRecordedSourceErrors();
 void printRecordedSourceErrors();
 void clearRecordedSourceErrors();

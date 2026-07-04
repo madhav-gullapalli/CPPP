@@ -1,3 +1,11 @@
+/*
+ * assignmentCppp.cpp
+ *
+ * Parses assignment statements and emits the corresponding C++ assignment logic, including compound operators and slice-aware rewrites.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "assignmentCppp.h"
 
 #include "expressions.h"
@@ -5,11 +13,13 @@
 #include "typesCppp.h"
 
 namespace {
+// AssignmentTarget implements the AssignmentTarget behavior for the assignmentCppp.cpp module.
 struct AssignmentTarget {
     std::string text;
     int column = 0;
 };
 
+// isCompoundAssignmentOperator returns whether the supplied input satisfies the relevant condition.
 bool isCompoundAssignmentOperator(const Token& token) {
     return token.kind == TokenKind::Operator &&
         (token.text == "+=" || token.text == "-=" || token.text == "*=" ||
@@ -18,14 +28,17 @@ bool isCompoundAssignmentOperator(const Token& token) {
          token.text == "^=" || token.text == "&&=" || token.text == "||=");
 }
 
+// isAssignmentOperatorToken returns whether the supplied input satisfies the relevant condition.
 bool isAssignmentOperatorToken(const Token& token) {
     return token.kind == TokenKind::Equals || isCompoundAssignmentOperator(token);
 }
 
+// compoundOperator implements the compoundOperator behavior for the assignmentCppp.cpp module.
 std::string compoundOperator(const std::string& assignmentOperator) {
     return assignmentOperator.substr(0, assignmentOperator.size() - 1);
 }
 
+// statementSlice implements the statementSlice behavior for the assignmentCppp.cpp module.
 std::string statementSlice(const std::string& statementBody, int startColumn, int endColumn) {
     return statementBody.substr(
         static_cast<size_t>(startColumn - 1),

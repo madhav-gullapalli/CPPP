@@ -1,3 +1,11 @@
+/*
+ * errors.cpp
+ *
+ * Collects diagnostics, renders user-facing error messages, and tracks source ranges for failures.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "errors.h"
 
 #include <algorithm>
@@ -8,6 +16,7 @@
 #include <vector>
 
 namespace {
+// Diagnostic implements the Diagnostic behavior for the errors.cpp module.
 struct Diagnostic {
     std::string sourceFile;
     int lineNumber;
@@ -16,6 +25,7 @@ struct Diagnostic {
     std::string sourceLine;
 };
 
+// RuntimeFailureLocation provides runtime support for generated code.
 struct RuntimeFailureLocation {
     int lineNumber;
     int column;
@@ -61,6 +71,7 @@ void printRuntimeDiagnostic(
     }
 }
 
+// lowerText lowers the construct into the internal code-generation form.
 std::string lowerText(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -68,6 +79,7 @@ std::string lowerText(std::string text) {
     return text;
 }
 
+// looksLikeRuntimeArithmeticOperator implements the looksLikeRuntimeArithmeticOperator behavior for the errors.cpp module.
 bool looksLikeRuntimeArithmeticOperator(const std::string& line, size_t index) {
     const char ch = line[index];
     if (ch == '%') {
@@ -81,6 +93,7 @@ bool looksLikeRuntimeArithmeticOperator(const std::string& line, size_t index) {
     return index + 1 >= line.size() || line[index + 1] != '/';
 }
 
+// likelyRuntimeFailureLocation implements the likelyRuntimeFailureLocation behavior for the errors.cpp module.
 RuntimeFailureLocation likelyRuntimeFailureLocation(const std::map<int, std::string>& sourceLines) {
     for (const auto& sourceLine : sourceLines) {
         bool inString = false;
@@ -151,6 +164,7 @@ std::string readableRuntimeMessageForLog(
     return "runtime error: generated program stopped before finishing";
 }
 
+// readableRuntimeMessage reads the requested input or source data.
 std::string readableRuntimeMessage(const std::string& message) {
     const std::string lowered = lowerText(message);
     if (lowered.find("overflow") != std::string::npos) {
@@ -199,6 +213,7 @@ void recordSourceError(
     });
 }
 
+// hasRecordedSourceErrors returns whether the supplied input satisfies the relevant condition.
 bool hasRecordedSourceErrors() {
     return !diagnostics().empty();
 }

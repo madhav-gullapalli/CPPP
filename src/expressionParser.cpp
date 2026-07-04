@@ -1,3 +1,11 @@
+/*
+ * expressionParser.cpp
+ *
+ * Analyzes and lowers expressions, including type checks, coercions, and runtime overflow guards.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "expressionParser.h"
 
 #include "typesCppp.h"
@@ -6,6 +14,7 @@
 #include <memory>
 
 namespace {
+// cppTypeForExpressionType implements the cppTypeForExpressionType behavior for the expressionParser.cpp module.
 std::string cppTypeForExpressionType(const Type& type) {
     switch (type.primitive) {
         case PrimitiveType::Void:
@@ -30,10 +39,12 @@ std::string cppTypeForExpressionType(const Type& type) {
     return "";
 }
 
+// isListType returns whether the supplied input satisfies the relevant condition.
 bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+// ExpressionAnalyzer analyzes expressions, checks types, and emits validation logic.
 class ExpressionAnalyzer {
 public:
     ExpressionAnalyzer(
@@ -49,6 +60,7 @@ public:
         declaredVariables(declaredVariables),
         declaredFunctions(declaredFunctions) {}
 
+// analyze analyzes the construct and validates its semantics.
     bool analyze(Expr& expr) {
         if (auto* literal = dynamic_cast<LiteralExpr*>(&expr)) {
             return analyzeLiteral(*literal);
@@ -92,10 +104,12 @@ private:
         recordSourceError(inputFile, lineNumber, column, message, sourceLines);
     }
 
+// isValueType returns whether the supplied input satisfies the relevant condition.
     bool isValueType(Type type) const {
         return type != PrimitiveType::Unknown;
     }
 
+// isNumericType returns whether the supplied input satisfies the relevant condition.
     bool isNumericType(Type type) const {
         return type == PrimitiveType::Bool ||
             type == PrimitiveType::Char ||
@@ -103,16 +117,19 @@ private:
             type == PrimitiveType::Float;
     }
 
+// isBitwiseType returns whether the supplied input satisfies the relevant condition.
     bool isBitwiseType(Type type) const {
         return type == PrimitiveType::Bool || type == PrimitiveType::Char || type == PrimitiveType::Int;
     }
 
+// isIncrementableType returns whether the supplied input satisfies the relevant condition.
     bool isIncrementableType(Type type) const {
         return type == PrimitiveType::Char ||
             type == PrimitiveType::Int ||
             type == PrimitiveType::Float;
     }
 
+// isLexicographicallyComparable returns whether the supplied input satisfies the relevant condition.
     bool isLexicographicallyComparable(Type type) const {
         if (isNumericType(type)) {
             return true;
@@ -125,6 +142,7 @@ private:
         return isLexicographicallyComparable(type.subtypes[0]);
     }
 
+// isComparable returns whether the supplied input satisfies the relevant condition.
     bool isComparable(Type left, Type right) const {
         if (!isValueType(left) || !isValueType(right)) {
             return false;
@@ -137,10 +155,12 @@ private:
         return isNumericType(left) && isNumericType(right);
     }
 
+// isFloatType returns whether the supplied input satisfies the relevant condition.
     bool isFloatType(Type type) const {
         return type == PrimitiveType::Float;
     }
 
+// isSummableType returns whether the supplied input satisfies the relevant condition.
     bool isSummableType(Type type) const {
         return type == PrimitiveType::Bool ||
             type == PrimitiveType::Char ||
@@ -148,6 +168,7 @@ private:
             type == PrimitiveType::Float;
     }
 
+// sumResultType implements the sumResultType behavior for the expressionParser.cpp module.
     Type sumResultType(Type elementType) const {
         if (elementType == PrimitiveType::Float) {
             return PrimitiveType::Float;
@@ -155,6 +176,7 @@ private:
         return PrimitiveType::Int;
     }
 
+// binaryResultType implements the binaryResultType behavior for the expressionParser.cpp module.
     Type binaryResultType(Type left, Type right, const std::string& op) const {
         if (op == "in") {
             return PrimitiveType::Bool;
@@ -179,6 +201,7 @@ private:
         return PrimitiveType::Int;
     }
 
+// analyzeLiteral analyzes the construct and validates its semantics.
     bool analyzeLiteral(LiteralExpr& expr) {
         switch (expr.kind) {
             case LiteralExpr::Kind::Bool:
@@ -201,6 +224,7 @@ private:
         return true;
     }
 
+// analyzeVariable analyzes the construct and validates its semantics.
     bool analyzeVariable(VariableExpr& expr) {
         const auto variable = declaredVariables.find(expr.name);
         if (variable == declaredVariables.end()) {
@@ -213,6 +237,7 @@ private:
         return true;
     }
 
+// analyzeUnary analyzes the construct and validates its semantics.
     bool analyzeUnary(UnaryExpr& expr) {
         if (!analyze(*expr.operand)) {
             return false;
@@ -250,6 +275,7 @@ private:
         return true;
     }
 
+// analyzeBinary analyzes the construct and validates its semantics.
     bool analyzeBinary(BinaryExpr& expr) {
         if (!analyze(*expr.left) || !analyze(*expr.right)) {
             return false;
@@ -319,6 +345,7 @@ private:
         return true;
     }
 
+// analyzeCast analyzes the construct and validates its semantics.
     bool analyzeCast(CastExpr& expr) {
         if (!analyze(*expr.operand)) {
             return false;
@@ -329,6 +356,7 @@ private:
         return true;
     }
 
+// analyzeCall analyzes the construct and validates its semantics.
     bool analyzeCall(CallExpr& expr) {
         if (expr.receiver && !analyze(*expr.receiver)) {
             return false;
@@ -555,6 +583,7 @@ private:
         return false;
     }
 
+// analyzeIndex analyzes the construct and validates its semantics.
     bool analyzeIndex(IndexExpr& expr) {
         if (!analyze(*expr.base) || !analyze(*expr.index)) {
             return false;
@@ -575,6 +604,7 @@ private:
         return true;
     }
 
+// analyzeSlice analyzes the construct and validates its semantics.
     bool analyzeSlice(SliceExpr& expr) {
         if (!analyze(*expr.base) || !analyze(*expr.start) || !analyze(*expr.end)) {
             return false;
@@ -599,6 +629,7 @@ private:
         return true;
     }
 
+// analyzeListLiteral analyzes the construct and validates its semantics.
     bool analyzeListLiteral(ListLiteralExpr& expr) {
         if (expr.elements.empty()) {
             report(expr.sourceColumn, "empty list literal needs a declared List type");
@@ -629,6 +660,7 @@ private:
     }
 };
 
+// ExpressionCodegen holds state or behavior used by the expressionParser.cpp implementation.
 class ExpressionCodegen {
 public:
     ExpressionCodegen(int lineNumber, bool emitRuntimeChecks, const std::map<std::string, FunctionSignature>& declaredFunctions) :
@@ -636,6 +668,7 @@ public:
         emitRuntimeChecks(emitRuntimeChecks),
         declaredFunctions(declaredFunctions) {}
 
+// generate implements the generate behavior for the expressionParser.cpp module.
     std::string generate(const Expr& expr) const {
         if (const auto* literal = dynamic_cast<const LiteralExpr*>(&expr)) {
             return generateLiteral(*literal);
@@ -673,6 +706,7 @@ private:
     bool emitRuntimeChecks;
     const std::map<std::string, FunctionSignature>& declaredFunctions;
 
+// runtimeErrorThrowExpression provides runtime support for generated code.
     std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
         return "throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(column) + ":" + message + "\")";
     }
@@ -724,6 +758,7 @@ private:
         return "(" + left + " " + op + " " + right + ")";
     }
 
+// concatenatedListExpression implements the concatenatedListExpression behavior for the expressionParser.cpp module.
     std::string concatenatedListExpression(const BinaryExpr& expr) const {
         const std::string left = generate(*expr.left);
         const std::string right = generate(*expr.right);
@@ -731,6 +766,7 @@ private:
             "; __cppp_left.insert(__cppp_left.end(), __cppp_right.begin(), __cppp_right.end()); return __cppp_left; }())";
     }
 
+// generateLiteral implements the generateLiteral behavior for the expressionParser.cpp module.
     std::string generateLiteral(const LiteralExpr& expr) const {
         switch (expr.kind) {
             case LiteralExpr::Kind::Bool:
@@ -747,6 +783,7 @@ private:
         return expr.text;
     }
 
+// generateUnary implements the generateUnary behavior for the expressionParser.cpp module.
     std::string generateUnary(const UnaryExpr& expr) const {
         if (expr.op == "++" || expr.op == "--") {
             const std::string operand = generateMutableAccess(*expr.operand);
@@ -760,6 +797,7 @@ private:
         return "(" + expr.op + operand + ")";
     }
 
+// generateBinary implements the generateBinary behavior for the expressionParser.cpp module.
     std::string generateBinary(const BinaryExpr& expr) const {
         const std::string left = generate(*expr.left);
         const std::string right = generate(*expr.right);
@@ -802,6 +840,7 @@ private:
         return "(" + left + " " + expr.op + " " + right + ")";
     }
 
+// generateCall implements the generateCall behavior for the expressionParser.cpp module.
     std::string generateCall(const CallExpr& expr) const {
         if (expr.callee == "len") {
             return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
@@ -937,6 +976,7 @@ private:
         return "";
     }
 
+// generateIndex implements the generateIndex behavior for the expressionParser.cpp module.
     std::string generateIndex(const IndexExpr& expr) const {
         const std::string base = generate(*expr.base);
         const std::string index = generate(*expr.index);
@@ -947,6 +987,7 @@ private:
         return "([&]() { const auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + index + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return (__cppp_list[__cppp_index]); }())";
     }
 
+// generateMutableAccess implements the generateMutableAccess behavior for the expressionParser.cpp module.
     std::string generateMutableAccess(const Expr& expr) const {
         if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
             return variable->name;
@@ -966,6 +1007,7 @@ private:
         return generate(expr);
     }
 
+// generateSlice implements the generateSlice behavior for the expressionParser.cpp module.
     std::string generateSlice(const SliceExpr& expr) const {
         const std::string base = generate(*expr.base);
         const std::string start = generate(*expr.start);
@@ -977,6 +1019,7 @@ private:
         return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
     }
 
+// generateListLiteral implements the generateListLiteral behavior for the expressionParser.cpp module.
     std::string generateListLiteral(const ListLiteralExpr& expr) const {
         const Type elementType = expr.inferredType.subtypes[0];
         std::string generated = "vector<" + cppTypeForExpressionType(elementType) + ">{";
@@ -1055,6 +1098,7 @@ ExpressionEmitResult ExpressionParser::parse() {
         return {false, "", PrimitiveType::Unknown, false, {}};
     }
 
+// analyzer analyzes the construct and validates its semantics.
     ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables, declaredFunctions);
     if (!analyzer.analyze(*expression)) {
         return {false, "", PrimitiveType::Unknown, false, {}};
@@ -1138,6 +1182,7 @@ LvalueEmitResult emitLvalueExpression(
         return {false, "", PrimitiveType::Unknown, expressionColumn};
     }
 
+// analyzer analyzes the construct and validates its semantics.
     ExpressionAnalyzer analyzer(inputFile, lineNumber, sourceLines, declaredVariables, declaredFunctions);
     if (!analyzer.analyze(*expression)) {
         return {false, "", PrimitiveType::Unknown, expressionColumn};

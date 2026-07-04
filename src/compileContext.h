@@ -1,3 +1,18 @@
+/*
+ * compileContext.h
+ *
+ * Shared state for the whole transpiler pipeline.
+ *
+ * The current flow is:
+ * source text
+ *   -> splitSourceFragments(...)
+ *   -> compileSourceFragments(...)
+ *   -> generatedTopLevelLines / generatedFunctionLines / generatedMainLines
+ *   -> emitTranslatedProgram(...)
+ *
+ * If two compiler stages need to communicate, that data usually lives here.
+ */
+
 #pragma once
 
 #include "errors.h"
@@ -8,6 +23,7 @@
 #include <string>
 #include <vector>
 
+// Per-invocation options chosen by the driver before source processing starts.
 struct CompileOptions {
     std::string inputFile;
     std::string outputFile;
@@ -17,18 +33,21 @@ struct CompileOptions {
     bool shouldSubmit = false;
 };
 
+// One logical statement fragment produced by source splitting.
 struct SourceFragment {
     int lineNumber = 0;
     int startColumn = 1;
     std::string text;
 };
 
+// One emitted C++ line plus the CP++ source metadata needed for diagnostics.
 struct GeneratedLine {
     std::string text;
     int sourceLine = 0;
     std::vector<SourceRange> sourceRanges;
 };
 
+// Tracks whether a just-closed loop can attach a trailing `else`.
 struct PendingLoopElse {
     bool active = false;
     std::string breakFlagName;
@@ -39,6 +58,8 @@ enum class OutputTarget {
     Function
 };
 
+// Shared mutable compiler state: source maps, symbols, output buffers, and
+// block/function lowering state.
 struct CompileContext {
     explicit CompileContext(const CompileOptions& compileOptions) : options(compileOptions) {}
 
@@ -66,14 +87,18 @@ struct CompileContext {
     int repLoopIndex = 0;
     int loopControlIndex = 0;
 
+    // Output that must live above generated functions and above main().
     void queueTopLevelLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges)});
     }
 
+    // Output for emitted user-defined function bodies.
     void queueFunctionLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
     }
 
+    // Default queue used during statement lowering. The current OutputTarget
+    // decides whether the line lands in a function body or generated main().
     void queueGeneratedLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         if (outputTarget == OutputTarget::Function) {
             generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
@@ -82,18 +107,23 @@ struct CompileContext {
         }
     }
 
+    // Mirrors lexical block nesting so close-brace handling can restore scope
+    // and loop metadata correctly.
     void pushBlock(const std::string& kind, const std::string& breakFlag = std::string(), std::vector<std::string> declaredNames = {}) {
         blockKinds.push_back(kind);
         blockBreakFlags.push_back(breakFlag);
         blockDeclaredNames.push_back(std::move(declaredNames));
     }
 
+    // Removes names whose scope ended when a block closed.
     void eraseDeclaredNames(const std::vector<std::string>& names) {
         for (const std::string& name : names) {
             declaredVariables.erase(name);
         }
     }
 
+    // Finds the innermost surrounding loop helper flag for break/continue and
+    // loop-else lowering.
     std::string nearestLoopBreakFlag() const {
         for (int i = static_cast<int>(blockKinds.size()) - 1; i >= 0; --i) {
             const std::string& kind = blockKinds[static_cast<size_t>(i)];

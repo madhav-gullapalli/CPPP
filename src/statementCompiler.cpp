@@ -1,3 +1,11 @@
+/*
+ * statementCompiler.cpp
+ *
+ * Lowers parsed statements into generated C++ code with indentation and helper tracking.
+ * This file is part of the CP++ transpiler and is documented here for
+ * maintainability and onboarding.
+ */
+
 #include "statementCompiler.h"
 
 #include "assignmentCppp.h"
@@ -15,6 +23,7 @@
 #include <string>
 
 namespace {
+// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) {
@@ -25,14 +34,17 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
+// indentForDepth implements the indentForDepth behavior for the statementCompiler.cpp module.
 std::string indentForDepth(int depth) {
     return std::string(static_cast<size_t>((depth + 1) * 4), ' ');
 }
 
+// indentGeneratedStatement implements the indentGeneratedStatement behavior for the statementCompiler.cpp module.
 std::string indentGeneratedStatement(const std::string& generatedStatement, int depth) {
     return indentForDepth(depth) + trim(generatedStatement);
 }
 
+// stripGeneratedStatement implements the stripGeneratedStatement behavior for the statementCompiler.cpp module.
 std::string stripGeneratedStatement(const std::string& generatedStatement) {
     std::string text = trim(generatedStatement);
     if (!text.empty() && text.back() == ';') {
@@ -42,10 +54,12 @@ std::string stripGeneratedStatement(const std::string& generatedStatement) {
     return text;
 }
 
+// isLoopBlockKind returns whether the supplied input satisfies the relevant condition.
 bool isLoopBlockKind(const std::string& kind) {
     return kind == "for" || kind == "while" || kind == "rep";
 }
 
+// isRepCountType returns whether the supplied input satisfies the relevant condition.
 bool isRepCountType(Type type) {
     return type == PrimitiveType::Bool ||
         type == PrimitiveType::Char ||
@@ -53,6 +67,7 @@ bool isRepCountType(Type type) {
         type == PrimitiveType::Float;
 }
 
+// isNamedCallStatement returns whether the supplied input satisfies the relevant condition.
 bool isNamedCallStatement(const std::vector<Token>& tokens, const std::string& name) {
     return tokens.size() >= 3 &&
         tokens[0].kind == TokenKind::Identifier &&
@@ -60,6 +75,7 @@ bool isNamedCallStatement(const std::vector<Token>& tokens, const std::string& n
         tokens[1].kind == TokenKind::LeftParen;
 }
 
+// isBuiltinCallName returns whether the supplied input satisfies the relevant condition.
 bool isBuiltinCallName(const std::string& name) {
     return name == "print" ||
         name == "describe" ||
@@ -87,6 +103,7 @@ bool isUnsupportedBareCallStatement(
     return declaredFunctions.count(tokens[0].text) == 0 && !isBuiltinCallName(tokens[0].text);
 }
 
+// containsIncrementOrDecrement implements the containsIncrementOrDecrement behavior for the statementCompiler.cpp module.
 bool containsIncrementOrDecrement(const std::vector<Token>& tokens) {
     for (const Token& token : tokens) {
         if (token.kind == TokenKind::Operator && (token.text == "++" || token.text == "--")) {
