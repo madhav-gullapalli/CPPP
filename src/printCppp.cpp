@@ -303,6 +303,11 @@ bool printedTypeNeedsStringHelper(const Type& type) {
         return true;
     }
 
+    if (isPairType(type)) {
+        return printedTypeNeedsStringHelper(type.subtypes[0]) ||
+            printedTypeNeedsStringHelper(type.subtypes[1]);
+    }
+
     if (!isCollectionType(type)) {
         return false;
     }
@@ -529,7 +534,7 @@ PrintEmitResult emitPrintStatement(
             return {false, "", {}};
         }
 
-        if (hasDelim && !isListType(expression.type)) {
+        if (hasDelim && !isListType(expression.type) && !isSetType(expression.type)) {
             recordSourceError(inputFile, lineNumber, arguments[i].column, "print delim requires a List value", sourceLines);
             return {false, "", {}};
         }
@@ -538,8 +543,9 @@ PrintEmitResult emitPrintStatement(
             generatedStatement += "cout << ' '; ";
         }
 
-        const bool listArgument = isListType(expression.type);
-        if (listArgument) {
+        const bool delimitedArgument = isListType(expression.type) || isSetType(expression.type);
+        const bool helperArgument = delimitedArgument || isMapType(expression.type) || isPairType(expression.type);
+        if (helperArgument) {
             if (hasDelim) {
                 requireRuntimeHelper("CPPPPrintDelimited");
             } else {
@@ -554,7 +560,7 @@ PrintEmitResult emitPrintStatement(
         }
         const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
         generatedStatement += expression.generatedExpression;
-        if (listArgument) {
+        if (helperArgument) {
             if (hasDelim) {
                 generatedStatement += ", " + generatedDelim + "); ";
             } else {

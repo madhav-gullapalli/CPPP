@@ -29,6 +29,32 @@ int firstCodeColumn(const std::string& text) {
     return static_cast<int>((first == std::string::npos ? 0 : first) + 1);
 }
 
+bool isLiteralBraceContext(const std::string& text, size_t braceIndex) {
+    if (braceIndex == 0) {
+        return false;
+    }
+
+    size_t index = braceIndex;
+    while (index > 0) {
+        --index;
+        if (text[index] == ' ' || text[index] == '\t' || text[index] == '\r' || text[index] == '\n') {
+            continue;
+        }
+
+        const char ch = text[index];
+        if (ch == ')') {
+            return false;
+        }
+
+        return ch == '=' || ch == ',' || ch == ':' || ch == '(' || ch == '[' ||
+            ch == '{' || ch == '+' || ch == '-' || ch == '*' || ch == '/' ||
+            ch == '%' || ch == '<' || ch == '>' || ch == '&' || ch == '|' ||
+            ch == '^' || ch == '!';
+    }
+
+    return false;
+}
+
 // splitSemicolonStatements splits the input into smaller logical pieces.
 std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, int lineNumber) {
     const size_t commentStart = findLineCommentStart(line);
@@ -39,6 +65,7 @@ std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, in
     bool inChar = false;
     bool escaped = false;
     int parenDepth = 0;
+    int literalBraceDepth = 0;
     size_t start = 0;
 
     for (size_t i = 0; i < codeText.size(); ++i) {
@@ -67,13 +94,23 @@ std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, in
             --parenDepth;
             continue;
         }
-        if (!inString && !inChar && ch == '{' && parenDepth == 0) {
+        if (!inString && !inChar && ch == '{') {
+            if (literalBraceDepth > 0 || isLiteralBraceContext(codeText, i)) {
+                ++literalBraceDepth;
+                continue;
+            }
+        }
+        if (!inString && !inChar && ch == '{' && parenDepth == 0 && literalBraceDepth == 0) {
             const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start + 1);
             fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
             start = i + 1;
             continue;
         }
-        if (!inString && !inChar && ch == '}' && parenDepth == 0) {
+        if (!inString && !inChar && ch == '}' && literalBraceDepth > 0) {
+            --literalBraceDepth;
+            continue;
+        }
+        if (!inString && !inChar && ch == '}' && parenDepth == 0 && literalBraceDepth == 0) {
             if (i > start) {
                 const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start);
                 fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
@@ -83,7 +120,7 @@ std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, in
             start = i + 1;
             continue;
         }
-        if (!inString && !inChar && ch == ';' && parenDepth == 0) {
+        if (!inString && !inChar && ch == ';' && parenDepth == 0 && literalBraceDepth == 0) {
             const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start + 1);
             fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
             start = i + 1;

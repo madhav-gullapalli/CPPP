@@ -55,6 +55,7 @@ bool parseAssignmentStructure(
 ) {
     int bracketDepth = 0;
     int parenDepth = 0;
+    int braceDepth = 0;
     size_t segmentStart = 0;
 
     for (size_t i = 0; i < tokens.size(); ++i) {
@@ -78,13 +79,21 @@ bool parseAssignmentStructure(
             --parenDepth;
             continue;
         }
+        if (token.kind == TokenKind::Unknown && token.text == "{") {
+            ++braceDepth;
+            continue;
+        }
+        if (token.kind == TokenKind::Unknown && token.text == "}") {
+            --braceDepth;
+            continue;
+        }
 
-        if (bracketDepth == 0 && parenDepth == 0 && isAssignmentOperatorToken(token)) {
+        if (bracketDepth == 0 && parenDepth == 0 && braceDepth == 0 && isAssignmentOperatorToken(token)) {
             operatorIndex = i;
             break;
         }
 
-        if (bracketDepth == 0 && parenDepth == 0 && token.kind == TokenKind::Comma) {
+        if (bracketDepth == 0 && parenDepth == 0 && braceDepth == 0 && token.kind == TokenKind::Comma) {
             if (segmentStart >= i) {
                 return false;
             }
@@ -212,6 +221,7 @@ AssignmentEmitResult emitAssignmentStatement(
         std::vector<int> expressionColumns;
         int parenDepth = 0;
         int bracketDepth = 0;
+        int braceDepth = 0;
         size_t segmentStart = 0;
         int segmentColumn = expressionColumn;
         for (const Token& token : expressionTokens) {
@@ -226,7 +236,11 @@ AssignmentEmitResult emitAssignmentStatement(
                 ++bracketDepth;
             } else if (token.kind == TokenKind::RightBracket) {
                 --bracketDepth;
-            } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
+            } else if (token.kind == TokenKind::Unknown && token.text == "{") {
+                ++braceDepth;
+            } else if (token.kind == TokenKind::Unknown && token.text == "}") {
+                --braceDepth;
+            } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
                 expressions.push_back(expressionText.substr(segmentStart, static_cast<size_t>(token.span.startColumn - 1) - segmentStart));
                 expressionColumns.push_back(segmentColumn);
                 segmentStart = static_cast<size_t>(token.span.endColumn);

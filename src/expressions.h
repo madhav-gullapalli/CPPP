@@ -27,7 +27,8 @@ enum class PrimitiveType {
     Float,
     List,
     Set,
-    Map
+    Map,
+    Pair
 };
 
 // Type implements the Type behavior for the expressions.h module.
@@ -95,6 +96,7 @@ bool isStringType(const Type& type);
 bool isListType(const Type& type);
 bool isSetType(const Type& type);
 bool isMapType(const Type& type);
+bool isPairType(const Type& type);
 bool isCollectionType(const Type& type);
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to);

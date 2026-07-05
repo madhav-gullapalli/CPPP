@@ -247,7 +247,7 @@ list truthiness literal
     yes
 
 len list
-  len(list) returns the size.
+  len(...) returns the size of a List and also works on Set and Map values.
 
   Example:
     List<int> values = [1, 2, 3];
@@ -514,6 +514,354 @@ print list output
 
   Output:
     [1, 2]
+
+Set, Map, and Pair literals
+---------------------------
+
+set literal
+  Set literals use braces, deduplicate values, and keep sorted iteration order.
+
+  Example:
+    Set<int> seen = {3, 1, 2, 3};
+    print(seen);
+    print(seen.remove(2));
+    print(2 in seen);
+
+  Output:
+    {1, 2, 3}
+    2
+    0
+
+print set with delimiter
+  Sets support print(..., delim = ...) in sorted order.
+
+  Example:
+    Set<int> seen = {3, 1, 2};
+    print(seen, delim = ',');
+
+  Output:
+    1,2,3
+
+print set with delimiter and end
+  Sets support custom delimiters and custom end text together.
+
+  Example:
+    Set<int> seen = {3, 1, 2};
+    print(seen, delim = " << ", end = "*\n");
+
+  Output:
+    1 << 2 << 3*
+
+map literal
+  Map literals use braces with key:value entries and print in key order.
+
+  Example:
+    Map<int, int> counts = {2:7, 1:4};
+    print(counts);
+    print(counts[2]);
+
+  Output:
+    {1:4, 2:7}
+    7
+
+map literal of nested types
+  Map literals support nested Set values and print them organically too.
+
+  Example:
+    Map<int, Set<int>> groups = {2:{5, 4}, 1:{3, 1}};
+    print(groups, end = "!\n");
+
+  Output:
+    {1:{1, 3}, 2:{4, 5}}!
+
+len set and map
+  len(...) also works on Set and Map values.
+
+  Example:
+    Set<int> seen = {7, 1, 4};
+    Map<int, int> counts = {3:9, 1:2};
+    print(len(seen), len(counts));
+
+  Output:
+    3 2
+
+min and max on set
+  min(set) and max(set) return the smallest and largest set values.
+
+  Example:
+    Set<int> seen = {7, 1, 4};
+    print(min(seen), max(seen));
+
+  Output:
+    1 7
+
+min and max on map keys
+  min(map) and max(map) return the smallest and largest keys.
+
+  Example:
+    Map<int, int> emptyAdj;
+    Map<int, Map<int, int>> graph = {4:{1:8}, 2:{9:3}, 7:emptyAdj};
+    print(min(graph), max(graph));
+
+  Output:
+    2 7
+
+manual inorder traversal on set
+  prev(...), next(...), min(...), and max(...) can manually walk an ordered
+  Set even when the queried value is not itself present.
+
+  Example:
+    Set<int> seen = {2, 5, 9, 13};
+    int cur = min(seen);
+    print(cur, end = " ");
+    cur = seen.next(cur);
+    print(cur, end = " ");
+    print(seen.prev(12), end = " ");
+    print(max(seen));
+
+  Output:
+    2 5 9 13
+
+manual inorder traversal on map keys
+  Map.prev(...), Map.next(...), min(map), and max(map) operate on keys.
+
+  Example:
+    Map<int, int> counts = {2:8, 5:1, 9:4};
+    int cur = min(counts);
+    print(cur, end = " ");
+    cur = counts.next(cur);
+    print(cur, end = " ");
+    print(counts.prev(8), end = " ");
+    print(max(counts));
+
+  Output:
+    2 5 5 9
+
+membership in set and map
+  Membership on Set and Map uses ordered lookup on the element or key type.
+
+  Example:
+    Set<int> seen = {2, 5, 9};
+    Map<int, int> counts = {3:7, 8:1};
+    print(5 in seen, 4 in seen);
+    print(8 in counts, 2 in counts);
+
+  Output:
+    1 0
+    1 0
+
+foreach on set and map
+  foreach loops also work on Sets and Maps. Maps yield Pair<key, value>
+  elements in key order.
+
+  Example:
+    Set<int> seen = {5, 1, 3};
+    Map<int, int> counts = {4:7, 1:2};
+    for (int x in seen) {
+        print(x, end = " ");
+    }
+    print("");
+    for (Pair<int, int> entry in counts) {
+        print(entry, end = " ");
+    }
+
+  Output:
+    1 3 5 
+    1:2 4:7 
+
+pair declaration and indexing
+  Pair<K, V> declarations support zero-based indexing at [0] and [1].
+
+  Example:
+    Pair<int, int> point = 4:9;
+    print(point[0], point[1]);
+
+  Output:
+    4 9
+
+pair reassignment
+  Pairs may be reassigned like other CP++ values.
+
+  Example:
+    Pair<int, int> point;
+    point = 3:5;
+    print(point);
+
+  Output:
+    3:5
+
+pair lvalue updates
+  Pair elements behave like ordinary mutable variables, even when nested.
+
+  Example:
+    Pair<int, Pair<int, int>> point = 1:(2:3);
+    point[1][0] += 4;
+    point[1][1]--;
+    print(point);
+
+  Output:
+    1:6:2
+
+pair printing
+  print(pair) uses the same a:b surface syntax as Pair literals.
+
+  Example:
+    Pair<int, int> point = 8:11;
+    print(point, end = "!\n");
+
+  Output:
+    8:11!
+
+swap pair elements
+  Same-typed Pair elements may be swapped with multi-assignment.
+
+  Example:
+    Pair<int, int> point = 4:9;
+    point[0], point[1] = point[1], point[0];
+    print(point);
+
+  Output:
+    9:4
+
+pair literals
+  Pair literals compose recursively.
+
+  Example:
+    print(7:(1:2));
+
+  Output:
+    7:1:2
+
+Synthesis tests
+---------------
+
+pair manhattan distance with input
+  Pair values work in function parameters, nested indexing, and input().
+
+  Example:
+    int dist(Pair<int, Pair<int, int>> A, Pair<int, Pair<int, int>> B) {
+        return abs(A[1][0] - B[1][0]) + abs(A[1][1] - B[1][1]);
+    }
+
+    Pair<int, Pair<int, int>> A = input();
+    Pair<int, Pair<int, int>> B = input();
+    print(dist(A, B));
+
+  Input:
+    1 2 3
+    4 8 9
+
+  Output:
+    12
+
+simulate map with Set<Pair>
+  A Set<Pair<int, int>> can simulate a tiny Map<int, int> using helper
+  functions, pair indexing, set membership updates, and for-in over sets.
+
+  Example:
+    int mapGet(Set<Pair<int, int>> entries, int key) {
+        for (Pair<int, int> entry in entries) {
+            if (entry[0] == key) {
+                return entry[1];
+            }
+        }
+        return 0;
+    }
+
+    void mapPut(Set<Pair<int, int>> entries, int key, int value) {
+        Pair<int, int> old = 0:0;
+        bool found = false;
+        for (Pair<int, int> entry in entries) {
+            if (entry[0] == key) {
+                old = entry;
+                found = true;
+            }
+        }
+        if (found) {
+            entries.remove(old);
+        }
+        entries.add(key:value);
+    }
+
+    int mapRemove(Set<Pair<int, int>> entries, int key) {
+        for (Pair<int, int> entry in entries) {
+            if (entry[0] == key) {
+                entries.remove(entry);
+                return entry[1];
+            }
+        }
+        return 0;
+    }
+
+    int q = input();
+    Set<Pair<int, int>> entries;
+    rep(q) {
+        int type = input();
+        int key = input();
+        if (type == 1) {
+            int value = input();
+            mapPut(entries, key, value);
+        } else if (type == 2) {
+            print(mapGet(entries, key));
+        } else {
+            print(mapRemove(entries, key));
+        }
+    }
+
+  Input:
+    8
+    1 3 5
+    2 3
+    2 4
+    1 2 2
+    3 2
+    1 3 8
+    3 3
+    2 3
+
+  Output:
+    5
+    0
+    2
+    8
+    0
+
+simulate heap with Set
+  A Set<int> can simulate a max-heap interface using max(...), min(...), and
+  ordered removals.
+
+  Example:
+    int q = input();
+    Set<int> heap;
+    rep(q) {
+        int type = input();
+        if (type == 1) {
+            int value = input();
+            heap.add(value);
+        } else if (type == 2) {
+            print(max(heap));
+        } else {
+            print(heap.remove(max(heap)));
+        }
+    }
+
+  Input:
+    8
+    1 4
+    1 9
+    2
+    3
+    1 7
+    2
+    3
+    2
+
+  Output:
+    9
+    9
+    7
+    7
+    4
 
 print nested list output
   Nested Lists print recursively.

@@ -82,6 +82,20 @@ std::string emitListInputExpression(
     const std::string elementExpression = emitListInputExpression(currentType.subtypes[0], dimensions, dimensionIndex + 1);
     return "CPPPInputList(" + dimensions[dimensionIndex] + ", [&]() { return " + elementExpression + "; })";
 }
+
+std::string emitPairInputExpression(const Type& type) {
+    if (!isPairType(type)) {
+        return inputFunctionForType(type);
+    }
+
+    const std::string first = emitPairInputExpression(type.subtypes[0]);
+    const std::string second = emitPairInputExpression(type.subtypes[1]);
+    if (first.empty() || second.empty()) {
+        return "";
+    }
+
+    return "make_pair(" + first + ", " + second + ")";
+}
 }
 
 // primitiveArity implements the primitiveArity behavior for the expressions.cpp module.
@@ -97,6 +111,7 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Set:
             return 1;
         case PrimitiveType::Map:
+        case PrimitiveType::Pair:
             return 2;
         case PrimitiveType::Unknown:
             return 0;
@@ -137,6 +152,11 @@ std::string cpppTypeName(const Type& type) {
                 return "Map<" + cpppTypeName(type.subtypes[0]) + ", " + cpppTypeName(type.subtypes[1]) + ">";
             }
             return "Map";
+        case PrimitiveType::Pair:
+            if (type.subtypes.size() == 2) {
+                return "Pair<" + cpppTypeName(type.subtypes[0]) + ", " + cpppTypeName(type.subtypes[1]) + ">";
+            }
+            return "Pair";
         case PrimitiveType::Unknown:
             return "unknown";
     }
@@ -161,6 +181,10 @@ bool isSetType(const Type& type) {
 
 bool isMapType(const Type& type) {
     return type.primitive == PrimitiveType::Map && type.subtypes.size() == 2;
+}
+
+bool isPairType(const Type& type) {
+    return type.primitive == PrimitiveType::Pair && type.subtypes.size() == 2;
 }
 
 bool isCollectionType(const Type& type) {
@@ -238,6 +262,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                 case PrimitiveType::Set:
                 case PrimitiveType::Map:
                     return "(!(" + expression + ").empty())";
+                case PrimitiveType::Pair:
+                    return expression;
                 case PrimitiveType::Unknown:
                     requireRuntimeHelper("CPPPToBoolFallback");
                     return "CPPPToBool(" + expression + ")";
@@ -255,6 +281,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
         case PrimitiveType::Set:
         case PrimitiveType::Map:
         case PrimitiveType::Unknown:
+            return expression;
+        case PrimitiveType::Pair:
             return expression;
     }
 
@@ -287,6 +315,9 @@ Type declaredTypeForName(const std::string& name) {
     if (name == "Map") {
         return PrimitiveType::Map;
     }
+    if (name == "Pair") {
+        return PrimitiveType::Pair;
+    }
     if (name == "vector") {
         return PrimitiveType::List;
     }
@@ -295,6 +326,9 @@ Type declaredTypeForName(const std::string& name) {
     }
     if (name == "map") {
         return PrimitiveType::Map;
+    }
+    if (name == "pair") {
+        return PrimitiveType::Pair;
     }
     if (name == "string") {
         return Type(PrimitiveType::List, {Type(PrimitiveType::Char)});
@@ -322,6 +356,14 @@ std::string cppTypeForInput(const Type& type) {
     }
     if (isListType(type)) {
         return "vector<" + cppTypeForInput(type.subtypes[0]) + ">";
+    }
+    if (isPairType(type)) {
+        const std::string first = cppTypeForInput(type.subtypes[0]);
+        const std::string second = cppTypeForInput(type.subtypes[1]);
+        if (first.empty() || second.empty()) {
+            return "";
+        }
+        return "pair<" + first + ", " + second + ">";
     }
     return "";
 }
@@ -356,6 +398,7 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
 
     int parenDepth = 0;
     int bracketDepth = 0;
+    int braceDepth = 0;
     size_t argumentStartIndex = 0;
     int argumentColumn = argumentsStartColumn;
 
@@ -371,7 +414,11 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
             ++bracketDepth;
         } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
             --bracketDepth;
-        } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
+        } else if (token.kind == TokenKind::Unknown && token.text == "{") {
+            ++braceDepth;
+        } else if (token.kind == TokenKind::Unknown && token.text == "}" && braceDepth > 0) {
+            --braceDepth;
+        } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
             const std::string rawArgument = content.substr(argumentStartIndex, static_cast<size_t>(token.span.startColumn - 1) - argumentStartIndex);
             const std::string argumentText = trim(rawArgument);
             const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
@@ -424,6 +471,8 @@ std::string inputFunctionForType(const Type& type) {
         case PrimitiveType::Map:
         case PrimitiveType::Unknown:
             return "";
+        case PrimitiveType::Pair:
+            return emitPairInputExpression(type);
     }
 
     return "";

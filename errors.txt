@@ -503,9 +503,8 @@ string printing
     there
 
 len(list)
-  len(list) returns the number of elements in a List as an int.
-  It accepts any List expression, including list literals and temporary List
-  results.
+  len(...) returns the number of elements in a List, Set, or Map as an int.
+  Strings still work through their List<char> lowering.
 
   Example:
     List<int> values;
@@ -581,35 +580,37 @@ unclosed bracket in list index
   Diagnostic:
     error: unclosed bracket in list index
 
-len() expects a List value
-  len(...) only accepts a List expression.
+len() expects a List, Set, or Map value
+  len(...) only accepts ordered collection expressions.
 
   Example:
     int x = 3;
     print(len(x));
 
   Diagnostic:
-    error: len() expects a List value
+    error: len() expects a List, Set, or Map value
 
-min() expects a List value
-  min(...) only accepts one List expression.
+min() expects a List, Set, or Map value
+  min(...) accepts one ordered collection expression, or multiple standalone
+  values of the same type.
 
   Example:
     int x = 3;
     print(min(x));
 
   Diagnostic:
-    error: min() expects a List value
+    error: min() expects a List, Set, or Map value, or a list of multiple values of the same type
 
-max() expects a List value
-  max(...) only accepts one List expression.
+max() expects a List, Set, or Map value
+  max(...) accepts one ordered collection expression, or multiple standalone
+  values of the same type.
 
   Example:
     int x = 3;
     print(max(x));
 
   Diagnostic:
-    error: max() expects a List value
+    error: max() expects a List, Set, or Map value, or a list of multiple values of the same type
 
 sum() expects a List of numeric values
   sum(...) accepts List<bool>, List<char>, List<int>, and List<float>. Nested
@@ -713,13 +714,13 @@ cannot take max of empty list
     error: runtime error: cannot take max of empty list
 
 cannot take min/max of single non-list item
-  If min/max has one argument it must be a single list.
+  If min/max has one argument it must be a single List, Set, or Map.
 
   Example:
     print(max(7));
 
   Diagnostic:
-    error: max() expects a List value, or a list of multiples values of the same type
+    error: max() expects a List, Set, or Map value, or a list of multiple values of the same type
 
 cannot take min/max of a seqwuence of mixed type
   Types must not be mixed in a sequence passed to max or min.
@@ -1952,3 +1953,207 @@ map at missing key
 
   Diagnostic:
     error: runtime error: key not found in map
+
+Set, Map, and Pair literals
+---------------------------
+
+unclosed brace in set or map literal
+  Set and Map literals must close their outer braces.
+
+  Example:
+    Set<int> values = {1, 2;
+
+  Diagnostic:
+    error: unclosed brace in set or map literal
+
+cannot implicitly convert string to int in set literal
+  Set literals report the first element whose type does not match the rest of
+  the literal.
+
+  Example:
+    Set<int> values = {1, "oops"};
+
+  Diagnostic:
+    error: cannot implicitly convert string to int in set literal
+
+Set values must use a set literal like {1, 2} or another Set expression
+  Set literals use braces, not square brackets.
+
+  Example:
+    Set<int> values = [1, 2];
+
+  Diagnostic:
+    error: Set values must use a set literal like {1, 2} or another Set expression
+
+cannot implicitly convert string to int in map literal key
+  Map literals report which key fails the declared key type.
+
+  Example:
+    Map<int, int> values = {1:2, "oops":3};
+
+  Diagnostic:
+    error: cannot implicitly convert string to int in map literal key
+
+cannot implicitly convert int to Set<int> in map literal value
+  Map literals also report mismatched value types precisely.
+
+  Example:
+    Map<int, Set<int>> values = {1:{2}, 3:4};
+
+  Diagnostic:
+    error: cannot implicitly convert int to Set<int> in map literal value
+
+Map values must use a map literal like {1:'a'} or another Map expression
+  Map literals use braces, not square brackets.
+
+  Example:
+    Map<int, int> values = [1, 2];
+
+  Diagnostic:
+    error: Map values must use a map literal like {1:'a'} or another Map expression
+
+print delim requires a List value
+  Maps print organically, but delimiter-based printing is reserved for List and
+  Set values because a Map already has entry punctuation.
+
+  Example:
+    Map<int, int> values = {1:2};
+    print(values, delim = ",");
+
+  Diagnostic:
+    error: print delim requires a List value
+
+Pair expects 2 subtypes like Pair<int, int>
+  Pair is a generic container type with exactly two subtypes.
+
+  Example:
+    Pair<int> point;
+
+  Diagnostic:
+    error: Pair expects 2 subtypes like Pair<int, int>
+
+Pair expects 2 subtypes
+  Pair does not accept more than two subtype parameters.
+
+  Example:
+    Pair<int, int, int> point;
+
+  Diagnostic:
+    error: Pair expects 2 subtypes
+
+unclosed generic type for Pair
+  Nested Pair syntax must close all angle brackets.
+
+  Example:
+    Pair<int, Pair<int, int> point;
+
+  Diagnostic:
+    error: unclosed generic type for Pair
+
+unsupported type Pair<void, int>
+  Pair subtypes must themselves be valid CP++ value types.
+
+  Example:
+    Pair<void, int> point;
+
+  Diagnostic:
+    error: unsupported type Pair<void, int>
+
+cannot implicitly convert int to char
+  Pair elements only swap directly when each side can be assigned to the other.
+
+  Example:
+    Pair<int, char> point = 7:'x';
+    point[0], point[1] = point[1], point[0];
+
+  Diagnostic:
+    error: cannot implicitly convert int to char
+
+pair index must be 0 or 1
+  Pairs only expose two positions: [0] and [1].
+
+  Example:
+    Pair<int, int> point = 1:2;
+    print(point[2]);
+
+  Diagnostic:
+    error: pair index must be 0 or 1
+
+Ordered collection helpers
+--------------------------
+
+cannot use key of type string with Set<int>
+  Set.prev(...) and Set.next(...) require a value compatible with the Set
+  element type.
+
+  Example:
+    Set<int> values = {1, 2};
+    print(values.prev("x"));
+
+  Diagnostic:
+    error: cannot use key of type string with Set<int>
+
+cannot use key of type string with Map<int, int>
+  Map.prev(...) and Map.next(...) require a key compatible with the Map key
+  type.
+
+  Example:
+    Map<int, int> values = {1:2};
+    print(values.next("x"));
+
+  Diagnostic:
+    error: cannot use key of type string with Map<int, int>
+
+unclosed parenthesis in prev
+  Ordered helper calls must close their argument list.
+
+  Example:
+    Set<int> values = {1, 2};
+    print(values.prev(1);
+
+  Diagnostic:
+    error: unclosed parenthesis in prev
+
+cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
+  Map membership checks use the declared key type exactly, including nested
+  Pair and Set structure.
+
+  Example:
+    Map<Pair<int, Set<char>>, int> values;
+    print((1:{1}) in values);
+
+  Diagnostic:
+    error: cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
+
+cannot take max of empty set
+  In --run mode, max(set) reports a readable runtime error when the Set is
+  empty.
+
+  Example:
+    Set<int> values;
+    print(max(values));
+
+  Diagnostic:
+    error: runtime error: cannot take max of empty set
+
+no next value in set
+  In both --run and --submit mode, Set.next(x) reports a readable CP++
+  runtime error when there is no larger value.
+
+  Example:
+    Set<int> values = {2, 5, 9};
+    print(values.next(max(values)));
+
+  Diagnostic:
+    error: runtime error: no next value in set
+
+no previous key in map
+  In both --run and --submit mode, Map.prev(x) reports a readable CP++
+  runtime error when there is no smaller key.
+
+  Example:
+    Map<int, int> values = {2:7, 5:1};
+    print(values.prev(1));
+
+  Diagnostic:
+    error: runtime error: no previous key in map

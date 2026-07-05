@@ -118,7 +118,11 @@ bool shouldParseAsExpression(const std::vector<Token>& tokens) {
     }
 
     for (const Token& token : tokens) {
-        if (token.kind == TokenKind::Identifier || token.kind == TokenKind::LeftParen || token.kind == TokenKind::RightParen) {
+        if (token.kind == TokenKind::Identifier ||
+            token.kind == TokenKind::LeftParen ||
+            token.kind == TokenKind::RightParen ||
+            (token.kind == TokenKind::Operator && token.text == ":") ||
+            (token.kind == TokenKind::Unknown && (token.text == "{" || token.text == "}"))) {
             return true;
         }
     }
@@ -174,18 +178,36 @@ bool needsCharRuntimeHelper(const Type& type) {
 TypeInfo typeInfoFor(const Type& type) {
     if (isListType(type)) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        if (subtypeInfo.cppType.empty()) {
+            return {"", ""};
+        }
         return {"vector<" + subtypeInfo.cppType + ">", "{}"};
     }
 
     if (isSetType(type)) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        if (subtypeInfo.cppType.empty()) {
+            return {"", ""};
+        }
         return {"set<" + subtypeInfo.cppType + ">", "{}"};
     }
 
     if (isMapType(type)) {
         const TypeInfo keyInfo = typeInfoFor(type.subtypes[0]);
         const TypeInfo valueInfo = typeInfoFor(type.subtypes[1]);
+        if (keyInfo.cppType.empty() || valueInfo.cppType.empty()) {
+            return {"", ""};
+        }
         return {"map<" + keyInfo.cppType + ", " + valueInfo.cppType + ">", "{}"};
+    }
+
+    if (isPairType(type)) {
+        const TypeInfo firstInfo = typeInfoFor(type.subtypes[0]);
+        const TypeInfo secondInfo = typeInfoFor(type.subtypes[1]);
+        if (firstInfo.cppType.empty() || secondInfo.cppType.empty()) {
+            return {"", ""};
+        }
+        return {"pair<" + firstInfo.cppType + ", " + secondInfo.cppType + ">", "{" + firstInfo.defaultValue + ", " + secondInfo.defaultValue + "}"};
     }
 
     const auto primitive = primitiveTypes().find(cpppTypeName(type));
@@ -729,6 +751,7 @@ std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
     const std::vector<Token> tokens = tokenize(text);
     int parenDepth = 0;
     int bracketDepth = 0;
+    int braceDepth = 0;
     size_t startIndex = 0;
     int valueColumn = startColumn;
 
@@ -744,7 +767,11 @@ std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
             ++bracketDepth;
         } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
             --bracketDepth;
-        } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
+        } else if (token.kind == TokenKind::Unknown && token.text == "{") {
+            ++braceDepth;
+        } else if (token.kind == TokenKind::Unknown && token.text == "}" && braceDepth > 0) {
+            --braceDepth;
+        } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
             std::string value = trim(text.substr(startIndex, static_cast<size_t>(token.span.startColumn - 1) - startIndex));
             values.push_back({value, valueColumn});
             startIndex = static_cast<size_t>(token.span.endColumn);
@@ -1105,6 +1132,54 @@ TypeEmitResult emitTypeDeclaration(
                     lineNumber,
                     assignedValueColumn,
                     "List values must use a list literal like [1, 2] or another List expression",
+                    sourceLines
+                );
+                return {true, false, "", {}};
+            }
+        } else if (isSetType(targetType) || isMapType(targetType) || isPairType(targetType)) {
+            const bool isSet = isSetType(targetType);
+            const bool isMap = isMapType(targetType);
+            const std::string typeLabel = isSet ? "Set" : (isMap ? "Map" : "Pair");
+            const std::string literalHint = isSet
+                ? "{1, 2}"
+                : (isMap ? "{1:'a'}" : "1:2");
+
+            if ((isSet || isMap) &&
+                valueTokens.size() > 2 &&
+                valueTokens[0].kind == TokenKind::Unknown &&
+                valueTokens[0].text == "{" &&
+                valueTokens[1].kind == TokenKind::Unknown &&
+                valueTokens[1].text == "}") {
+                emittedValue = typeInfo.defaultValue;
+            } else if ((isSet || isMap) &&
+                       valueTokens.size() > 1 &&
+                       valueTokens[0].kind == TokenKind::LeftBracket) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    assignedValueColumn,
+                    typeLabel + " values must use a " + std::string(isSet ? "set" : "map") + " literal like " + literalHint + " or another " + typeLabel + " expression",
+                    sourceLines
+                );
+                return {true, false, "", {}};
+            } else if (shouldParseAsExpression(valueTokens)) {
+                if (!finishExpressionAssignment(
+                        inputFile,
+                        lineNumber,
+                        assignedValue,
+                        assignedValueColumn,
+                        targetType,
+                        sourceLines,
+                        declaredVariables,
+                        emittedValue)) {
+                    return {true, false, "", {}};
+                }
+            } else {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    assignedValueColumn,
+                    typeLabel + " values must use a " + std::string(isSet ? "set" : (isMap ? "map" : "pair")) + " literal like " + literalHint + " or another " + typeLabel + " expression",
                     sourceLines
                 );
                 return {true, false, "", {}};

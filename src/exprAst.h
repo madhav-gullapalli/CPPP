@@ -148,3 +148,41 @@ struct ListLiteralExpr : Expr {
         this->sourceColumn = sourceColumn;
     }
 };
+
+// SetLiteralExpr handles set-specific behavior for the compiler or runtime.
+struct SetLiteralExpr : Expr {
+    std::vector<std::unique_ptr<Expr>> elements;
+
+    SetLiteralExpr(std::vector<std::unique_ptr<Expr>> elements, int sourceColumn) :
+        elements(std::move(elements)) {
+        this->sourceColumn = sourceColumn;
+    }
+};
+
+// MapLiteralEntry holds one parsed key/value pair from a Map literal.
+struct MapLiteralEntry {
+    std::unique_ptr<Expr> key;
+    std::unique_ptr<Expr> value;
+};
+
+// MapLiteralExpr handles map-specific behavior for the compiler or runtime.
+struct MapLiteralExpr : Expr {
+    std::vector<MapLiteralEntry> entries;
+
+    MapLiteralExpr(std::vector<MapLiteralEntry> entries, int sourceColumn) :
+        entries(std::move(entries)) {
+        this->sourceColumn = sourceColumn;
+    }
+};
+
+// PairLiteralExpr handles pair-specific behavior for the compiler or runtime.
+struct PairLiteralExpr : Expr {
+    std::unique_ptr<Expr> first;
+    std::unique_ptr<Expr> second;
+
+    PairLiteralExpr(std::unique_ptr<Expr> first, std::unique_ptr<Expr> second, int sourceColumn) :
+        first(std::move(first)),
+        second(std::move(second)) {
+        this->sourceColumn = sourceColumn;
+    }
+};

@@ -636,6 +636,71 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             {"CPPPSetRemove("}
         },
         {
+            "CPPPSetMin",
+            {
+                "template <typename T>",
+                "const T& CPPPSetMin(const set<T>& values, int line, int column) {",
+                "    if (values.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take min of empty set\");",
+                "    }",
+                "    return *values.begin();",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetMin("}
+        },
+        {
+            "CPPPSetMax",
+            {
+                "template <typename T>",
+                "const T& CPPPSetMax(const set<T>& values, int line, int column) {",
+                "    if (values.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take max of empty set\");",
+                "    }",
+                "    return *values.rbegin();",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetMax("}
+        },
+        {
+            "CPPPSetPrev",
+            {
+                "template <typename T, typename U>",
+                "const T& CPPPSetPrev(const set<T>& values, const U& key, int line, int column) {",
+                "    T lookupKey = key;",
+                "    auto iterator = values.lower_bound(lookupKey);",
+                "    if (iterator == values.begin()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":no previous value in set\");",
+                "    }",
+                "    --iterator;",
+                "    return *iterator;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetPrev("}
+        },
+        {
+            "CPPPSetNext",
+            {
+                "template <typename T, typename U>",
+                "const T& CPPPSetNext(const set<T>& values, const U& key, int line, int column) {",
+                "    T lookupKey = key;",
+                "    auto iterator = values.upper_bound(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":no next value in set\");",
+                "    }",
+                "    return *iterator;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetNext("}
+        },
+        {
             "CPPPMapRemove",
             {
                 "template <typename K, typename V, typename U>",
@@ -655,6 +720,36 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             {"CPPPMapRemove("}
         },
         {
+            "CPPPMapMin",
+            {
+                "template <typename K, typename V>",
+                "const K& CPPPMapMin(const map<K, V>& values, int line, int column) {",
+                "    if (values.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take min of empty map\");",
+                "    }",
+                "    return values.begin()->first;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapMin("}
+        },
+        {
+            "CPPPMapMax",
+            {
+                "template <typename K, typename V>",
+                "const K& CPPPMapMax(const map<K, V>& values, int line, int column) {",
+                "    if (values.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take max of empty map\");",
+                "    }",
+                "    return values.rbegin()->first;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapMax("}
+        },
+        {
             "CPPPMapAt",
             {
                 "template <typename K, typename V, typename U>",
@@ -670,6 +765,41 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             },
             {},
             {"CPPPMapAt("}
+        },
+        {
+            "CPPPMapPrev",
+            {
+                "template <typename K, typename V, typename U>",
+                "const K& CPPPMapPrev(const map<K, V>& values, const U& key, int line, int column) {",
+                "    K lookupKey = key;",
+                "    auto iterator = values.lower_bound(lookupKey);",
+                "    if (iterator == values.begin()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":no previous key in map\");",
+                "    }",
+                "    --iterator;",
+                "    return iterator->first;",
+                "}",
+                "",
+            },
+            {},
+            {"CPPPMapPrev("}
+        },
+        {
+            "CPPPMapNext",
+            {
+                "template <typename K, typename V, typename U>",
+                "const K& CPPPMapNext(const map<K, V>& values, const U& key, int line, int column) {",
+                "    K lookupKey = key;",
+                "    auto iterator = values.upper_bound(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":no next key in map\");",
+                "    }",
+                "    return iterator->first;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapNext("}
         }
     };
 }
