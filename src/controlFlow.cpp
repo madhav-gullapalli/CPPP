@@ -91,7 +91,8 @@ std::string trimHeaderPart(const std::string& raw, size_t baseOffset, size_t& of
 
 // isTypeRootName returns whether the supplied input satisfies the relevant condition.
 bool isTypeRootName(const std::string& text) {
-    return text == "bool" || text == "char" || text == "int" || text == "float" || text == "List" || text == "string";
+    return text == "bool" || text == "char" || text == "int" || text == "float" ||
+        text == "List" || text == "Set" || text == "Map" || text == "string";
 }
 
 // TypeTokenParseResult implements the TypeTokenParseResult behavior for the controlFlow.cpp module.
@@ -111,7 +112,7 @@ TypeTokenParseResult parseTypeTokenSequence(const std::vector<Token>& tokens, si
     result.ok = true;
     result.nextTokenIndex = startIndex + 1;
 
-    if (tokens[startIndex].text != "List") {
+    if (tokens[startIndex].text != "List" && tokens[startIndex].text != "Set" && tokens[startIndex].text != "Map") {
         return result;
     }
 
@@ -129,6 +130,21 @@ TypeTokenParseResult parseTypeTokenSequence(const std::vector<Token>& tokens, si
         return result;
     }
     result.nextTokenIndex = subtype.nextTokenIndex;
+
+    if (tokens[startIndex].text == "Map") {
+        if (result.nextTokenIndex >= tokens.size() || tokens[result.nextTokenIndex].kind != TokenKind::Comma) {
+            result.ok = false;
+            return result;
+        }
+
+        ++result.nextTokenIndex;
+        subtype = parseTypeTokenSequence(tokens, result.nextTokenIndex);
+        if (!subtype.matched || !subtype.ok) {
+            result.ok = false;
+            return result;
+        }
+        result.nextTokenIndex = subtype.nextTokenIndex;
+    }
 
     if (result.nextTokenIndex >= tokens.size() ||
         tokens[result.nextTokenIndex].kind != TokenKind::Operator ||

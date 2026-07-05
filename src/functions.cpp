@@ -13,7 +13,7 @@
 namespace {
 // isReferenceParameterType returns whether the supplied input satisfies the relevant condition.
 bool isReferenceParameterType(const Type& type) {
-    return isStringType(type) || (type.primitive == PrimitiveType::List && type.subtypes.size() == 1);
+    return isStringType(type) || isCollectionType(type);
 }
 
 // isDeepEligibleType returns whether the supplied input satisfies the relevant condition.

@@ -94,7 +94,10 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Float:
             return 0;
         case PrimitiveType::List:
+        case PrimitiveType::Set:
             return 1;
+        case PrimitiveType::Map:
+            return 2;
         case PrimitiveType::Unknown:
             return 0;
     }
@@ -124,6 +127,16 @@ std::string cpppTypeName(const Type& type) {
                 return "List<" + cpppTypeName(type.subtypes[0]) + ">";
             }
             return "List";
+        case PrimitiveType::Set:
+            if (type.subtypes.size() == 1) {
+                return "Set<" + cpppTypeName(type.subtypes[0]) + ">";
+            }
+            return "Set";
+        case PrimitiveType::Map:
+            if (type.subtypes.size() == 2) {
+                return "Map<" + cpppTypeName(type.subtypes[0]) + ", " + cpppTypeName(type.subtypes[1]) + ">";
+            }
+            return "Map";
         case PrimitiveType::Unknown:
             return "unknown";
     }
@@ -138,9 +151,25 @@ bool isStringType(const Type& type) {
         type.subtypes[0] == PrimitiveType::Char;
 }
 
+bool isListType(const Type& type) {
+    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
+}
+
+bool isSetType(const Type& type) {
+    return type.primitive == PrimitiveType::Set && type.subtypes.size() == 1;
+}
+
+bool isMapType(const Type& type) {
+    return type.primitive == PrimitiveType::Map && type.subtypes.size() == 2;
+}
+
+bool isCollectionType(const Type& type) {
+    return isListType(type) || isSetType(type) || isMapType(type);
+}
+
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to) {
-    if (to == PrimitiveType::Bool && from.primitive == PrimitiveType::List && from.subtypes.size() == 1) {
+    if (to == PrimitiveType::Bool && isCollectionType(from)) {
         return true;
     }
 
@@ -172,7 +201,7 @@ bool isImplicitlyConvertible(const Type& from, const Type& to) {
         return from == to;
     }
 
-    if (from.primitive == PrimitiveType::List || to.primitive == PrimitiveType::List) {
+    if (isCollectionType(from) || isCollectionType(to)) {
         return from == to;
     }
 
@@ -206,6 +235,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                     requireRuntimeHelper("CPPPToBoolFloat");
                     return "CPPPToBoolFloat(" + expression + ")";
                 case PrimitiveType::List:
+                case PrimitiveType::Set:
+                case PrimitiveType::Map:
                     return "(!(" + expression + ").empty())";
                 case PrimitiveType::Unknown:
                     requireRuntimeHelper("CPPPToBoolFallback");
@@ -221,6 +252,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
         case PrimitiveType::Float:
             return "static_cast<long double>(" + expression + ")";
         case PrimitiveType::List:
+        case PrimitiveType::Set:
+        case PrimitiveType::Map:
         case PrimitiveType::Unknown:
             return expression;
     }
@@ -248,8 +281,20 @@ Type declaredTypeForName(const std::string& name) {
     if (name == "List") {
         return PrimitiveType::List;
     }
+    if (name == "Set") {
+        return PrimitiveType::Set;
+    }
+    if (name == "Map") {
+        return PrimitiveType::Map;
+    }
     if (name == "vector") {
         return PrimitiveType::List;
+    }
+    if (name == "set") {
+        return PrimitiveType::Set;
+    }
+    if (name == "map") {
+        return PrimitiveType::Map;
     }
     if (name == "string") {
         return Type(PrimitiveType::List, {Type(PrimitiveType::Char)});
@@ -275,7 +320,7 @@ std::string cppTypeForInput(const Type& type) {
     if (type == PrimitiveType::Void) {
         return "void";
     }
-    if (type.primitive == PrimitiveType::List && type.subtypes.size() == 1) {
+    if (isListType(type)) {
         return "vector<" + cppTypeForInput(type.subtypes[0]) + ">";
     }
     return "";
@@ -375,6 +420,8 @@ std::string inputFunctionForType(const Type& type) {
             requireRuntimeHelper("CPPPInputFloat");
             return "CPPPInputFloat()";
         case PrimitiveType::List:
+        case PrimitiveType::Set:
+        case PrimitiveType::Map:
         case PrimitiveType::Unknown:
             return "";
     }

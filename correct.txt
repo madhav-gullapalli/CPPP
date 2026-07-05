@@ -1940,3 +1940,192 @@ simulate simple stack with List
     empty
     9
     empty
+
+Sets and Maps
+-------------
+
+set declaration
+  Set declarations compile and default to empty sets.
+
+  Example:
+    Set<int> seen;
+
+set add, membership, and remove
+  Sets support add(value), value in set, and remove(value).
+
+  Example:
+    Set<int> seen;
+    seen.add(3);
+    seen.add(1);
+    print(3 in seen);
+    print(seen.remove(3));
+    print(3 in seen);
+
+  Output:
+    1
+    3
+    0
+
+set of lists
+  Sets support nested collection element types such as List values.
+
+  Example:
+    Set<List<int>> groups;
+    groups.add([1, 2]);
+    print([1, 2] in groups);
+    print(groups.remove([1, 2]));
+    print([1, 2] in groups);
+
+  Output:
+    1
+    [1, 2]
+    0
+
+nested sets
+  Sets can store other sets of comparable values.
+
+  Example:
+    Set<int> inner;
+    inner.add(4);
+    inner.add(2);
+    Set<Set<int>> outer;
+    outer.add(inner);
+    print(inner in outer);
+
+  Output:
+    1
+
+map declaration
+  Map declarations compile and default to empty maps.
+
+  Example:
+    Map<int, int> counts;
+
+map assignment, membership, and remove
+  Maps support bracket assignment, key membership, and remove(key).
+
+  Example:
+    Map<int, int> counts;
+    counts[4] = 9;
+    print(4 in counts);
+    print(counts.remove(4));
+    print(4 in counts);
+
+  Output:
+    1
+    9
+    0
+
+map bracket access inserts defaults
+  Reading m[key] inserts a default value when the key is missing.
+
+  Example:
+    Map<int, int> counts;
+    counts[1] = 7;
+    print(counts[1]);
+    print(counts[2]);
+    print(2 in counts);
+
+  Output:
+    7
+    0
+    1
+
+nested maps
+  Nested Maps support bracket access, membership, and remove on inner maps.
+
+  Example:
+    Map<int, Map<int, int>> graph;
+    graph[1][2] = 5;
+    graph[1][4] = 9;
+    print(1 in graph);
+    print(2 in graph[1]);
+    print(graph[1].remove(2));
+    print(2 in graph[1]);
+    print(graph[1][4]);
+
+  Output:
+    1
+    1
+    5
+    0
+    9
+
+map reassignment
+  Map values may be reassigned like normal variables.
+
+  Example:
+    Map<int, int> counts;
+    counts[1] = 2;
+    counts[1] = counts[1] + 3;
+    print(counts[1]);
+
+  Output:
+    5
+
+map at
+  Map.at(key) returns the current value for an existing key.
+
+  Example:
+    Map<int, int> counts;
+    counts[1] = 8;
+    print(counts.at(1));
+
+  Output:
+    8
+
+map indexed arithmetic updates
+  Map bracket access behaves like a mutable variable in arithmetic updates.
+
+  Example:
+    Map<int, int> counts;
+    counts[1] = 7;
+    counts[2] = 4;
+    counts[1] += counts[2];
+    counts[1]--;
+    ++counts[2];
+    print(counts[1], counts[2]);
+
+  Output:
+    10 5
+
+Synthesis tests
+---------------
+
+two sum with Map
+  Use a Map<int, int> for the standard O(n log n) seen-value solution.
+
+  Example:
+    List<int> twoSum(List<int> nums, int target){
+        Map<int, int> seen;
+        List<int> none = [];
+        for (int i = 0; i < len(nums); i++) {
+            int need = target - nums[i];
+            if (need in seen) {
+                return [seen.at(need), i];
+            }
+            seen[nums[i]] = i;
+        }
+        return none;
+    }
+
+    int n = input();
+    int target = input();
+    List<int> nums = input(n);
+    print(twoSum(nums, target));
+
+  Input:
+    4
+    9
+    2 7 11 15
+
+  Output:
+    [0, 1]
+
+  Input:
+    5
+    6
+    3 2 4 1 9
+
+  Output:
+    [1, 2]

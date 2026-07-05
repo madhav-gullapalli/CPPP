@@ -297,18 +297,13 @@ bool parseCallArguments(
     return true;
 }
 
-// isListType returns whether the supplied input satisfies the relevant condition.
-bool isListType(const Type& type) {
-    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
-}
-
 // printedTypeNeedsStringHelper prints the relevant diagnostic or output text.
 bool printedTypeNeedsStringHelper(const Type& type) {
     if (isStringType(type)) {
         return true;
     }
 
-    if (type.primitive != PrimitiveType::List) {
+    if (!isCollectionType(type)) {
         return false;
     }
 

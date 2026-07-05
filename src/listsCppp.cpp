@@ -22,11 +22,6 @@ std::string trim(const std::string& text) {
     return text.substr(start, end - start + 1);
 }
 
-// isListType returns whether the supplied input satisfies the relevant condition.
-bool isListType(const Type& type) {
-    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
-}
-
 // ListArgument handles list-specific behavior for the compiler or runtime.
 struct ListArgument {
     std::string text;
@@ -620,6 +615,61 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             },
             {},
             {"CPPPListMax("}
+        },
+        {
+            "CPPPSetRemove",
+            {
+                "template <typename T, typename U>",
+                "T CPPPSetRemove(set<T>& values, const U& key, int line, int column) {",
+                "    T lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":key not found in set\");",
+                "    }",
+                "    T value = *iterator;",
+                "    values.erase(iterator);",
+                "    return value;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetRemove("}
+        },
+        {
+            "CPPPMapRemove",
+            {
+                "template <typename K, typename V, typename U>",
+                "V CPPPMapRemove(map<K, V>& values, const U& key, int line, int column) {",
+                "    K lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":key not found in map\");",
+                "    }",
+                "    V value = iterator->second;",
+                "    values.erase(iterator);",
+                "    return value;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapRemove("}
+        },
+        {
+            "CPPPMapAt",
+            {
+                "template <typename K, typename V, typename U>",
+                "const V& CPPPMapAt(const map<K, V>& values, const U& key, int line, int column) {",
+                "    K lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":key not found in map\");",
+                "    }",
+                "    return iterator->second;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapAt("}
         }
     };
 }
@@ -692,9 +742,12 @@ ListEmitResult emitListStatement(
     const bool isAdd = actionName == "add";
     const bool isSort = actionName == "sort";
     const bool isReverse = actionName == "reverse";
+    const bool receiverIsList = isListType(receiver.type);
+    const bool receiverIsSet = isSetType(receiver.type);
+    const bool receiverIsMap = isMapType(receiver.type);
 
-    if (receiver.type.primitive != PrimitiveType::List || receiver.type.subtypes.size() != 1) {
-        recordSourceError(inputFile, lineNumber, tokens[methodIndex].span.startColumn, actionName + "() can only be used on List values", sourceLines);
+    if (!receiverIsList && !receiverIsSet && !receiverIsMap) {
+        recordSourceError(inputFile, lineNumber, tokens[methodIndex].span.startColumn, actionName + "() can only be used on collection values", sourceLines);
         return {true, false, "", {}};
     }
 
@@ -710,6 +763,11 @@ ListEmitResult emitListStatement(
     const Type elementType = receiver.type.subtypes[0];
 
     if (isSort || isReverse) {
+        if (!receiverIsList) {
+            recordSourceError(inputFile, lineNumber, tokens[methodIndex].span.startColumn, actionName + "() can only be used on List values", sourceLines);
+            return {true, false, "", {}};
+        }
+
         if (arguments.size() != 1 || !arguments[0].text.empty()) {
             recordSourceError(
                 inputFile,
@@ -739,6 +797,11 @@ ListEmitResult emitListStatement(
     }
 
     if (isAdd) {
+        if (receiverIsMap) {
+            recordSourceError(inputFile, lineNumber, tokens[methodIndex].span.startColumn, "add() can only be used on List or Set values", sourceLines);
+            return {true, false, "", {}};
+        }
+
         if (arguments.size() == 1 && arguments[0].text.empty()) {
             recordSourceError(inputFile, lineNumber, argumentsStartColumn, "add() expects value or value, index", sourceLines);
             return {true, false, "", {}};
@@ -820,7 +883,9 @@ ListEmitResult emitListStatement(
             return {
                 true,
                 true,
-                "    (" + receiver.generatedExpression + ").push_back(" + emittedValue + ");",
+                receiverIsList
+                    ? "    (" + receiver.generatedExpression + ").push_back(" + emittedValue + ");"
+                    : "    (" + receiver.generatedExpression + ").insert(" + emittedValue + ");",
                 {{
                     lineNumber,
                     receiver.sourceColumn,
@@ -828,6 +893,11 @@ ListEmitResult emitListStatement(
                     5 + static_cast<int>(receiver.generatedExpression.size()) - 1
                 }}
             };
+        }
+
+        if (!receiverIsList) {
+            recordSourceError(inputFile, lineNumber, argumentsStartColumn, "Set.add() takes exactly one value", sourceLines);
+            return {true, false, "", {}};
         }
 
         const ExpressionEmitResult index = emitExpression(
@@ -878,7 +948,7 @@ ListEmitResult emitListStatement(
         };
     }
 
-    if (arguments.size() == 1 && arguments[0].text.empty()) {
+    if (receiverIsList && arguments.size() == 1 && arguments[0].text.empty()) {
         if (emitRuntimeChecks) {
             requireRuntimeHelper("CPPPListPop");
         }
@@ -904,7 +974,7 @@ ListEmitResult emitListStatement(
             inputFile,
             lineNumber,
             argumentsStartColumn,
-            "remove() expects no arguments or index",
+            receiverIsList ? "remove() expects no arguments or index" : "remove() expects exactly one key or value",
             sourceLines
         );
         return {true, false, "", {}};
@@ -927,28 +997,55 @@ ListEmitResult emitListStatement(
         return {true, false, "", {}};
     }
 
-    if (!index.explicitCast && !isImplicitlyConvertible(index.type, PrimitiveType::Int)) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            arguments[0].column,
-            "list index must be int",
-            sourceLines
-        );
-        return {true, false, "", {}};
-    }
-
     std::string emittedIndex = index.generatedExpression;
-    if (!isImplicitlyConvertible(index.type, PrimitiveType::Int) || index.type != PrimitiveType::Int) {
-        emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
-    }
+    std::string generatedStatement;
+    if (receiverIsList) {
+        if (!index.explicitCast && !isImplicitlyConvertible(index.type, PrimitiveType::Int)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                arguments[0].column,
+                "list index must be int",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
 
-    if (emitRuntimeChecks) {
-        requireRuntimeHelper("CPPPListRemoveAt");
+        if (!isImplicitlyConvertible(index.type, PrimitiveType::Int) || index.type != PrimitiveType::Int) {
+            emittedIndex = castExpressionTo(emittedIndex, index.type, PrimitiveType::Int);
+        }
+
+        if (emitRuntimeChecks) {
+            requireRuntimeHelper("CPPPListRemoveAt");
+        }
+        generatedStatement = emitRuntimeChecks
+            ? "    CPPPListRemoveAt(" + receiver.generatedExpression + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"
+            : "    (" + receiver.generatedExpression + ").erase((" + receiver.generatedExpression + ").begin() + " + emittedIndex + ");";
+    } else {
+        const Type expectedType = receiver.type.subtypes[0];
+        if (!index.explicitCast && !isImplicitlyConvertible(index.type, expectedType)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                arguments[0].column,
+                "cannot remove " + cpppTypeName(index.type) + " from " + cpppTypeName(receiver.type),
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (!isImplicitlyConvertible(index.type, expectedType) || index.type != expectedType) {
+            emittedIndex = castExpressionTo(emittedIndex, index.type, expectedType);
+        }
+
+        if (receiverIsSet) {
+            requireRuntimeHelper("CPPPSetRemove");
+            generatedStatement = "    CPPPSetRemove(" + receiver.generatedExpression + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");";
+        } else {
+            requireRuntimeHelper("CPPPMapRemove");
+            generatedStatement = "    CPPPMapRemove(" + receiver.generatedExpression + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");";
+        }
     }
-    const std::string generatedStatement = emitRuntimeChecks
-        ? "    CPPPListRemoveAt(" + receiver.generatedExpression + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"
-        : "    (" + receiver.generatedExpression + ").erase((" + receiver.generatedExpression + ").begin() + " + emittedIndex + ");";
 
     return {
         true,

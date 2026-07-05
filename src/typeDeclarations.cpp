@@ -155,10 +155,6 @@ bool isBoolLiteral(const std::string& text) {
 }
 
 // isListType returns whether the supplied input satisfies the relevant condition.
-bool isListType(const Type& type) {
-    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
-}
-
 // needsCharRuntimeHelper implements the needsCharRuntimeHelper behavior for the typeDeclarations.cpp module.
 bool needsCharRuntimeHelper(const Type& type) {
     if (type == PrimitiveType::Char) {
@@ -176,9 +172,20 @@ bool needsCharRuntimeHelper(const Type& type) {
 
 // typeInfoFor implements the typeInfoFor behavior for the typeDeclarations.cpp module.
 TypeInfo typeInfoFor(const Type& type) {
-    if (type.primitive == PrimitiveType::List && type.subtypes.size() == 1) {
+    if (isListType(type)) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
         return {"vector<" + subtypeInfo.cppType + ">", "{}"};
+    }
+
+    if (isSetType(type)) {
+        const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        return {"set<" + subtypeInfo.cppType + ">", "{}"};
+    }
+
+    if (isMapType(type)) {
+        const TypeInfo keyInfo = typeInfoFor(type.subtypes[0]);
+        const TypeInfo valueInfo = typeInfoFor(type.subtypes[1]);
+        return {"map<" + keyInfo.cppType + ", " + valueInfo.cppType + ">", "{}"};
     }
 
     const auto primitive = primitiveTypes().find(cpppTypeName(type));
@@ -468,6 +475,10 @@ bool parseTypeAt(
         return true;
     }
 
+    const std::string expectedSubtypeExample = arity == 1
+        ? typeName + "<int>"
+        : typeName + "<int, int>";
+
     if (parsedType.nextTokenIndex >= tokens.size() ||
         tokens[parsedType.nextTokenIndex].kind != TokenKind::Operator ||
         tokens[parsedType.nextTokenIndex].text != "<") {
@@ -475,7 +486,7 @@ bool parseTypeAt(
             inputFile,
             lineNumber,
             tokens[startIndex].span.startColumn,
-            typeName + " expects 1 subtype like " + typeName + "<int>",
+            typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
             sourceLines
         );
         parsedType.ok = false;
@@ -490,38 +501,93 @@ bool parseTypeAt(
             inputFile,
             lineNumber,
             tokens[startIndex].span.startColumn,
-            typeName + " expects 1 subtype like " + typeName + "<int>",
+            typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
             sourceLines
         );
         parsedType.ok = false;
         return true;
     }
 
-    ParsedTypeName subtype;
-    if (!parseTypeAt(inputFile, lineNumber, tokens, parsedType.nextTokenIndex, sourceLines, subtype)) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[parsedType.nextTokenIndex].span.startColumn,
-            "expected type inside " + typeName + "<...>",
-            sourceLines
-        );
-        parsedType.ok = false;
-        return true;
-    }
-    if (!subtype.ok) {
-        parsedType.ok = false;
+    for (int subtypeIndex = 0; subtypeIndex < arity; ++subtypeIndex) {
+        if (parsedType.nextTokenIndex >= tokens.size() ||
+            (tokens[parsedType.nextTokenIndex].kind == TokenKind::Operator &&
+             (tokens[parsedType.nextTokenIndex].text == ">" || tokens[parsedType.nextTokenIndex].text == ">>"))) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[startIndex].span.startColumn,
+                typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
+                sourceLines
+            );
+            parsedType.ok = false;
+            return true;
+        }
+
+        ParsedTypeName subtype;
+        if (!parseTypeAt(inputFile, lineNumber, tokens, parsedType.nextTokenIndex, sourceLines, subtype)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[parsedType.nextTokenIndex].span.startColumn,
+                "expected type inside " + typeName + "<...>",
+                sourceLines
+            );
+            parsedType.ok = false;
+            return true;
+        }
+        if (!subtype.ok) {
+            parsedType.ok = false;
+            parsedType.nextTokenIndex = subtype.nextTokenIndex;
+            parsedType.pendingRightClosers = subtype.pendingRightClosers;
+            return true;
+        }
+
+        parsedType.type.subtypes.push_back(subtype.type);
         parsedType.nextTokenIndex = subtype.nextTokenIndex;
-        parsedType.pendingRightClosers = subtype.pendingRightClosers;
-        return true;
-    }
 
-    parsedType.type.subtypes.push_back(subtype.type);
-    parsedType.nextTokenIndex = subtype.nextTokenIndex;
+        if (subtype.pendingRightClosers > 0) {
+            if (subtypeIndex != arity - 1) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    tokens[startIndex].span.startColumn,
+                    typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
+                    sourceLines
+                );
+                parsedType.ok = false;
+                return true;
+            }
+            parsedType.pendingRightClosers = subtype.pendingRightClosers - 1;
+            return true;
+        }
 
-    if (subtype.pendingRightClosers > 0) {
-        parsedType.pendingRightClosers = subtype.pendingRightClosers - 1;
-        return true;
+        if (subtypeIndex != arity - 1) {
+            if (parsedType.nextTokenIndex >= tokens.size()) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    tokens[startIndex].span.startColumn,
+                    "unclosed generic type for " + typeName,
+                    sourceLines
+                );
+                parsedType.ok = false;
+                return true;
+            }
+
+            if (tokens[parsedType.nextTokenIndex].kind != TokenKind::Comma) {
+                recordSourceError(
+                    inputFile,
+                    lineNumber,
+                    tokens[startIndex].span.startColumn,
+                    typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
+                    sourceLines
+                );
+                parsedType.ok = false;
+                return true;
+            }
+
+            ++parsedType.nextTokenIndex;
+        }
     }
 
     if (parsedType.nextTokenIndex >= tokens.size()) {
@@ -541,7 +607,7 @@ bool parseTypeAt(
             inputFile,
             lineNumber,
             tokens[parsedType.nextTokenIndex].span.startColumn,
-            typeName + " expects 1 subtype",
+            typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s"),
             sourceLines
         );
         parsedType.ok = false;

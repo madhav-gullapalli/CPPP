@@ -32,16 +32,21 @@ std::string cppTypeForExpressionType(const Type& type) {
                 return "vector<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
             }
             return "";
+        case PrimitiveType::Set:
+            if (type.subtypes.size() == 1) {
+                return "set<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
+            }
+            return "";
+        case PrimitiveType::Map:
+            if (type.subtypes.size() == 2) {
+                return "map<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
+            }
+            return "";
         case PrimitiveType::Unknown:
             return "";
     }
 
     return "";
-}
-
-// isListType returns whether the supplied input satisfies the relevant condition.
-bool isListType(const Type& type) {
-    return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
 // ExpressionAnalyzer analyzes expressions, checks types, and emits validation logic.
@@ -282,18 +287,29 @@ private:
         }
 
         if (expr.op == "in") {
-            if (expr.right->inferredType.primitive != PrimitiveType::List || expr.right->inferredType.subtypes.size() != 1) {
+            if (!isCollectionType(expr.right->inferredType)) {
                 report(expr.sourceColumn, "right side of 'in' must be a List");
                 return false;
             }
 
-            if (isListType(expr.left->inferredType)) {
+            if (isListType(expr.right->inferredType)) {
+                if (isListType(expr.left->inferredType)) {
+                    expr.inferredType = PrimitiveType::Bool;
+                    return true;
+                }
+
+                const Type elementType = expr.right->inferredType.subtypes[0];
+                if (!expr.left->explicitCast && !isImplicitlyConvertible(expr.left->inferredType, elementType)) {
+                    report(expr.sourceColumn, "cannot check membership of " + cpppTypeName(expr.left->inferredType) + " in " + cpppTypeName(expr.right->inferredType));
+                    return false;
+                }
+
                 expr.inferredType = PrimitiveType::Bool;
                 return true;
             }
 
-            const Type elementType = expr.right->inferredType.subtypes[0];
-            if (!expr.left->explicitCast && !isImplicitlyConvertible(expr.left->inferredType, elementType)) {
+            const Type memberType = expr.right->inferredType.subtypes[0];
+            if (!expr.left->explicitCast && !isImplicitlyConvertible(expr.left->inferredType, memberType)) {
                 report(expr.sourceColumn, "cannot check membership of " + cpppTypeName(expr.left->inferredType) + " in " + cpppTypeName(expr.right->inferredType));
                 return false;
             }
@@ -372,7 +388,7 @@ private:
                 report(expr.sourceColumn, "len must be called as len(list)");
                 return false;
             }
-            if (expr.arguments[0]->inferredType.primitive != PrimitiveType::List || expr.arguments[0]->inferredType.subtypes.size() != 1) {
+            if (!isCollectionType(expr.arguments[0]->inferredType)) {
                 report(expr.sourceColumn, "len() expects a List value");
                 return false;
             }
@@ -381,28 +397,65 @@ private:
         }
 
         if (expr.callee == "remove") {
-            if (!expr.receiver ||
-                expr.receiver->inferredType.primitive != PrimitiveType::List ||
-                expr.receiver->inferredType.subtypes.size() != 1) {
-                report(expr.sourceColumn, "remove() can only be used on List values");
+            if (!expr.receiver || !isCollectionType(expr.receiver->inferredType)) {
+                report(expr.sourceColumn, "remove() can only be used on List, Set, or Map values");
                 return false;
             }
             if (!expr.receiver->mutableValue) {
-                report(expr.sourceColumn, "remove() requires a mutable List variable");
+                report(expr.sourceColumn, "remove() requires a mutable collection variable");
                 return false;
             }
-            if (expr.arguments.size() > 1) {
-                report(expr.sourceColumn, "remove() expects no arguments or index");
-                return false;
-            }
-            if (!expr.arguments.empty()) {
-                const Expr& index = *expr.arguments[0];
-                if (!index.explicitCast && !isImplicitlyConvertible(index.inferredType, PrimitiveType::Int)) {
-                    report(expr.sourceColumn, "list index must be int");
+
+            if (isListType(expr.receiver->inferredType)) {
+                if (expr.arguments.size() > 1) {
+                    report(expr.sourceColumn, "remove() expects no arguments or index");
                     return false;
                 }
+                if (!expr.arguments.empty()) {
+                    const Expr& index = *expr.arguments[0];
+                    if (!index.explicitCast && !isImplicitlyConvertible(index.inferredType, PrimitiveType::Int)) {
+                        report(expr.sourceColumn, "list index must be int");
+                        return false;
+                    }
+                }
+                expr.inferredType = expr.receiver->inferredType.subtypes[0];
+                return true;
             }
-            expr.inferredType = expr.receiver->inferredType.subtypes[0];
+
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "remove() expects exactly one key or value");
+                return false;
+            }
+
+            const Type expectedType = expr.receiver->inferredType.subtypes[0];
+            if (!expr.arguments[0]->explicitCast &&
+                !isImplicitlyConvertible(expr.arguments[0]->inferredType, expectedType)) {
+                report(expr.sourceColumn, "cannot remove " + cpppTypeName(expr.arguments[0]->inferredType) + " from " + cpppTypeName(expr.receiver->inferredType));
+                return false;
+            }
+
+            expr.inferredType = isSetType(expr.receiver->inferredType)
+                ? expr.receiver->inferredType.subtypes[0]
+                : expr.receiver->inferredType.subtypes[1];
+            return true;
+        }
+
+        if (expr.callee == "at") {
+            if (!expr.receiver || !isMapType(expr.receiver->inferredType)) {
+                report(expr.sourceColumn, "at() can only be used on Map values");
+                return false;
+            }
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "at() expects exactly one key");
+                return false;
+            }
+            if (!expr.arguments[0]->explicitCast &&
+                !isImplicitlyConvertible(expr.arguments[0]->inferredType, expr.receiver->inferredType.subtypes[0])) {
+                report(expr.sourceColumn, "cannot use key of type " + cpppTypeName(expr.arguments[0]->inferredType) + " with " + cpppTypeName(expr.receiver->inferredType));
+                return false;
+            }
+
+            expr.inferredType = expr.receiver->inferredType.subtypes[1];
             return true;
         }
 
@@ -567,9 +620,9 @@ private:
                     return false;
                 }
                 if (!signature.parameters[i].deepCopy &&
-                    (isStringType(parameterType) || parameterType.primitive == PrimitiveType::List)) {
+                    (isStringType(parameterType) || isCollectionType(parameterType))) {
                     if (!expr.arguments[i]->mutableValue) {
-                        report(expr.sourceColumn, signature.name + " requires List and string arguments to be mutable variables");
+                        report(expr.sourceColumn, signature.name + " requires collection and string arguments to be mutable variables");
                         return false;
                     }
                 }
@@ -589,17 +642,29 @@ private:
             return false;
         }
 
-        if (expr.base->inferredType.primitive != PrimitiveType::List || expr.base->inferredType.subtypes.size() != 1) {
+        if (isListType(expr.base->inferredType)) {
+            if (expr.index->inferredType != PrimitiveType::Int) {
+                report(expr.sourceColumn, "list index must be int");
+                return false;
+            }
+
+            expr.inferredType = expr.base->inferredType.subtypes[0];
+            expr.mutableValue = expr.base->mutableValue;
+            return true;
+        }
+
+        if (!isMapType(expr.base->inferredType)) {
             report(expr.sourceColumn, "indexing requires a List value");
             return false;
         }
 
-        if (expr.index->inferredType != PrimitiveType::Int) {
-            report(expr.sourceColumn, "list index must be int");
+        if (!expr.index->explicitCast &&
+            !isImplicitlyConvertible(expr.index->inferredType, expr.base->inferredType.subtypes[0])) {
+            report(expr.sourceColumn, "map key type must be " + cpppTypeName(expr.base->inferredType.subtypes[0]));
             return false;
         }
 
-        expr.inferredType = expr.base->inferredType.subtypes[0];
+        expr.inferredType = expr.base->inferredType.subtypes[1];
         expr.mutableValue = expr.base->mutableValue;
         return true;
     }
@@ -803,10 +868,7 @@ private:
         const std::string right = generate(*expr.right);
 
         if (expr.op == "in") {
-            if (isListType(expr.left->inferredType)) {
-                if (!isListType(expr.right->inferredType)) {
-                    return "false";
-                }
+            if (isListType(expr.right->inferredType) && isListType(expr.left->inferredType)) {
                 const Type elementType = expr.right->inferredType.subtypes[0];
                 if (expr.left->inferredType == elementType) {
                     return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + left + ") != __cppp_list.end(); }())";
@@ -822,7 +884,14 @@ private:
             if (!isImplicitlyConvertible(expr.left->inferredType, elementType) || expr.left->inferredType != elementType) {
                 needle = castExpressionTo(needle, expr.left->inferredType, elementType);
             }
-            return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + needle + ") != __cppp_list.end(); }())";
+            if (isListType(expr.right->inferredType)) {
+                return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + needle + ") != __cppp_list.end(); }())";
+            }
+            if (isSetType(expr.right->inferredType)) {
+                return "([&]() { const auto& __cppp_set = " + right + "; return __cppp_set.find(" + needle + ") != __cppp_set.end(); }())";
+            }
+
+            return "([&]() { const auto& __cppp_map = " + right + "; return __cppp_map.find(" + needle + ") != __cppp_map.end(); }())";
         }
 
         if (expr.op == "||" || expr.op == "&&") {
@@ -846,9 +915,9 @@ private:
             return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
         }
 
-            if (expr.callee == "remove") {
+        if (expr.callee == "remove") {
             const std::string receiver = generate(*expr.receiver);
-            if (expr.arguments.empty()) {
+            if (isListType(expr.receiver->inferredType) && expr.arguments.empty()) {
                 if (emitRuntimeChecks) {
                     requireRuntimeHelper("CPPPListPop");
                     return "CPPPListPop(" + receiver + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
@@ -856,15 +925,43 @@ private:
                 return "([&]() { auto __cppp_removed = (" + receiver + ").back(); (" + receiver + ").pop_back(); return __cppp_removed; }())";
             }
 
-            std::string index = generate(*expr.arguments[0]);
-            if (!isImplicitlyConvertible(expr.arguments[0]->inferredType, PrimitiveType::Int) || expr.arguments[0]->inferredType != PrimitiveType::Int) {
-                index = castExpressionTo(index, expr.arguments[0]->inferredType, PrimitiveType::Int);
+            if (isListType(expr.receiver->inferredType)) {
+                std::string index = generate(*expr.arguments[0]);
+                if (!isImplicitlyConvertible(expr.arguments[0]->inferredType, PrimitiveType::Int) || expr.arguments[0]->inferredType != PrimitiveType::Int) {
+                    index = castExpressionTo(index, expr.arguments[0]->inferredType, PrimitiveType::Int);
+                }
+                if (emitRuntimeChecks) {
+                    requireRuntimeHelper("CPPPListRemoveAt");
+                    return "CPPPListRemoveAt(" + receiver + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                }
+                return "([&]() { auto __cppp_removed = (" + receiver + ")[" + index + "]; (" + receiver + ").erase((" + receiver + ").begin() + " + index + "); return __cppp_removed; }())";
+            }
+
+            std::string key = generate(*expr.arguments[0]);
+            const Type keyType = expr.receiver->inferredType.subtypes[0];
+            if (!isImplicitlyConvertible(expr.arguments[0]->inferredType, keyType) || expr.arguments[0]->inferredType != keyType) {
+                key = castExpressionTo(key, expr.arguments[0]->inferredType, keyType);
+            }
+            if (isSetType(expr.receiver->inferredType)) {
+                requireRuntimeHelper("CPPPSetRemove");
+                return "CPPPSetRemove(" + receiver + ", " + key + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            requireRuntimeHelper("CPPPMapRemove");
+            return "CPPPMapRemove(" + receiver + ", " + key + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+        }
+
+        if (expr.callee == "at") {
+            const std::string receiver = generate(*expr.receiver);
+            std::string key = generate(*expr.arguments[0]);
+            const Type keyType = expr.receiver->inferredType.subtypes[0];
+            if (!isImplicitlyConvertible(expr.arguments[0]->inferredType, keyType) || expr.arguments[0]->inferredType != keyType) {
+                key = castExpressionTo(key, expr.arguments[0]->inferredType, keyType);
             }
             if (emitRuntimeChecks) {
-                requireRuntimeHelper("CPPPListRemoveAt");
-                return "CPPPListRemoveAt(" + receiver + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                requireRuntimeHelper("CPPPMapAt");
+                return "CPPPMapAt(" + receiver + ", " + key + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
-            return "([&]() { auto __cppp_removed = (" + receiver + ")[" + index + "]; (" + receiver + ").erase((" + receiver + ").begin() + " + index + "); return __cppp_removed; }())";
+            return "(" + receiver + ").at(" + key + ")";
         }
 
         if (expr.callee == "find") {
@@ -979,12 +1076,19 @@ private:
 // generateIndex implements the generateIndex behavior for the expressionParser.cpp module.
     std::string generateIndex(const IndexExpr& expr) const {
         const std::string base = generate(*expr.base);
-        const std::string index = generate(*expr.index);
-        if (emitRuntimeChecks) {
-            requireRuntimeHelper("CPPPListAt");
-            return "CPPPListAt(" + base + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+        std::string index = generate(*expr.index);
+        if (isListType(expr.base->inferredType)) {
+            if (emitRuntimeChecks) {
+                requireRuntimeHelper("CPPPListAt");
+                return "CPPPListAt(" + base + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            return "([&]() { const auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + index + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return (__cppp_list[__cppp_index]); }())";
         }
-        return "([&]() { const auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + index + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return (__cppp_list[__cppp_index]); }())";
+        const Type keyType = expr.base->inferredType.subtypes[0];
+        if (!isImplicitlyConvertible(expr.index->inferredType, keyType) || expr.index->inferredType != keyType) {
+            index = castExpressionTo(index, expr.index->inferredType, keyType);
+        }
+        return "((" + base + ")[" + index + "])";
     }
 
 // generateMutableAccess implements the generateMutableAccess behavior for the expressionParser.cpp module.
@@ -995,14 +1099,21 @@ private:
         if (const auto* index = dynamic_cast<const IndexExpr*>(&expr)) {
             const std::string base = generateMutableAccess(*index->base);
             std::string generatedIndex = generate(*index->index);
-            if (index->index->inferredType != PrimitiveType::Int) {
-                generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
+            if (isListType(index->base->inferredType)) {
+                if (index->index->inferredType != PrimitiveType::Int) {
+                    generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
+                }
+                if (emitRuntimeChecks) {
+                    requireRuntimeHelper("CPPPListRef");
+                    return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
+                }
+                return "([&]() -> auto& { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
             }
-            if (emitRuntimeChecks) {
-                requireRuntimeHelper("CPPPListRef");
-                return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
+            const Type keyType = index->base->inferredType.subtypes[0];
+            if (!isImplicitlyConvertible(index->index->inferredType, keyType) || index->index->inferredType != keyType) {
+                generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, keyType);
             }
-            return "([&]() -> auto& { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
+            return "((" + base + ")[" + generatedIndex + "])";
         }
         return generate(expr);
     }
@@ -1051,14 +1162,21 @@ std::string generateMutableAccessExpression(
         const std::string base = generateMutableAccessExpression(*index->base, lineNumber, emitRuntimeChecks, declaredFunctions);
         ExpressionCodegen codegen(lineNumber, emitRuntimeChecks, declaredFunctions);
         std::string generatedIndex = codegen.generate(*index->index);
-        if (index->index->inferredType != PrimitiveType::Int) {
-            generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
+        if (isListType(index->base->inferredType)) {
+            if (index->index->inferredType != PrimitiveType::Int) {
+                generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
+            }
+            if (emitRuntimeChecks) {
+                requireRuntimeHelper("CPPPListRef");
+                return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
+            }
+            return "([&]() -> decltype(auto) { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
         }
-        if (emitRuntimeChecks) {
-            requireRuntimeHelper("CPPPListRef");
-            return "CPPPListRef(" + base + ", " + generatedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(index->sourceColumn) + ")";
+        const Type keyType = index->base->inferredType.subtypes[0];
+        if (!isImplicitlyConvertible(index->index->inferredType, keyType) || index->index->inferredType != keyType) {
+            generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, keyType);
         }
-        return "([&]() -> decltype(auto) { auto& __cppp_list = " + base + "; auto __cppp_index = static_cast<long long>(" + generatedIndex + "); if (__cppp_index < 0) __cppp_index += static_cast<long long>(__cppp_list.size()); return __cppp_list[__cppp_index]; }())";
+        return "((" + base + ")[" + generatedIndex + "])";
     }
     return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expr);
 }
@@ -1189,7 +1307,7 @@ LvalueEmitResult emitLvalueExpression(
     }
 
     if (!expression->mutableValue) {
-        recordSourceError(inputFile, lineNumber, expression->sourceColumn, "assignment target must be a mutable variable or list element", sourceLines);
+        recordSourceError(inputFile, lineNumber, expression->sourceColumn, "assignment target must be a mutable variable or collection element", sourceLines);
         return {false, "", PrimitiveType::Unknown, expression->sourceColumn};
     }
 
@@ -1432,7 +1550,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
             continue;
         }
         if (check(TokenKind::Operator, ".")) {
-            expression = parseListMethodCall(std::move(expression), ok);
+            expression = parseMethodCall(std::move(expression), ok);
             continue;
         }
 
@@ -1443,7 +1561,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
     return expression;
 }
 
-std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr> expression, bool& ok) {
+std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> expression, bool& ok) {
     const Token& dot = peek();
     ++current;
     if (!match(TokenKind::Identifier)) {
@@ -1452,7 +1570,7 @@ std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr
         return nullptr;
     }
     const Token& method = previous();
-    if (method.text != "remove" && method.text != "find") {
+    if (method.text != "remove" && method.text != "find" && method.text != "at") {
         report(method, "unexpected token in expression");
         ok = false;
         return nullptr;
@@ -1474,6 +1592,8 @@ std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr
         if (!match(TokenKind::RightParen)) {
             if (method.text == "remove") {
                 report(leftParen, "remove() expects no arguments or index");
+            } else if (method.text == "at") {
+                report(leftParen, "at() expects exactly one key");
             } else {
                 report(leftParen, "find() expects exactly one value or sublist");
             }
@@ -1483,6 +1603,11 @@ std::unique_ptr<Expr> ExpressionParser::parseListMethodCall(std::unique_ptr<Expr
     }
     if (method.text == "remove" && arguments.size() > 1) {
         report(leftParen, "remove() expects no arguments or index");
+        ok = false;
+        return nullptr;
+    }
+    if (method.text == "at" && arguments.size() != 1) {
+        report(leftParen, "at() expects exactly one key");
         ok = false;
         return nullptr;
     }

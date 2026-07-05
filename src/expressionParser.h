@@ -76,5 +76,5 @@ private:
     std::unique_ptr<Expr> parseUnary(bool& ok);
     std::unique_ptr<Expr> parsePostfix(bool& ok);
     std::unique_ptr<Expr> parsePrimary(bool& ok);
-    std::unique_ptr<Expr> parseListMethodCall(std::unique_ptr<Expr> expression, bool& ok);
+    std::unique_ptr<Expr> parseMethodCall(std::unique_ptr<Expr> expression, bool& ok);
 };

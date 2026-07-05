@@ -25,7 +25,9 @@ enum class PrimitiveType {
     Char,
     Int,
     Float,
-    List
+    List,
+    Set,
+    Map
 };
 
 // Type implements the Type behavior for the expressions.h module.
@@ -90,6 +92,10 @@ int primitiveArity(PrimitiveType primitive);
 std::string cpppTypeName(const Type& type);
 // isStringType returns whether the supplied input satisfies the relevant condition.
 bool isStringType(const Type& type);
+bool isListType(const Type& type);
+bool isSetType(const Type& type);
+bool isMapType(const Type& type);
+bool isCollectionType(const Type& type);
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to);
 // castExpressionTo implements the castExpressionTo behavior for the expressions.h module.

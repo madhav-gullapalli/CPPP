@@ -1788,3 +1788,167 @@ Example:
 
 Diagnostic:
   error: abs() expects a Numeric value
+
+Sets and Maps
+-------------
+
+Set expects 1 subtype like Set<int>
+  Set is a generic collection type with exactly one element subtype.
+
+  Example:
+    Set values;
+
+  Diagnostic:
+    error: Set expects 1 subtype like Set<int>
+
+Set expects 1 subtype
+  Set does not accept extra subtype parameters.
+
+  Example:
+    Set<int, int> values;
+
+  Diagnostic:
+    error: Set expects 1 subtype
+
+unclosed generic type for Set
+  Generic Set syntax must close all angle brackets.
+
+  Example:
+    Set<List<int> values;
+
+  Diagnostic:
+    error: unclosed generic type for Set
+
+cannot add string to Set<int>
+  Set.add(value) requires a value compatible with the Set element type.
+
+  Example:
+    Set<int> values;
+    values.add("hello");
+
+  Diagnostic:
+    error: cannot add string to Set<int>
+
+cannot remove string from Set<int>
+  Set.remove(value) requires a value compatible with the Set element type.
+
+  Example:
+    Set<int> values;
+    print(values.remove("hello"));
+
+  Diagnostic:
+    error: cannot remove string from Set<int>
+
+cannot check membership of string in Set<int>
+  The left side of `in` must match the Set element type.
+
+  Example:
+    Set<int> values;
+    print("hello" in values);
+
+  Diagnostic:
+    error: cannot check membership of string in Set<int>
+
+Map expects 2 subtypes like Map<int, int>
+  Map is a generic collection type with exactly two subtypes: key and value.
+
+  Example:
+    Map<int> values;
+
+  Diagnostic:
+    error: Map expects 2 subtypes like Map<int, int>
+
+Map expects 2 subtypes
+  Map does not accept more than two subtype parameters.
+
+  Example:
+    Map<int, int, int> values;
+
+  Diagnostic:
+    error: Map expects 2 subtypes
+
+add() can only be used on List or Set values
+  Map values do not support add(...).
+
+  Example:
+    Map<int, int> values;
+    values.add(1);
+
+  Diagnostic:
+    error: add() can only be used on List or Set values
+
+cannot remove string from Map<int, int>
+  Map.remove(key) requires a key compatible with the Map key type.
+
+  Example:
+    Map<int, int> values;
+    print(values.remove("hello"));
+
+  Diagnostic:
+    error: cannot remove string from Map<int, int>
+
+cannot use key of type string with Map<int, int>
+  Map.at(key) requires a key compatible with the Map key type.
+
+  Example:
+    Map<int, int> values;
+    print(values.at("hello"));
+
+  Diagnostic:
+    error: cannot use key of type string with Map<int, int>
+
+map key type must be int
+  Bracket indexing on a Map must use the Map key type.
+
+  Example:
+    Map<int, int> values;
+    values["hello"] = 3;
+
+  Diagnostic:
+    error: map key type must be int
+
+nested map key type must be int
+  Nested Map expressions enforce the key type at every indexing step.
+
+  Example:
+    Map<int, Map<int, int>> values;
+    print(values["hello"][1]);
+
+  Diagnostic:
+    error: map key type must be int
+
+Runtime errors
+--------------
+
+set remove missing key
+  In --run mode, Set.remove(value) reports a readable CP++ runtime error when
+  the value is not present.
+
+  Example:
+    Set<int> values;
+    print(values.remove(3));
+
+  Diagnostic:
+    error: runtime error: key not found in set
+
+map remove missing key
+  In --run mode, Map.remove(key) reports a readable CP++ runtime error when
+  the key is not present.
+
+  Example:
+    Map<int, int> values;
+    print(values.remove(3));
+
+  Diagnostic:
+    error: runtime error: key not found in map
+
+map at missing key
+  In --run mode, Map.at(key) reports a readable CP++ runtime error when the
+  key is not present.
+
+  Example:
+    Map<int, int> values;
+    print(values.at(3));
+
+  Diagnostic:
+    error: runtime error: key not found in map
