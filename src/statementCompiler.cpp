@@ -563,7 +563,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 continue;
             }
 
-            if (!isListType(iterable.type) && !isSetType(iterable.type) && !isMapType(iterable.type)) {
+            if (!isListType(iterable.type) && !isSetType(iterable.type) && !isMapType(iterable.type) && !isRangeType(iterable.type)) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(forEachHeader.iterableOffset), "for-in expects a List value", context.sourceLines);
                 context.declaredVariables.erase(forEachHeader.variableName);
                 ++context.blockDepth;
@@ -573,9 +573,11 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 continue;
             }
 
-            const Type elementType = isMapType(iterable.type)
+            const Type elementType = isRangeType(iterable.type)
+                ? Type(PrimitiveType::Int)
+                : (isMapType(iterable.type)
                 ? Type(PrimitiveType::Pair, {iterable.type.subtypes[0], iterable.type.subtypes[1]})
-                : iterable.type.subtypes[0];
+                : iterable.type.subtypes[0]);
             if (!isImplicitlyConvertible(elementType, loopVariable->second)) {
                 recordSourceError(
                     context.options.inputFile,

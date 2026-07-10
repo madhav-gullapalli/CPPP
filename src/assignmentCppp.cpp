@@ -396,6 +396,19 @@ AssignmentEmitResult emitAssignmentStatement(
         return {true, false, "", {}};
     }
 
+    if (expression.explicitCast &&
+        expression.type != target.type &&
+        !canExplicitlyCastType(expression.type, target.type)) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            expressionColumn,
+            "cannot cast " + cpppTypeName(expression.type) + " to " + cpppTypeName(target.type),
+            sourceLines
+        );
+        return {true, false, "", {}};
+    }
+
     std::string emittedExpression = expression.generatedExpression;
     if (expression.type != target.type) {
         emittedExpression = castExpressionTo(emittedExpression, expression.type, target.type);

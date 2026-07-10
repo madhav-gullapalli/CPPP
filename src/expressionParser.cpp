@@ -27,6 +27,8 @@ std::string cppTypeForExpressionType(const Type& type) {
             return "long long";
         case PrimitiveType::Float:
             return "long double";
+        case PrimitiveType::Range:
+            return "CPPPRange";
         case PrimitiveType::List:
             if (type.subtypes.size() == 1) {
                 return "vector<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
@@ -201,6 +203,40 @@ private:
             type == PrimitiveType::Float;
     }
 
+    Type resolvedCastTarget(Type from, Type requested) const {
+        if (requested.primitive == PrimitiveType::Set && requested.subtypes.empty()) {
+            if (isListType(from)) {
+                return Type(PrimitiveType::Set, {from.subtypes[0]});
+            }
+            if (isRangeType(from)) {
+                return Type(PrimitiveType::Set, {PrimitiveType::Int});
+            }
+            return PrimitiveType::Unknown;
+        }
+
+        if (requested.primitive == PrimitiveType::Map && requested.subtypes.empty()) {
+            if (isListType(from) && isPairType(from.subtypes[0])) {
+                return Type(PrimitiveType::Map, {from.subtypes[0].subtypes[0], from.subtypes[0].subtypes[1]});
+            }
+            return PrimitiveType::Unknown;
+        }
+
+        if (requested.primitive == PrimitiveType::List && requested.subtypes.empty()) {
+            if (isSetType(from)) {
+                return Type(PrimitiveType::List, {from.subtypes[0]});
+            }
+            if (isMapType(from)) {
+                return Type(PrimitiveType::List, {Type(PrimitiveType::Pair, {from.subtypes[0], from.subtypes[1]})});
+            }
+            if (isRangeType(from)) {
+                return Type(PrimitiveType::List, {PrimitiveType::Int});
+            }
+            return PrimitiveType::Unknown;
+        }
+
+        return requested;
+    }
+
 // sumResultType implements the sumResultType behavior for the expressionParser.cpp module.
     Type sumResultType(Type elementType) const {
         if (elementType == PrimitiveType::Float) {
@@ -315,9 +351,18 @@ private:
         }
 
         if (expr.op == "in") {
-            if (!isCollectionType(expr.right->inferredType)) {
+            if (!isCollectionType(expr.right->inferredType) && !isRangeType(expr.right->inferredType)) {
                 report(expr.sourceColumn, "right side of 'in' must be a List");
                 return false;
+            }
+
+            if (isRangeType(expr.right->inferredType)) {
+                if (!expr.left->explicitCast && expr.left->inferredType != PrimitiveType::Int) {
+                    report(expr.sourceColumn, "cannot check membership of " + cpppTypeName(expr.left->inferredType) + " in range");
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Bool;
+                return true;
             }
 
             if (isListType(expr.right->inferredType)) {
@@ -395,7 +440,15 @@ private:
             return false;
         }
 
-        expr.inferredType = expr.targetType;
+        const Type targetType = resolvedCastTarget(expr.operand->inferredType, expr.targetType);
+        if (targetType == PrimitiveType::Unknown ||
+            !canExplicitlyCastType(expr.operand->inferredType, targetType)) {
+            report(expr.sourceColumn, "cannot cast " + cpppTypeName(expr.operand->inferredType) + " to " + cpppTypeName(expr.targetType));
+            return false;
+        }
+
+        expr.targetType = targetType;
+        expr.inferredType = targetType;
         expr.explicitCast = true;
         return true;
     }
@@ -421,6 +474,25 @@ private:
                 return false;
             }
             expr.inferredType = PrimitiveType::Int;
+            return true;
+        }
+
+        if (expr.callee == "range") {
+            if (expr.receiver) {
+                report(expr.sourceColumn, "range() cannot be called as a method");
+                return false;
+            }
+            if (expr.arguments.empty() || expr.arguments.size() > 3) {
+                report(expr.sourceColumn, "range must be called as range(stop), range(start, stop), or range(start, stop, step)");
+                return false;
+            }
+            for (const std::unique_ptr<Expr>& argument : expr.arguments) {
+                if (!argument->explicitCast && argument->inferredType != PrimitiveType::Int) {
+                    report(argument->sourceColumn, "range() arguments must be int");
+                    return false;
+                }
+            }
+            expr.inferredType = PrimitiveType::Range;
             return true;
         }
 
@@ -893,7 +965,7 @@ public:
             return generateBinary(*binary);
         }
         if (const auto* cast = dynamic_cast<const CastExpr*>(&expr)) {
-            return castExpressionTo(generate(*cast->operand), cast->operand->inferredType, cast->targetType);
+            return generateCast(*cast);
         }
         if (const auto* call = dynamic_cast<const CallExpr*>(&expr)) {
             return generateCall(*call);
@@ -928,6 +1000,29 @@ private:
 // runtimeErrorThrowExpression provides runtime support for generated code.
     std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
         return "throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(column) + ":" + message + "\")";
+    }
+
+    std::string generateCast(const CastExpr& expr) const {
+        const std::string operand = generate(*expr.operand);
+        if (isStringType(expr.operand->inferredType)) {
+            if (expr.targetType == PrimitiveType::Bool) {
+                requireRuntimeHelper("CPPPStringToBool");
+                return "CPPPStringToBool(" + operand + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            if (expr.targetType == PrimitiveType::Char) {
+                requireRuntimeHelper("CPPPStringToChar");
+                return "CPPPStringToChar(" + operand + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            if (expr.targetType == PrimitiveType::Int) {
+                requireRuntimeHelper("CPPPStringToInt");
+                return "CPPPStringToInt(" + operand + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            if (expr.targetType == PrimitiveType::Float) {
+                requireRuntimeHelper("CPPPStringToFloat");
+                return "CPPPStringToFloat(" + operand + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+        }
+        return castExpressionTo(operand, expr.operand->inferredType, expr.targetType);
     }
 
     std::string checkedIntegerExpression(
@@ -1022,6 +1117,13 @@ private:
         const std::string right = generate(*expr.right);
 
         if (expr.op == "in") {
+            if (isRangeType(expr.right->inferredType)) {
+                std::string needle = left;
+                if (expr.left->inferredType != PrimitiveType::Int) {
+                    needle = castExpressionTo(needle, expr.left->inferredType, PrimitiveType::Int);
+                }
+                return "((" + right + ").contains(" + needle + "))";
+            }
             if (isListType(expr.right->inferredType) && isListType(expr.left->inferredType)) {
                 const Type elementType = expr.right->inferredType.subtypes[0];
                 if (expr.left->inferredType == elementType) {
@@ -1169,6 +1271,44 @@ private:
             }
             requireRuntimeHelper("CPPPListSplitValue");
             return "CPPPListSplitValue(" + haystack + ", " + delimiter + ")";
+        }
+
+        if (expr.callee == "range") {
+            if (expr.arguments.size() == 1) {
+                requireRuntimeHelper("CPPPRangeMakeStop");
+                std::string stop = generate(*expr.arguments[0]);
+                if (expr.arguments[0]->inferredType != PrimitiveType::Int) {
+                    stop = castExpressionTo(stop, expr.arguments[0]->inferredType, PrimitiveType::Int);
+                }
+                return "CPPPMakeRange(" + stop + ")";
+            }
+            if (expr.arguments.size() == 2) {
+                requireRuntimeHelper("CPPPRangeMakeBounds");
+                std::string start = generate(*expr.arguments[0]);
+                std::string stop = generate(*expr.arguments[1]);
+                if (expr.arguments[0]->inferredType != PrimitiveType::Int) {
+                    start = castExpressionTo(start, expr.arguments[0]->inferredType, PrimitiveType::Int);
+                }
+                if (expr.arguments[1]->inferredType != PrimitiveType::Int) {
+                    stop = castExpressionTo(stop, expr.arguments[1]->inferredType, PrimitiveType::Int);
+                }
+                return "CPPPMakeRange(" + start + ", " + stop + ")";
+            }
+
+            requireRuntimeHelper("CPPPRangeMakeStep");
+            std::string start = generate(*expr.arguments[0]);
+            std::string stop = generate(*expr.arguments[1]);
+            std::string step = generate(*expr.arguments[2]);
+            if (expr.arguments[0]->inferredType != PrimitiveType::Int) {
+                start = castExpressionTo(start, expr.arguments[0]->inferredType, PrimitiveType::Int);
+            }
+            if (expr.arguments[1]->inferredType != PrimitiveType::Int) {
+                stop = castExpressionTo(stop, expr.arguments[1]->inferredType, PrimitiveType::Int);
+            }
+            if (expr.arguments[2]->inferredType != PrimitiveType::Int) {
+                step = castExpressionTo(step, expr.arguments[2]->inferredType, PrimitiveType::Int);
+            }
+            return "CPPPMakeRange(" + start + ", " + stop + ", " + step + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
         }
 
         if (expr.callee == "min") {
@@ -1654,25 +1794,7 @@ bool ExpressionParser::isTypeName(const std::string& name) const {
     return declaredTypeForName(name) != PrimitiveType::Unknown;
 }
 
-std::unique_ptr<Expr> ExpressionParser::parseExpression(bool& ok) { return parsePair(ok); }
-std::unique_ptr<Expr> ExpressionParser::parsePair(bool& ok) {
-    std::unique_ptr<Expr> expression = parseLogicalOr(ok);
-    if (!ok) {
-        return nullptr;
-    }
-
-    if (!isOperator(":")) {
-        return expression;
-    }
-
-    const Token op = peek();
-    ++current;
-    std::unique_ptr<Expr> right = parsePair(ok);
-    if (!ok) {
-        return nullptr;
-    }
-    return std::make_unique<PairLiteralExpr>(std::move(expression), std::move(right), absoluteColumn(op));
-}
+std::unique_ptr<Expr> ExpressionParser::parseExpression(bool& ok) { return parseLogicalOr(ok); }
 std::unique_ptr<Expr> ExpressionParser::parseLogicalOr(bool& ok) {
     std::unique_ptr<Expr> expression = parseLogicalAnd(ok);
     while (ok && isOperator("||")) {
@@ -2080,18 +2202,52 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
 }
 
 std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
-    if (check(TokenKind::LeftParen) &&
-        current + 2 < tokens.size() &&
-        tokens[current + 1].kind == TokenKind::Identifier &&
-        isTypeName(tokens[current + 1].text) &&
-        tokens[current + 2].kind == TokenKind::RightParen) {
-        ++current;
+    if (check(TokenKind::Identifier) &&
+        peek().text != "range" &&
+        isTypeName(peek().text) &&
+        current + 1 < tokens.size() &&
+        tokens[current + 1].kind == TokenKind::LeftParen) {
         const Token typeToken = peek();
-        ++current;
-        ++current;
-        std::unique_ptr<Expr> operand = parseUnary(ok);
-        if (!ok) return nullptr;
+        const Token leftParen = tokens[current + 1];
+        current += 2;
+        std::unique_ptr<Expr> operand = parseExpression(ok);
+        if (!ok) {
+            return nullptr;
+        }
+        if (!match(TokenKind::RightParen)) {
+            report(leftParen, "unclosed parenthesis in cast");
+            ok = false;
+            return nullptr;
+        }
         return std::make_unique<CastExpr>(declaredTypeForName(typeToken.text), std::move(operand), absoluteColumn(typeToken));
+    }
+
+    if (match(TokenKind::LeftParen)) {
+        const Token leftParen = previous();
+        std::unique_ptr<Expr> expression = parseExpression(ok);
+        if (!ok) {
+            return nullptr;
+        }
+
+        if (match(TokenKind::Comma)) {
+            std::unique_ptr<Expr> second = parseExpression(ok);
+            if (!ok) {
+                return nullptr;
+            }
+            if (!match(TokenKind::RightParen)) {
+                report(leftParen, "unclosed parenthesis in pair literal");
+                ok = false;
+                return nullptr;
+            }
+            return std::make_unique<PairLiteralExpr>(std::move(expression), std::move(second), absoluteColumn(leftParen));
+        }
+
+        if (!match(TokenKind::RightParen)) {
+            report(leftParen, "unclosed parenthesis in expression");
+            ok = false;
+            return nullptr;
+        }
+        return expression;
     }
 
     if (match(TokenKind::Identifier)) {
@@ -2116,10 +2272,12 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             }
             return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier));
         }
-        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum" || identifier.text == "abs" || identifier.text == "split") {
+        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum" || identifier.text == "abs" || identifier.text == "split" || identifier.text == "range") {
             if (!match(TokenKind::LeftParen)) {
                 if (identifier.text == "split") {
                     report(identifier, "split must be called as split(list, delimiter)");
+                } else if (identifier.text == "range") {
+                    report(identifier, "range must be called as range(stop), range(start, stop), or range(start, stop, step)");
                 } else {
                     report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
                 }

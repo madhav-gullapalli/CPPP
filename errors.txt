@@ -1004,6 +1004,165 @@ cannot implicitly convert <from> to <to>
   Diagnostic:
     error: cannot implicitly convert int to char
 
+cannot cast int to Set
+  Set(x) only accepts List values and infers its element type from that List.
+
+  Example:
+    print(Set(7));
+
+  Diagnostic:
+    error: cannot cast int to Set
+
+cannot cast List<int> to Map
+  Map(x) only accepts a List of Pair values.
+
+  Example:
+    List<int> values = [1, 2];
+    print(Map(values));
+
+  Diagnostic:
+    error: cannot cast List<int> to Map
+
+cannot cast List<int> to List
+  List(x) only accepts Set or Map values.
+
+  Example:
+    List<int> values = [1, 2];
+    print(List(values));
+
+  Diagnostic:
+    error: cannot cast List<int> to List
+
+cannot cast List<int> to int
+  Explicit casts do not let containers masquerade as primitive values.
+
+  Example:
+    print(int([1, 2]));
+
+  Diagnostic:
+    error: cannot cast List<int> to int
+
+cannot cast Set<int> to char
+  Container values cannot be cast directly to primitive scalars.
+
+  Example:
+    print(char({1, 2}));
+
+  Diagnostic:
+    error: cannot cast Set<int> to char
+
+cannot cast Map<int, int> to float
+  Container values must stay containers unless a specific conversion is
+  supported.
+
+  Example:
+    print(float({1:2}));
+
+  Diagnostic:
+    error: cannot cast Map<int, int> to float
+
+cannot cast List<int> to string
+  string(x) only accepts scalar CP++ values, not List, Set, or Map values.
+
+  Example:
+    print(string([1, 2]));
+
+  Diagnostic:
+    error: cannot cast List<int> to string
+
+unclosed parenthesis in range
+  range(...) calls must close their argument list.
+
+  Example:
+    print(range(1, 2);
+
+  Diagnostic:
+    error: unclosed parenthesis in range
+
+range() arguments must be int
+  range(...) only accepts int arguments unless you cast first on purpose.
+
+  Example:
+    print(range(1.5));
+
+  Diagnostic:
+    error: range() arguments must be int
+
+cannot check membership of string in range
+  Range membership only works with int values.
+
+  Example:
+    print("x" in range(5));
+
+  Diagnostic:
+    error: cannot check membership of string in range
+
+cannot cast List<int> to List<bool>
+  List(range) always produces a List<int>, so assigning it to another element
+  type is a cast error.
+
+  Example:
+    List<bool> flags = List(range(3));
+
+  Diagnostic:
+    error: cannot cast List<int> to List<bool>
+
+cannot cast Set<int> to Set<char>
+  Set(range) always produces a Set<int>, so assigning it to another element
+  type is a cast error.
+
+  Example:
+    Set<char> seen = Set(range(3));
+
+  Diagnostic:
+    error: cannot cast Set<int> to Set<char>
+
+invalid int string
+  int(str) requires str to be a valid base-10 integer representation.
+
+  Example:
+    print(int("hello"));
+
+  Diagnostic:
+    error: runtime error: invalid int string
+
+invalid char string
+  char(str) requires str to contain exactly one character.
+
+  Example:
+    print(char("no"));
+
+  Diagnostic:
+    error: runtime error: invalid char string
+
+invalid bool string
+  bool(str) only accepts `0`, `1`, `true`, or `false`.
+
+  Example:
+    print(bool("maybe"));
+
+  Diagnostic:
+    error: runtime error: invalid bool string
+
+invalid float string
+  float(str) requires a complete decimal representation with digits on both
+  sides of any decimal point.
+
+  Example:
+    print(float("hello"));
+
+  Diagnostic:
+    error: runtime error: invalid float string
+
+invalid float string with trailing dot
+  A trailing decimal point like `3.` is not a valid CP++ float string cast.
+
+  Example:
+    print(float("3."));
+
+  Diagnostic:
+    error: runtime error: invalid float string
+
 Functions
 ---------
 
@@ -1055,7 +1214,7 @@ unclosed parenthesis in function call
 
   Example:
     int solve(int x, char y){
-        return x + (int)y;
+        return x + int(y);
     }
     print(solve("hi", 7));
 
@@ -2063,7 +2222,7 @@ cannot implicitly convert int to char
   Pair elements only swap directly when each side can be assigned to the other.
 
   Example:
-    Pair<int, char> point = 7:'x';
+    Pair<int, char> point = (7,'x');
     point[0], point[1] = point[1], point[0];
 
   Diagnostic:
@@ -2073,7 +2232,7 @@ pair index must be 0 or 1
   Pairs only expose two positions: [0] and [1].
 
   Example:
-    Pair<int, int> point = 1:2;
+    Pair<int, int> point = (1,2);
     print(point[2]);
 
   Diagnostic:
@@ -2120,7 +2279,7 @@ cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
 
   Example:
     Map<Pair<int, Set<char>>, int> values;
-    print((1:{1}) in values);
+    print((1,{1}) in values);
 
   Diagnostic:
     error: cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>

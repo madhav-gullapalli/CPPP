@@ -10,6 +10,7 @@
 
 #include "listsCppp.h"
 
+#include <cctype>
 #include <map>
 #include <set>
 #include <sstream>
@@ -57,6 +58,123 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             },
             {},
             {"CPPPChar"}
+        },
+        {
+            "CPPPRangeType",
+            {
+                "struct CPPPRange {",
+                "    struct Iterator {",
+                "        long long current = 0;",
+                "        long long stop = 0;",
+                "        long long step = 1;",
+                "",
+                "        long long operator*() const { return current; }",
+                "        Iterator& operator++() { current += step; return *this; }",
+                "        bool operator!=(const Iterator&) const {",
+                "            return step > 0 ? current < stop : current > stop;",
+                "        }",
+                "    };",
+                "",
+                "    long long start = 0;",
+                "    long long stop = 0;",
+                "    long long step = 1;",
+                "",
+                "    CPPPRange() = default;",
+                "    CPPPRange(long long startValue, long long stopValue, long long stepValue) :",
+                "        start(startValue),",
+                "        stop(stopValue),",
+                "        step(stepValue) {}",
+                "",
+                "    Iterator begin() const { return {start, stop, step}; }",
+                "    Iterator end() const { return {stop, stop, step}; }",
+                "    bool empty() const { return step > 0 ? start >= stop : start <= stop; }",
+                "    bool contains(long long value) const {",
+                "        if (empty()) {",
+                "            return false;",
+                "        }",
+                "        if (step > 0) {",
+                "            if (value < start || value >= stop) {",
+                "                return false;",
+                "            }",
+                "        } else if (value > start || value <= stop) {",
+                "            return false;",
+                "        }",
+                "        const long long distance = value >= start ? value - start : start - value;",
+                "        const long long stride = step >= 0 ? step : -step;",
+                "        return stride != 0 && distance % stride == 0;",
+                "    }",
+                "};",
+                ""
+            },
+            {},
+            {"CPPPRange"}
+        },
+        {
+            "CPPPRangeMakeStop",
+            {
+                "CPPPRange CPPPMakeRange(long long stop) {",
+                "    return stop >= 0 ? CPPPRange(0, stop, 1) : CPPPRange(0, stop, -1);",
+                "}",
+                ""
+            },
+            {"CPPPRangeType"},
+            {"CPPPMakeRange("}
+        },
+        {
+            "CPPPRangeMakeBounds",
+            {
+                "CPPPRange CPPPMakeRange(long long start, long long stop) {",
+                "    return start <= stop ? CPPPRange(start, stop, 1) : CPPPRange(start, stop, -1);",
+                "}",
+                ""
+            },
+            {"CPPPRangeType"},
+            {"CPPPMakeRange("}
+        },
+        {
+            "CPPPRangeMakeStep",
+            {
+                "CPPPRange CPPPMakeRange(long long start, long long stop, long long step, int line, int column) {",
+                "    if (step == 0) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":range step cannot be zero\");",
+                "    }",
+                "    const long long stride = step >= 0 ? step : -step;",
+                "    return start <= stop ? CPPPRange(start, stop, stride) : CPPPRange(start, stop, -stride);",
+                "}",
+                ""
+            },
+            {"CPPPRangeType"},
+            {"CPPPMakeRange("}
+        },
+        {
+            "CPPPRangeToList",
+            {
+                "vector<long long> CPPPRangeToList(const CPPPRange& range) {",
+                "    vector<long long> values;",
+                "    for (long long value : range) {",
+                "        values.push_back(value);",
+                "    }",
+                "    return values;",
+                "}",
+                ""
+            },
+            {"CPPPRangeType"},
+            {"CPPPRangeToList("}
+        },
+        {
+            "CPPPRangeToSet",
+            {
+                "set<long long> CPPPRangeToSet(const CPPPRange& range) {",
+                "    set<long long> values;",
+                "    for (long long value : range) {",
+                "        values.insert(value);",
+                "    }",
+                "    return values;",
+                "}",
+                ""
+            },
+            {"CPPPRangeType"},
+            {"CPPPRangeToSet("}
         },
         {
             "CPPPToBoolBool",
@@ -234,6 +352,249 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPStringLiteral("}
         },
         {
+            "CPPPStringFromStd",
+            {
+                "vector<CPPPChar> CPPPStringFromStd(const string& value) {",
+                "    vector<CPPPChar> result;",
+                "    result.reserve(value.size());",
+                "    for (char ch : value) {",
+                "        result.push_back(CPPPChar(ch));",
+                "    }",
+                "    return result;",
+                "}",
+                "",
+                "string CPPPStdStringFromChars(const vector<CPPPChar>& value) {",
+                "    string result;",
+                "    result.reserve(value.size());",
+                "    for (const CPPPChar& ch : value) {",
+                "        result.push_back(ch.value);",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPStringFromStd(", "CPPPStdStringFromChars("}
+        },
+        {
+            "CPPPToStringBool",
+            {
+                "vector<CPPPChar> CPPPToStringBool(bool value) {",
+                "    return CPPPStringFromStd(value ? \"1\" : \"0\");",
+                "}",
+                ""
+            },
+            {"CPPPStringFromStd"},
+            {"CPPPToStringBool("}
+        },
+        {
+            "CPPPToStringChar",
+            {
+                "vector<CPPPChar> CPPPToStringChar(const CPPPChar& value) {",
+                "    return {value};",
+                "}",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPToStringChar("}
+        },
+        {
+            "CPPPToStringInt",
+            {
+                "vector<CPPPChar> CPPPToStringInt(long long value) {",
+                "    return CPPPStringFromStd(to_string(value));",
+                "}",
+                ""
+            },
+            {"CPPPStringFromStd"},
+            {"CPPPToStringInt("}
+        },
+        {
+            "CPPPToStringFloat",
+            {
+                "vector<CPPPChar> CPPPToStringFloat(long double value) {",
+                "    ostringstream stream;",
+                "    stream << value;",
+                "    return CPPPStringFromStd(stream.str());",
+                "}",
+                ""
+            },
+            {"CPPPStringFromStd"},
+            {"CPPPToStringFloat("}
+        },
+        {
+            "CPPPStringToBool",
+            {
+                "bool CPPPStringToBool(const vector<CPPPChar>& value, int line, int column) {",
+                "    const string text = CPPPStdStringFromChars(value);",
+                "    if (text == \"1\" || text == \"true\") {",
+                "        return true;",
+                "    }",
+                "    if (text == \"0\" || text == \"false\") {",
+                "        return false;",
+                "    }",
+                "    throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid bool string\");",
+                "}",
+                ""
+            },
+            {"CPPPStringFromStd"},
+            {"CPPPStringToBool("}
+        },
+        {
+            "CPPPStringToChar",
+            {
+                "CPPPChar CPPPStringToChar(const vector<CPPPChar>& value, int line, int column) {",
+                "    if (value.size() != 1) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid char string\");",
+                "    }",
+                "    return value[0];",
+                "}",
+                ""
+            },
+            {"CPPPCharCore"},
+            {"CPPPStringToChar("}
+        },
+        {
+            "CPPPStringToInt",
+            {
+                "long long CPPPStringToInt(const vector<CPPPChar>& value, int line, int column) {",
+                "    const string text = CPPPStdStringFromChars(value);",
+                "    if (text.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid int string\");",
+                "    }",
+                "    size_t index = 0;",
+                "    if (text[index] == '+' || text[index] == '-') {",
+                "        ++index;",
+                "    }",
+                "    if (index >= text.size()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid int string\");",
+                "    }",
+                "    for (size_t i = index; i < text.size(); ++i) {",
+                "        if (!isdigit(static_cast<unsigned char>(text[i]))) {",
+                "            throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid int string\");",
+                "        }",
+                "    }",
+                "    try {",
+                "        return stoll(text);",
+                "    } catch (...) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid int string\");",
+                "    }",
+                "}",
+                ""
+            },
+            {"CPPPStringFromStd"},
+            {"CPPPStringToInt("}
+        },
+        {
+            "CPPPStringToFloat",
+            {
+                "long double CPPPStringToFloat(const vector<CPPPChar>& value, int line, int column) {",
+                "    const string text = CPPPStdStringFromChars(value);",
+                "    if (text.empty()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid float string\");",
+                "    }",
+                "    size_t index = 0;",
+                "    if (text[index] == '+' || text[index] == '-') {",
+                "        ++index;",
+                "    }",
+                "    const size_t wholeStart = index;",
+                "    while (index < text.size() && isdigit(static_cast<unsigned char>(text[index]))) {",
+                "        ++index;",
+                "    }",
+                "    if (wholeStart == index) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid float string\");",
+                "    }",
+                "    if (index < text.size() && text[index] == '.') {",
+                "        ++index;",
+                "        const size_t fractionalStart = index;",
+                "        while (index < text.size() && isdigit(static_cast<unsigned char>(text[index]))) {",
+                "            ++index;",
+                "        }",
+                "        if (fractionalStart == index) {",
+                "            throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid float string\");",
+                "        }",
+                "    }",
+                "    if (index != text.size()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid float string\");",
+                "    }",
+                "    try {",
+                "        return stold(text);",
+                "    } catch (...) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid float string\");",
+                "    }",
+                "}",
+                ""
+            },
+            {"CPPPStringFromStd"},
+            {"CPPPStringToFloat("}
+        },
+        {
+            "CPPPListToSet",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "set<Out> CPPPListToSet(const vector<In>& values, Converter convert) {",
+                "    set<Out> result;",
+                "    for (const In& value : values) {",
+                "        result.insert(convert(value));",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListToSet<"}
+        },
+        {
+            "CPPPSetToList",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "vector<Out> CPPPSetToList(const set<In>& values, Converter convert) {",
+                "    vector<Out> result;",
+                "    result.reserve(values.size());",
+                "    for (const In& value : values) {",
+                "        result.push_back(convert(value));",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetToList<"}
+        },
+        {
+            "CPPPListToMap",
+            {
+                "template <typename KOut, typename VOut, typename KIn, typename VIn, typename KeyConverter, typename ValueConverter>",
+                "map<KOut, VOut> CPPPListToMap(const vector<pair<KIn, VIn>>& values, KeyConverter keyConvert, ValueConverter valueConvert) {",
+                "    map<KOut, VOut> result;",
+                "    for (const pair<KIn, VIn>& entry : values) {",
+                "        result[keyConvert(entry.first)] = valueConvert(entry.second);",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPListToMap<"}
+        },
+        {
+            "CPPPMapToList",
+            {
+                "template <typename KOut, typename VOut, typename KIn, typename VIn, typename KeyConverter, typename ValueConverter>",
+                "vector<pair<KOut, VOut>> CPPPMapToList(const map<KIn, VIn>& values, KeyConverter keyConvert, ValueConverter valueConvert) {",
+                "    vector<pair<KOut, VOut>> result;",
+                "    result.reserve(values.size());",
+                "    for (const pair<const KIn, VIn>& entry : values) {",
+                "        result.push_back(make_pair(keyConvert(entry.first), valueConvert(entry.second)));",
+                "    }",
+                "    return result;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapToList<"}
+        },
+        {
             "CPPPPrintValueString",
             {
                 "void CPPPPrintValue(ostream& output, const vector<CPPPChar>& value) {",
@@ -266,9 +627,11 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "",
                 "template <typename A, typename B>",
                 "void CPPPPrintValue(ostream& output, const pair<A, B>& value) {",
+                "    output << '(';",
                 "    CPPPPrintValue(output, value.first);",
-                "    output << ':';",
+                "    output << ',';",
                 "    CPPPPrintValue(output, value.second);",
+                "    output << ')';",
                 "}",
                 "",
                 "template <typename T>",

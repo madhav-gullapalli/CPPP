@@ -63,7 +63,6 @@ private:
 // isTypeName returns whether the supplied input satisfies the relevant condition.
     bool isTypeName(const std::string& name) const;
     std::unique_ptr<Expr> parseExpression(bool& ok);
-    std::unique_ptr<Expr> parsePair(bool& ok);
     std::unique_ptr<Expr> parseLogicalOr(bool& ok);
     std::unique_ptr<Expr> parseLogicalAnd(bool& ok);
     std::unique_ptr<Expr> parseBitwiseOr(bool& ok);

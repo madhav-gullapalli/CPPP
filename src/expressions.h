@@ -25,6 +25,7 @@ enum class PrimitiveType {
     Char,
     Int,
     Float,
+    Range,
     List,
     Set,
     Map,
@@ -94,12 +95,14 @@ std::string cpppTypeName(const Type& type);
 // isStringType returns whether the supplied input satisfies the relevant condition.
 bool isStringType(const Type& type);
 bool isListType(const Type& type);
+bool isRangeType(const Type& type);
 bool isSetType(const Type& type);
 bool isMapType(const Type& type);
 bool isPairType(const Type& type);
 bool isCollectionType(const Type& type);
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to);
+bool canExplicitlyCastType(const Type& from, const Type& to);
 // castExpressionTo implements the castExpressionTo behavior for the expressions.h module.
 std::string castExpressionTo(const std::string& expression, const Type& to);
 // castExpressionTo implements the castExpressionTo behavior for the expressions.h module.

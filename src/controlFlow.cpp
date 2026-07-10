@@ -92,7 +92,7 @@ std::string trimHeaderPart(const std::string& raw, size_t baseOffset, size_t& of
 // isTypeRootName returns whether the supplied input satisfies the relevant condition.
 bool isTypeRootName(const std::string& text) {
     return text == "bool" || text == "char" || text == "int" || text == "float" ||
-        text == "List" || text == "Set" || text == "Map" || text == "Pair" || text == "string";
+        text == "List" || text == "Set" || text == "Map" || text == "Pair" || text == "string" || text == "range";
 }
 
 // TypeTokenParseResult implements the TypeTokenParseResult behavior for the controlFlow.cpp module.

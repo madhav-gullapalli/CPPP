@@ -94,7 +94,202 @@ cast assignment
 
   Example:
     int x = 65;
-    char c = (char)x;
+    char c = char(x);
+
+set cast from list
+  Set(list) removes duplicates and stores the values in sorted order.
+
+  Example:
+    List<int> values = [4, 1, 4, 2];
+    Set<int> seen = Set(values);
+    print(seen);
+
+  Output:
+    {1, 2, 4}
+
+list cast from set
+  List(set) keeps the Set iteration order.
+
+  Example:
+    Set<int> seen = {4, 1, 2};
+    List<int> values = List(seen);
+    print(values);
+
+  Output:
+    [1, 2, 4]
+
+map cast from pair list
+  Map(pairs) converts a List<Pair<K, V>> into a Map.
+
+  Example:
+    List<Pair<int, int>> entries = [(3, 9), (1, 4)];
+    Map<int, int> counts = Map(entries);
+    print(counts);
+
+  Output:
+    {1:4, 3:9}
+
+pair list cast from map
+  List(map) converts a Map into sorted key/value pairs.
+
+  Example:
+    Map<int, int> counts = {3:9, 1:4};
+    List<Pair<int, int>> entries = List(counts);
+    print(entries);
+
+  Output:
+    [(1,4), (3,9)]
+
+string conversions for scalar values
+  string(x) works on scalar CP++ values.
+
+  Example:
+    print(string(7));
+    print(string(true));
+    print(string('x'));
+    print(string(2.5));
+
+  Output:
+    7
+    1
+    x
+    2.5
+
+scalar conversions from string
+  Primitive values can be reconstructed from valid string representations.
+
+  Example:
+    print(int("-12"));
+    print(bool("true"), bool("0"));
+    print(char("z"));
+    print(float("1"), float("1.5"));
+
+  Output:
+    -12
+    1 0
+    z
+    1 1.5
+
+combined scalar and container conversions
+  Scalar and container casts can be combined in one flow.
+
+  Example:
+    List<int> nums = [1, 2, 2, 5];
+    Set<int> seen = Set(nums);
+    List<int> ordered = List(seen);
+    Map<int, int> counts = Map([(1, int("3")), (4, int(string(len(ordered))))]);
+    print(string(len(ordered)));
+    print(ordered);
+    print(List(counts));
+
+  Output:
+    3
+    [1, 2, 5]
+    [(1,3), (4,3)]
+
+range declarations
+  `range` values are lazy integer iterables that can be stored in variables.
+
+  Example:
+    range up = range(5);
+    range down = range(5, 1);
+    range stepped = range(2, 11, 3);
+    print(List(up));
+    print(List(down));
+    print(List(stepped));
+
+  Output:
+    [0, 1, 2, 3, 4]
+    [5, 4, 3, 2]
+    [2, 5, 8]
+
+membership in ranges
+  `in` checks range membership with arithmetic, not by building a List.
+
+  Example:
+    print(3 in range(5), 5 in range(5));
+    print(3 in range(5, 1), 1 in range(5, 1));
+    print(8 in range(2, 11, 3), 9 in range(2, 11, 3));
+
+  Output:
+    1 0
+    1 0
+    1 0
+
+foreach on ranges
+  `for (... in range(...))` iterates ascending, descending, and stepped ranges.
+
+  Example:
+    for (int x in range(4)) {
+        print(x, end = " ");
+    }
+    print("");
+    for (int x in range(4, 1)) {
+        print(x, end = " ");
+    }
+    print("");
+    for (int x in range(2, 11, 3)) {
+        print(x, end = " ");
+    }
+    print("");
+
+  Output:
+    0 1 2 3 
+    4 3 2 
+    2 5 8 
+
+convert ranges to List and Set
+  `List(range)` and `Set(range)` materialize the lazy values when needed.
+
+  Example:
+    print(List(range(5)));
+    print(Set(range(5, 1)));
+    print(List(range(2, 11, 3)));
+    print(Set(range(2, 11, 3)));
+
+  Output:
+    [0, 1, 2, 3, 4]
+    {2, 3, 4, 5}
+    [2, 5, 8]
+    {2, 5, 8}
+
+empty ranges
+  `range(x, x)` is empty for membership, loops, and conversions.
+
+  Example:
+    int hits = 0;
+    for (int x in range(4, 4)) {
+        hits++;
+    }
+    print(3 in range(4, 4), hits);
+    print(List(range(4, 4)));
+
+  Output:
+    0 0
+    []
+
+nested casts
+  Scalar casts may still be nested inside other expressions.
+
+  Example:
+    int y = int(float("1.23"));
+    print(y);
+
+  Output:
+    1
+
+large range membership
+  Huge ranges still support O(1) membership tests.
+
+  Example:
+    if (3 in range(1, 12345678765432)) {
+        print(1);
+    } else {
+        print(0);
+    }
+
+  Output:
+    1
 
 default values output
   Declarations use CP++ defaults.
@@ -667,13 +862,13 @@ foreach on set and map
 
   Output:
     1 3 5 
-    1:2 4:7 
+    (1,2) (4,7) 
 
 pair declaration and indexing
   Pair<K, V> declarations support zero-based indexing at [0] and [1].
 
   Example:
-    Pair<int, int> point = 4:9;
+    Pair<int, int> point = (4,9);
     print(point[0], point[1]);
 
   Output:
@@ -684,53 +879,53 @@ pair reassignment
 
   Example:
     Pair<int, int> point;
-    point = 3:5;
+    point = (3,5);
     print(point);
 
   Output:
-    3:5
+    (3,5)
 
 pair lvalue updates
   Pair elements behave like ordinary mutable variables, even when nested.
 
   Example:
-    Pair<int, Pair<int, int>> point = 1:(2:3);
+    Pair<int, Pair<int, int>> point = (1,(2,3));
     point[1][0] += 4;
     point[1][1]--;
     print(point);
 
   Output:
-    1:6:2
+    (1,(6,2))
 
 pair printing
-  print(pair) uses the same a:b surface syntax as Pair literals.
+  print(pair) uses the same (a,b) surface syntax as Pair literals.
 
   Example:
-    Pair<int, int> point = 8:11;
+    Pair<int, int> point = (8,11);
     print(point, end = "!\n");
 
   Output:
-    8:11!
+    (8,11)!
 
 swap pair elements
   Same-typed Pair elements may be swapped with multi-assignment.
 
   Example:
-    Pair<int, int> point = 4:9;
+    Pair<int, int> point = (4,9);
     point[0], point[1] = point[1], point[0];
     print(point);
 
   Output:
-    9:4
+    (9,4)
 
 pair literals
   Pair literals compose recursively.
 
   Example:
-    print(7:(1:2));
+    print((7,(1,2)));
 
   Output:
-    7:1:2
+    (7,(1,2))
 
 Synthesis tests
 ---------------
@@ -769,7 +964,7 @@ simulate map with Set<Pair>
     }
 
     void mapPut(Set<Pair<int, int>> entries, int key, int value) {
-        Pair<int, int> old = 0:0;
+        Pair<int, int> old = (0,0);
         bool found = false;
         for (Pair<int, int> entry in entries) {
             if (entry[0] == key) {
@@ -780,7 +975,7 @@ simulate map with Set<Pair>
         if (found) {
             entries.remove(old);
         }
-        entries.add(key:value);
+        entries.add((key,value));
     }
 
     int mapRemove(Set<Pair<int, int>> entries, int key) {
@@ -2096,7 +2291,7 @@ brainfuck interpreter
     List<int>loops;
     List<char>backing;
     rep(10000){
-        backing.add((char)0);
+        backing.add(char(0));
     }
     int ptr = 0; int idx = 0;
     while(idx < len(s)){
@@ -2216,9 +2411,9 @@ caesar cipher
     int k = input();
     string out = "";
     for (char c in s) {
-        int pos = (int)c - (int)'a';
+        int pos = int(c) - int('a');
         int shifted = (pos + k) % 26;
-        out.add((char)((int)'a' + shifted));
+        out.add(char(int('a') + shifted));
     }
     print(out);
 

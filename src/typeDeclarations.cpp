@@ -147,6 +147,7 @@ const std::map<std::string, TypeInfo>& primitiveTypes() {
         {"int", {"long long", "0"}},
         {"char", {"CPPPChar", "CPPPChar()"}},
         {"float", {"long double", "0.0L"}},
+        {"range", {"CPPPRange", "CPPPRange()"}},
         {"string", {"vector<CPPPChar>", "{}"}},
     };
 
@@ -167,6 +168,20 @@ bool needsCharRuntimeHelper(const Type& type) {
 
     for (const Type& subtype : type.subtypes) {
         if (needsCharRuntimeHelper(subtype)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool needsRangeRuntimeHelper(const Type& type) {
+    if (type == PrimitiveType::Range) {
+        return true;
+    }
+
+    for (const Type& subtype : type.subtypes) {
+        if (needsRangeRuntimeHelper(subtype)) {
             return true;
         }
     }
@@ -735,6 +750,19 @@ bool finishExpressionAssignment(
         return false;
     }
 
+    if (expression.explicitCast &&
+        expression.type != targetType &&
+        !canExplicitlyCastType(expression.type, targetType)) {
+        recordSourceError(
+            inputFile,
+            lineNumber,
+            assignedValueColumn,
+            "cannot cast " + cpppTypeName(expression.type) + " to " + cpppTypeName(targetType),
+            sourceLines
+        );
+        return false;
+    }
+
     emittedValue = expression.generatedExpression;
     if (!isImplicitlyConvertible(expression.type, targetType) || expression.type != targetType) {
         emittedValue = castExpressionTo(emittedValue, expression.type, targetType);
@@ -1142,7 +1170,7 @@ TypeEmitResult emitTypeDeclaration(
             const std::string typeLabel = isSet ? "Set" : (isMap ? "Map" : "Pair");
             const std::string literalHint = isSet
                 ? "{1, 2}"
-                : (isMap ? "{1:'a'}" : "1:2");
+                : (isMap ? "{1:'a'}" : "(1,2)");
 
             if ((isSet || isMap) &&
                 valueTokens.size() > 2 &&
@@ -1182,6 +1210,18 @@ TypeEmitResult emitTypeDeclaration(
                     typeLabel + " values must use a " + std::string(isSet ? "set" : (isMap ? "map" : "pair")) + " literal like " + literalHint + " or another " + typeLabel + " expression",
                     sourceLines
                 );
+                return {true, false, "", {}};
+            }
+        } else if (targetType == PrimitiveType::Range) {
+            if (!finishExpressionAssignment(
+                    inputFile,
+                    lineNumber,
+                    assignedValue,
+                    assignedValueColumn,
+                    targetType,
+                    sourceLines,
+                    declaredVariables,
+                    emittedValue)) {
                 return {true, false, "", {}};
             }
         } else if (targetType == PrimitiveType::Int) {
@@ -1264,6 +1304,9 @@ TypeEmitResult emitTypeDeclaration(
 
     if (needsCharRuntimeHelper(targetType)) {
         requireRuntimeHelper("CPPPCharCore");
+    }
+    if (needsRangeRuntimeHelper(targetType)) {
+        requireRuntimeHelper("CPPPRangeType");
     }
 
     return {

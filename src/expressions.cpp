@@ -96,6 +96,11 @@ std::string emitPairInputExpression(const Type& type) {
 
     return "make_pair(" + first + ", " + second + ")";
 }
+
+std::string castLambdaExpression(const Type& from, const Type& to) {
+    const std::string fromCppType = cppTypeForType(from);
+    return "[&](const " + fromCppType + "& __cppp_value) { return " + castExpressionTo("__cppp_value", from, to) + "; }";
+}
 }
 
 // primitiveArity implements the primitiveArity behavior for the expressions.cpp module.
@@ -106,6 +111,7 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Char:
         case PrimitiveType::Int:
         case PrimitiveType::Float:
+        case PrimitiveType::Range:
             return 0;
         case PrimitiveType::List:
         case PrimitiveType::Set:
@@ -137,6 +143,8 @@ std::string cpppTypeName(const Type& type) {
             return "int";
         case PrimitiveType::Float:
             return "float";
+        case PrimitiveType::Range:
+            return "range";
         case PrimitiveType::List:
             if (type.subtypes.size() == 1) {
                 return "List<" + cpppTypeName(type.subtypes[0]) + ">";
@@ -175,6 +183,10 @@ bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+bool isRangeType(const Type& type) {
+    return type == PrimitiveType::Range;
+}
+
 bool isSetType(const Type& type) {
     return type.primitive == PrimitiveType::Set && type.subtypes.size() == 1;
 }
@@ -189,6 +201,32 @@ bool isPairType(const Type& type) {
 
 bool isCollectionType(const Type& type) {
     return isListType(type) || isSetType(type) || isMapType(type);
+}
+
+namespace {
+bool isScalarCastType(const Type& type) {
+    return type == PrimitiveType::Bool ||
+        type == PrimitiveType::Char ||
+        type == PrimitiveType::Int ||
+        type == PrimitiveType::Float;
+}
+
+bool canCollectionCastElementType(const Type& from, const Type& to) {
+    if (from == to) {
+        return true;
+    }
+
+    if (isScalarCastType(from) && isScalarCastType(to)) {
+        return true;
+    }
+
+    if (isPairType(from) && isPairType(to)) {
+        return canCollectionCastElementType(from.subtypes[0], to.subtypes[0]) &&
+            canCollectionCastElementType(from.subtypes[1], to.subtypes[1]);
+    }
+
+    return false;
+}
 }
 
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
@@ -232,6 +270,61 @@ bool isImplicitlyConvertible(const Type& from, const Type& to) {
     return false;
 }
 
+bool canExplicitlyCastType(const Type& from, const Type& to) {
+    if (from == to) {
+        return true;
+    }
+
+    if (from == PrimitiveType::Void || to == PrimitiveType::Void) {
+        return false;
+    }
+
+    if (isScalarCastType(from) && isScalarCastType(to)) {
+        return true;
+    }
+
+    if (isStringType(to)) {
+        return isScalarCastType(from);
+    }
+
+    if (isStringType(from)) {
+        return isScalarCastType(to);
+    }
+
+    if (isPairType(from) && isPairType(to)) {
+        return canExplicitlyCastType(from.subtypes[0], to.subtypes[0]) &&
+            canExplicitlyCastType(from.subtypes[1], to.subtypes[1]);
+    }
+
+    if (isSetType(to) && isListType(from)) {
+        return canCollectionCastElementType(from.subtypes[0], to.subtypes[0]);
+    }
+
+    if (isSetType(to) && isRangeType(from)) {
+        return to.subtypes[0] == PrimitiveType::Int;
+    }
+
+    if (isListType(to) && isSetType(from)) {
+        return canCollectionCastElementType(from.subtypes[0], to.subtypes[0]);
+    }
+
+    if (isListType(to) && isRangeType(from)) {
+        return to.subtypes[0] == PrimitiveType::Int;
+    }
+
+    if (isMapType(to) && isListType(from) && isPairType(from.subtypes[0])) {
+        return canCollectionCastElementType(from.subtypes[0].subtypes[0], to.subtypes[0]) &&
+            canCollectionCastElementType(from.subtypes[0].subtypes[1], to.subtypes[1]);
+    }
+
+    if (isListType(to) && isPairType(to.subtypes[0]) && isMapType(from)) {
+        return canCollectionCastElementType(from.subtypes[0], to.subtypes[0].subtypes[0]) &&
+            canCollectionCastElementType(from.subtypes[1], to.subtypes[0].subtypes[1]);
+    }
+
+    return false;
+}
+
 // castExpressionTo implements the castExpressionTo behavior for the expressions.cpp module.
 std::string castExpressionTo(const std::string& expression, const Type& to) {
     return castExpressionTo(expression, PrimitiveType::Unknown, to);
@@ -239,6 +332,30 @@ std::string castExpressionTo(const std::string& expression, const Type& to) {
 
 // castExpressionTo implements the castExpressionTo behavior for the expressions.cpp module.
 std::string castExpressionTo(const std::string& expression, const Type& from, const Type& to) {
+    if (from == to) {
+        return expression;
+    }
+
+    if (isStringType(to)) {
+        if (from == PrimitiveType::Bool) {
+            requireRuntimeHelper("CPPPToStringBool");
+            return "CPPPToStringBool(" + expression + ")";
+        }
+        if (from == PrimitiveType::Char) {
+            requireRuntimeHelper("CPPPToStringChar");
+            return "CPPPToStringChar(" + expression + ")";
+        }
+        if (from == PrimitiveType::Int) {
+            requireRuntimeHelper("CPPPToStringInt");
+            return "CPPPToStringInt(" + expression + ")";
+        }
+        if (from == PrimitiveType::Float) {
+            requireRuntimeHelper("CPPPToStringFloat");
+            return "CPPPToStringFloat(" + expression + ")";
+        }
+        return expression;
+    }
+
     switch (to.primitive) {
         case PrimitiveType::Void:
             return expression;
@@ -258,6 +375,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                 case PrimitiveType::Float:
                     requireRuntimeHelper("CPPPToBoolFloat");
                     return "CPPPToBoolFloat(" + expression + ")";
+                case PrimitiveType::Range:
+                    return "(!(" + expression + ").empty())";
                 case PrimitiveType::List:
                 case PrimitiveType::Set:
                 case PrimitiveType::Map:
@@ -278,11 +397,51 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
         case PrimitiveType::Float:
             return "static_cast<long double>(" + expression + ")";
         case PrimitiveType::List:
+            if (isRangeType(from) && to.subtypes[0] == PrimitiveType::Int) {
+                requireRuntimeHelper("CPPPRangeToList");
+                return "CPPPRangeToList(" + expression + ")";
+            }
+            if (isSetType(from)) {
+                requireRuntimeHelper("CPPPSetToList");
+                return "CPPPSetToList<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            if (isMapType(from) && isPairType(to.subtypes[0])) {
+                requireRuntimeHelper("CPPPMapToList");
+                return "CPPPMapToList<" + cppTypeForType(to.subtypes[0].subtypes[0]) + ", " + cppTypeForType(to.subtypes[0].subtypes[1]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0].subtypes[0]) + ", " +
+                    castLambdaExpression(from.subtypes[1], to.subtypes[0].subtypes[1]) + ")";
+            }
+            return expression;
         case PrimitiveType::Set:
+            if (isRangeType(from) && to.subtypes[0] == PrimitiveType::Int) {
+                requireRuntimeHelper("CPPPRangeToSet");
+                return "CPPPRangeToSet(" + expression + ")";
+            }
+            if (isListType(from)) {
+                requireRuntimeHelper("CPPPListToSet");
+                return "CPPPListToSet<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            return expression;
         case PrimitiveType::Map:
+            if (isListType(from) && isPairType(from.subtypes[0])) {
+                requireRuntimeHelper("CPPPListToMap");
+                return "CPPPListToMap<" + cppTypeForType(to.subtypes[0]) + ", " + cppTypeForType(to.subtypes[1]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0].subtypes[0], to.subtypes[0]) + ", " +
+                    castLambdaExpression(from.subtypes[0].subtypes[1], to.subtypes[1]) + ")";
+            }
+            return expression;
+        case PrimitiveType::Range:
+            return expression;
         case PrimitiveType::Unknown:
             return expression;
         case PrimitiveType::Pair:
+            if (isPairType(from)) {
+                return "make_pair(" +
+                    castExpressionTo("(" + expression + ").first", from.subtypes[0], to.subtypes[0]) + ", " +
+                    castExpressionTo("(" + expression + ").second", from.subtypes[1], to.subtypes[1]) + ")";
+            }
             return expression;
     }
 
@@ -302,6 +461,9 @@ Type declaredTypeForName(const std::string& name) {
     }
     if (name == "float") {
         return PrimitiveType::Float;
+    }
+    if (name == "range") {
+        return PrimitiveType::Range;
     }
     if (name == "void") {
         return PrimitiveType::Void;
@@ -466,6 +628,8 @@ std::string inputFunctionForType(const Type& type) {
         case PrimitiveType::Float:
             requireRuntimeHelper("CPPPInputFloat");
             return "CPPPInputFloat()";
+        case PrimitiveType::Range:
+            return "";
         case PrimitiveType::List:
         case PrimitiveType::Set:
         case PrimitiveType::Map:
