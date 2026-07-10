@@ -935,7 +935,7 @@ pair manhattan distance with input
 
   Example:
     int dist(Pair<int, Pair<int, int>> A, Pair<int, Pair<int, int>> B) {
-        return abs(A[1][0] - B[1][0]) + abs(A[1][1] - B[1][1]);
+        return abs(A[1][0] - B[1][0]) + abs(A[1][1] - B[1][1]) + abs(A[0] - B[0]);
     }
 
     Pair<int, Pair<int, int>> A = input();
@@ -947,7 +947,7 @@ pair manhattan distance with input
     4 8 9
 
   Output:
-    12
+    15
 
 simulate map with Set<Pair>
   A Set<Pair<int, int>> can simulate a tiny Map<int, int> using helper
