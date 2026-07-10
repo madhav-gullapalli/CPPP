@@ -112,6 +112,34 @@ bool containsIncrementOrDecrement(const std::vector<Token>& tokens) {
     }
     return false;
 }
+
+bool needsCharRuntimeHelperForType(const Type& type) {
+    if (type == PrimitiveType::Char) {
+        return true;
+    }
+
+    for (const Type& subtype : type.subtypes) {
+        if (needsCharRuntimeHelperForType(subtype)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool needsRangeRuntimeHelperForType(const Type& type) {
+    if (type == PrimitiveType::Range) {
+        return true;
+    }
+
+    for (const Type& subtype : type.subtypes) {
+        if (needsRangeRuntimeHelperForType(subtype)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 }
 
 void compileSourceFragments(CompileContext& context, const std::vector<SourceFragment>& sourceFragments) {
@@ -529,23 +557,6 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         if (forEachResult.matched) {
             const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
             const ForEachHeader& forEachHeader = forEachResult.header;
-            const TypeEmitResult declarationResult = emitTypeDeclaration(
-                context.options.inputFile,
-                lineNumber,
-                line,
-                forEachHeader.declaration,
-                context.sourceLines,
-                context.declaredVariables
-            );
-            if (!declarationResult.matched || !declarationResult.ok) {
-                ++context.blockDepth;
-                context.pushBlock("for");
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
-
-            const auto loopVariable = context.declaredVariables.find(forEachHeader.variableName);
             const ExpressionEmitResult iterable = emitExpression(
                 context.options.inputFile,
                 lineNumber,
@@ -563,9 +574,54 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 continue;
             }
 
+            std::string loopDeclaration;
+            Type loopVariableType;
+            if (forEachHeader.usesVar) {
+                if (context.declaredVariables.count(forEachHeader.variableName) != 0) {
+                    recordSourceError(
+                        context.options.inputFile,
+                        lineNumber,
+                        statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
+                        "variable '" + forEachHeader.variableName + "' is already declared",
+                        context.sourceLines
+                    );
+                    ++context.blockDepth;
+                    context.pushBlock("for");
+                    ++context.suppressedBlockDepth;
+                    context.canAttachElse = false;
+                    continue;
+                }
+            } else {
+                const TypeEmitResult declarationResult = emitTypeDeclaration(
+                    context.options.inputFile,
+                    lineNumber,
+                    line,
+                    forEachHeader.declaration,
+                    context.sourceLines,
+                    context.declaredVariables
+                );
+                if (!declarationResult.matched || !declarationResult.ok) {
+                    ++context.blockDepth;
+                    context.pushBlock("for");
+                    ++context.suppressedBlockDepth;
+                    context.canAttachElse = false;
+                    continue;
+                }
+
+                const auto loopVariable = context.declaredVariables.find(forEachHeader.variableName);
+                loopVariableType = loopVariable->second;
+                loopDeclaration = stripGeneratedStatement(declarationResult.generatedStatement);
+                const size_t initializer = loopDeclaration.find(" = ");
+                if (initializer != std::string::npos) {
+                    loopDeclaration = loopDeclaration.substr(0, initializer);
+                }
+            }
+
             if (!isListType(iterable.type) && !isSetType(iterable.type) && !isMapType(iterable.type) && !isRangeType(iterable.type)) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(forEachHeader.iterableOffset), "for-in expects a List value", context.sourceLines);
-                context.declaredVariables.erase(forEachHeader.variableName);
+                if (!forEachHeader.usesVar) {
+                    context.declaredVariables.erase(forEachHeader.variableName);
+                }
                 ++context.blockDepth;
                 context.pushBlock("for");
                 ++context.suppressedBlockDepth;
@@ -578,12 +634,24 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 : (isMapType(iterable.type)
                 ? Type(PrimitiveType::Pair, {iterable.type.subtypes[0], iterable.type.subtypes[1]})
                 : iterable.type.subtypes[0]);
-            if (!isImplicitlyConvertible(elementType, loopVariable->second)) {
+            if (forEachHeader.usesVar) {
+                loopVariableType = elementType;
+                loopDeclaration = cppTypeForType(loopVariableType) + " " + forEachHeader.variableName;
+                context.declaredVariables[forEachHeader.variableName] = loopVariableType;
+                if (needsCharRuntimeHelperForType(loopVariableType)) {
+                    requireRuntimeHelper("CPPPCharCore");
+                }
+                if (needsRangeRuntimeHelperForType(loopVariableType)) {
+                    requireRuntimeHelper("CPPPRangeType");
+                }
+            }
+
+            if (!isImplicitlyConvertible(elementType, loopVariableType)) {
                 recordSourceError(
                     context.options.inputFile,
                     lineNumber,
                     statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
-                    "cannot implicitly convert " + cpppTypeName(elementType) + " to " + cpppTypeName(loopVariable->second),
+                    "cannot implicitly convert " + cpppTypeName(elementType) + " to " + cpppTypeName(loopVariableType),
                     context.sourceLines
                 );
                 context.declaredVariables.erase(forEachHeader.variableName);
@@ -592,12 +660,6 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 ++context.suppressedBlockDepth;
                 context.canAttachElse = false;
                 continue;
-            }
-
-            std::string loopDeclaration = stripGeneratedStatement(declarationResult.generatedStatement);
-            const size_t initializer = loopDeclaration.find(" = ");
-            if (initializer != std::string::npos) {
-                loopDeclaration = loopDeclaration.substr(0, initializer);
             }
 
             context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);

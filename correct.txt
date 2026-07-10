@@ -710,6 +710,92 @@ print list output
   Output:
     [1, 2]
 
+Type inference
+--------------
+
+var int inference
+  `var` may infer scalar types from normal expressions.
+
+  Example:
+    int x = 1;
+    var y = x * 2;
+    print(y);
+
+  Output:
+    2
+
+var string slice and char index
+  `var` may infer both string slices and indexed chars.
+
+  Example:
+    string s = "pineapple";
+    var s2 = s[1:4];
+    var ch = s[1];
+    print(s2);
+    print(ch);
+
+  Output:
+    ine
+    i
+
+var from typed conversions
+  `var` may infer container types from expressions whose result type is already known.
+
+  Example:
+    Map<int, int> counts = {3:9, 1:4};
+    var entries = List(counts);
+    print(entries);
+
+  Output:
+    [(1,4), (3,9)]
+
+var in range foreach
+  `for (var x in range(...))` infers the loop variable as `int`.
+
+  Example:
+    int total = 0;
+    for (var x in range(1, 4)) {
+        total += x;
+    }
+    print(total);
+
+  Output:
+    6
+
+var complex program
+  `var` works naturally across scalars, strings, containers, and range loops in one flow.
+
+  Example:
+    int x = 1;
+    string s = "pineapple";
+    Map<int, int> counts = {3:9, 1:4};
+    var twice = x * 2;
+    var piece = s[1:4];
+    var ch = s[1];
+    var entries = List(counts);
+    var up = List(range(4));
+    var down = Set(range(5, 1));
+    var total = 0;
+    for (var i in range(1, 4)) {
+        total += i;
+    }
+    print(twice);
+    print(piece);
+    print(ch);
+    print(entries);
+    print(up);
+    print(down);
+    print(total);
+
+  Output:
+    2
+    ine
+    i
+    [(1,4), (3,9)]
+    [0, 1, 2, 3]
+    {2, 3, 4, 5}
+    6
+
 Set, Map, and Pair literals
 ---------------------------
 

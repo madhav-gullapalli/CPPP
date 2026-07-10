@@ -33,6 +33,7 @@ struct ForHeader {
 struct ForEachHeader {
     std::string declaration;
     size_t declarationOffset;
+    bool usesVar = false;
     std::string variableName;
     size_t variableOffset;
     std::string iterable;

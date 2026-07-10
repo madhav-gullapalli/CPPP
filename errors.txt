@@ -2316,3 +2316,62 @@ no previous key in map
 
   Diagnostic:
     error: runtime error: no previous key in map
+
+Type inference errors
+---------------------
+
+var declarations require an initializer so the type can be inferred
+  `var` must be initialized immediately because its declared type comes from
+  the right-hand expression.
+
+  Example:
+    var x;
+
+  Diagnostic:
+    error: var declarations require an initializer so the type can be inferred
+
+var cannot be initialized with input(); declare the type explicitly
+  Raw `input()` does not carry enough type information for `var`.
+
+  Example:
+    var x = input();
+
+  Diagnostic:
+    error: var cannot be initialized with input(); declare the type explicitly
+
+var cannot infer a type from an empty container; declare the type explicitly
+  Empty containers like `[]` and `{}` need a declared destination type.
+
+  Example:
+    var values = [];
+
+  Diagnostic:
+    error: var cannot infer a type from an empty container; declare the type explicitly
+
+var declarations support exactly one variable
+  `var` keeps inference local to one variable at a time.
+
+  Example:
+    var a, b = 1, 2;
+
+  Diagnostic:
+    error: var declarations support exactly one variable
+
+var declarations must use '=' with an initializer
+  `var` is only valid for initialized declarations.
+
+  Example:
+    var x 3;
+
+  Diagnostic:
+    error: var declarations must use '=' with an initializer
+
+cannot implicitly convert string to int
+  Inferred `var` bindings still keep one concrete type after declaration.
+
+  Example:
+    var x = 1;
+    x = "hi";
+
+  Diagnostic:
+    error: cannot implicitly convert string to int

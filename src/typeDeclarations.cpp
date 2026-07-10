@@ -810,6 +810,16 @@ std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
     values.push_back({trim(text.substr(startIndex)), valueColumn});
     return values;
 }
+
+bool isVarDeclaration(const std::vector<Token>& tokens) {
+    return tokens.size() >= 2 &&
+        tokens[0].kind == TokenKind::Identifier &&
+        tokens[0].text == "var";
+}
+
+bool isEmptyContainerLiteral(const std::string& text) {
+    return text == "[]" || text == "{}";
+}
 }
 
 TypeEmitResult emitTypeDeclaration(
@@ -825,6 +835,192 @@ TypeEmitResult emitTypeDeclaration(
     const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
         return {false, true, "", {}};
+    }
+
+    if (isVarDeclaration(tokens)) {
+        if (tokens.size() < 3 || tokens[1].kind != TokenKind::Identifier) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[0].span.startColumn,
+                "var declarations require a variable name",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const std::string variableName = tokens[1].text;
+        const int variableColumn = tokens[1].span.startColumn;
+        if (!isIdentifier(variableName)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                variableColumn,
+                "var declarations require a variable name",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (declaredVariables.count(variableName) != 0) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                variableColumn,
+                "variable '" + variableName + "' is already declared",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (tokens[2].kind == TokenKind::Comma) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[2].span.startColumn,
+                "var declarations support exactly one variable",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (tokens[2].kind == TokenKind::EndOfFile) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[1].span.endColumn + 1,
+                "var declarations require an initializer so the type can be inferred",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (tokens[2].kind != TokenKind::Equals) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[2].span.startColumn,
+                "var declarations must use '=' with an initializer",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (tokens[3].kind == TokenKind::EndOfFile) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[2].span.endColumn + 1,
+                "var declarations require an initializer so the type can be inferred",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const int assignedValueColumn = tokens[3].span.startColumn;
+        const int assignedValueStartColumn = tokens[3].span.startColumn;
+        int assignedValueEndColumn = tokens[3].span.endColumn;
+        size_t tokenIndex = 3;
+        while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+            assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
+            ++tokenIndex;
+        }
+
+        const std::string assignedValue = trim(statementBody.substr(
+            static_cast<size_t>(assignedValueStartColumn - 1),
+            static_cast<size_t>(assignedValueEndColumn - assignedValueStartColumn + 1)
+        ));
+
+        std::vector<InputArgument> inputArguments;
+        if (parseInputCall(assignedValue, assignedValueColumn, inputArguments)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                assignedValueColumn,
+                "var cannot be initialized with input(); declare the type explicitly",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (isEmptyContainerLiteral(assignedValue)) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                assignedValueColumn,
+                "var cannot infer a type from an empty container; declare the type explicitly",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            assignedValue,
+            assignedValueColumn,
+            sourceLines,
+            declaredVariables
+        );
+        if (!expression.ok) {
+            return {true, false, "", {}};
+        }
+
+        if (expression.type == PrimitiveType::Unknown) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                assignedValueColumn,
+                "var could not infer a concrete type from this expression",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        if (expression.type == PrimitiveType::Void) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                assignedValueColumn,
+                "var cannot infer a type from a void expression",
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        const Type inferredType = expression.type;
+        const TypeInfo inferredInfo = typeInfoFor(inferredType);
+        if (inferredInfo.cppType.empty()) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                assignedValueColumn,
+                "unsupported inferred type " + cpppTypeName(inferredType),
+                sourceLines
+            );
+            return {true, false, "", {}};
+        }
+
+        declaredVariables[variableName] = inferredType;
+        if (needsCharRuntimeHelper(inferredType)) {
+            requireRuntimeHelper("CPPPCharCore");
+        }
+        if (needsRangeRuntimeHelper(inferredType)) {
+            requireRuntimeHelper("CPPPRangeType");
+        }
+
+        const std::string generatedStatement = "    " + inferredInfo.cppType + " " + variableName + " = " + expression.generatedExpression + ";";
+        return {
+            true,
+            true,
+            generatedStatement,
+            {{
+                lineNumber,
+                variableColumn,
+                5 + static_cast<int>(inferredInfo.cppType.size()) + 1,
+                5 + static_cast<int>(inferredInfo.cppType.size()) + static_cast<int>(variableName.size())
+            }}
+        };
     }
 
     const ParsedTypeResult parsedType = parseDeclaredTypeTokens(inputFile, lineNumber, tokens, 0, sourceLines);

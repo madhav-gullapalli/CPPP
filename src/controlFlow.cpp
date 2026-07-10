@@ -251,14 +251,14 @@ ForEachParseResult parseForEachHeader(const std::string& statement) {
     const size_t rightParen = withoutBrace.find_last_of(')');
     if (leftParen == std::string::npos || rightParen == std::string::npos || rightParen <= leftParen) {
         result.errorOffset = 3;
-        result.message = "for-in loop must use syntax for (T x in list)";
+        result.message = "for-in loop must use syntax for (T x in list) or for (var x in list)";
         return result;
     }
 
     if (!trim(withoutBrace.substr(3, leftParen - 3)).empty() ||
         !trim(withoutBrace.substr(rightParen + 1)).empty()) {
         result.errorOffset = 3;
-        result.message = "for-in loop must use syntax for (T x in list)";
+        result.message = "for-in loop must use syntax for (T x in list) or for (var x in list)";
         return result;
     }
 
@@ -269,36 +269,48 @@ ForEachParseResult parseForEachHeader(const std::string& statement) {
     }
 
     const std::vector<Token> tokens = tokenize(rawHeader);
-    TypeTokenParseResult typeResult = parseTypeTokenSequence(tokens, 0);
-    if (!typeResult.matched) {
-        result.errorOffset = leftParen + 1;
-        result.message = "for-in loop must start with a type and variable like for (int x in list)";
-        return result;
-    }
+    size_t variableIndex = 0;
+    if (tokens[0].kind == TokenKind::Identifier && tokens[0].text == "var") {
+        result.header.usesVar = true;
+        if (tokens.size() <= 2 || tokens[1].kind != TokenKind::Identifier || tokens[1].text == "in") {
+            const size_t errorIndex = tokens.size() > 1 ? 1 : 0;
+            result.errorOffset = leftParen + 1 + static_cast<size_t>(tokens[errorIndex].span.startColumn - 1);
+            result.message = "expected loop variable before 'in'";
+            return result;
+        }
+        variableIndex = 1;
+    } else {
+        TypeTokenParseResult typeResult = parseTypeTokenSequence(tokens, 0);
+        if (!typeResult.matched) {
+            result.errorOffset = leftParen + 1;
+            result.message = "for-in loop must start with a type or var and variable like for (int x in list)";
+            return result;
+        }
 
-    if (!typeResult.ok) {
-        result.ok = true;
-        result.header.declaration = trim(rawHeader);
-        result.header.declarationOffset = leftParen + 1;
-        result.header.variableName.clear();
-        result.header.variableOffset = leftParen + 1;
-        result.header.iterable.clear();
-        result.header.iterableOffset = leftParen + 1;
-        return result;
-    }
+        if (!typeResult.ok) {
+            result.ok = true;
+            result.header.declaration = trim(rawHeader);
+            result.header.declarationOffset = leftParen + 1;
+            result.header.variableName.clear();
+            result.header.variableOffset = leftParen + 1;
+            result.header.iterable.clear();
+            result.header.iterableOffset = leftParen + 1;
+            return result;
+        }
 
-    if (typeResult.nextTokenIndex >= tokens.size() || tokens[typeResult.nextTokenIndex].kind != TokenKind::Identifier) {
-        const size_t errorIndex = std::min(typeResult.nextTokenIndex, tokens.size() - 1);
-        result.errorOffset = leftParen + 1 + static_cast<size_t>(tokens[errorIndex].span.startColumn - 1);
-        result.message = "expected loop variable before 'in'";
-        return result;
-    }
+        if (typeResult.nextTokenIndex >= tokens.size() || tokens[typeResult.nextTokenIndex].kind != TokenKind::Identifier) {
+            const size_t errorIndex = std::min(typeResult.nextTokenIndex, tokens.size() - 1);
+            result.errorOffset = leftParen + 1 + static_cast<size_t>(tokens[errorIndex].span.startColumn - 1);
+            result.message = "expected loop variable before 'in'";
+            return result;
+        }
 
-    const size_t variableIndex = typeResult.nextTokenIndex;
-    if (tokens[variableIndex].text == "in") {
-        result.errorOffset = leftParen + 1 + static_cast<size_t>(tokens[variableIndex].span.startColumn - 1);
-        result.message = "expected loop variable before 'in'";
-        return result;
+        variableIndex = typeResult.nextTokenIndex;
+        if (tokens[variableIndex].text == "in") {
+            result.errorOffset = leftParen + 1 + static_cast<size_t>(tokens[variableIndex].span.startColumn - 1);
+            result.message = "expected loop variable before 'in'";
+            return result;
+        }
     }
 
     if (variableIndex + 1 >= tokens.size() ||
