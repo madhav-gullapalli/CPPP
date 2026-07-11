@@ -2718,6 +2718,31 @@ map indexed arithmetic updates
   Output:
     10 5
 
+implicit int to char lowering
+  `int` values may initialize `char` variables implicitly, matching C++-style
+  narrowing behavior.
+
+  Example:
+    char c = 65;
+    print(c);
+
+  Output:
+    A
+
+alphabet from char and range
+  `char` plus a ranged `int` may be assigned back into `char` values.
+
+  Example:
+    char c = 'a';
+    for (int i in range(26)) {
+        char next = c + i;
+        print(next, end = "");
+    }
+    print("");
+
+  Output:
+    abcdefghijklmnopqrstuvwxyz
+
 Synthesis tests
 ---------------
 

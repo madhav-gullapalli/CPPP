@@ -731,14 +731,15 @@ cannot take min/max of a seqwuence of mixed type
   Diagnostic:
     error: min() expects all items in sequence to be of same type
 
-char values must be a single character in single quotes
-  char literals must use single quotes and contain exactly one character.
+cannot implicitly convert string to char
+  Double-quoted strings are still string values, even when they contain only
+  one character.
 
   Example:
     char c = "B";
 
   Diagnostic:
-    error: char values must be a single character in single quotes
+    error: cannot implicitly convert string to char
 
 unterminated char literal
   A char literal starts with a single quote but does not close.
@@ -994,15 +995,15 @@ multi-assignment requires the same number of values as targets
     error: multi-assignment requires the same number of values as targets
 
 cannot implicitly convert <from> to <to>
-  Numeric narrowing conversions and bigint/float branch conversions require
-  an explicit cast.
+  CP++ still rejects unrelated assignments when there is no implicit
+  conversion path between the source and destination types.
 
   Example:
     int x = 1;
-    char y = x;
+    List<int> values = x;
 
   Diagnostic:
-    error: cannot implicitly convert int to char
+    error: cannot implicitly convert int to List<int>
 
 cannot cast int to Set
   Set(x) only accepts List values and infers its element type from that List.
@@ -2218,15 +2219,15 @@ unsupported type Pair<void, int>
   Diagnostic:
     error: unsupported type Pair<void, int>
 
-cannot implicitly convert int to char
+cannot implicitly convert string to int
   Pair elements only swap directly when each side can be assigned to the other.
 
   Example:
-    Pair<int, char> point = (7,'x');
+    Pair<int, string> point = (7,"x");
     point[0], point[1] = point[1], point[0];
 
   Diagnostic:
-    error: cannot implicitly convert int to char
+    error: cannot implicitly convert string to int
 
 pair index must be 0 or 1
   Pairs only expose two positions: [0] and [1].
@@ -2375,3 +2376,19 @@ cannot implicitly convert string to int
 
   Diagnostic:
     error: cannot implicitly convert string to int
+
+invalid variables suppress cascaded errors
+  Once a declaration has already failed, later uses of that variable do not
+  produce extra follow-on diagnostics in the same compile pass.
+
+  Example:
+    var x = input();
+    x += 1;
+    if (x < 5) {
+        x *= 2;
+    }
+    int y = "ass";
+
+  Diagnostic:
+    error: var cannot be initialized with input(); declare the type explicitly
+    error: int requires an integer literal

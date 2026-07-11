@@ -252,7 +252,7 @@ bool isImplicitlyConvertible(const Type& from, const Type& to) {
     }
 
     if (from == PrimitiveType::Int) {
-        return to == PrimitiveType::Bool || to == PrimitiveType::Float;
+        return to == PrimitiveType::Bool || to == PrimitiveType::Char || to == PrimitiveType::Float;
     }
 
     if (from == PrimitiveType::Float) {

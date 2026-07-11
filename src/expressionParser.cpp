@@ -301,6 +301,12 @@ private:
             return false;
         }
 
+        if (variable->second == PrimitiveType::Unknown) {
+            expr.inferredType = PrimitiveType::Unknown;
+            expr.mutableValue = true;
+            return false;
+        }
+
         expr.inferredType = variable->second;
         expr.mutableValue = true;
         return true;

@@ -820,6 +820,24 @@ bool isVarDeclaration(const std::vector<Token>& tokens) {
 bool isEmptyContainerLiteral(const std::string& text) {
     return text == "[]" || text == "{}";
 }
+
+void rememberInvalidVariable(
+    std::map<std::string, Type>& declaredVariables,
+    const std::string& variableName
+) {
+    if (!variableName.empty() && declaredVariables.count(variableName) == 0) {
+        declaredVariables[variableName] = PrimitiveType::Unknown;
+    }
+}
+
+void rememberInvalidVariables(
+    std::map<std::string, Type>& declaredVariables,
+    const std::vector<DeclaredName>& variables
+) {
+    for (const DeclaredName& variable : variables) {
+        rememberInvalidVariable(declaredVariables, variable.name);
+    }
+}
 }
 
 TypeEmitResult emitTypeDeclaration(
@@ -881,6 +899,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var declarations support exactly one variable",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -892,6 +911,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var declarations require an initializer so the type can be inferred",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -903,6 +923,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var declarations must use '=' with an initializer",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -914,6 +935,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var declarations require an initializer so the type can be inferred",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -940,6 +962,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var cannot be initialized with input(); declare the type explicitly",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -951,6 +974,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var cannot infer a type from an empty container; declare the type explicitly",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -963,6 +987,7 @@ TypeEmitResult emitTypeDeclaration(
             declaredVariables
         );
         if (!expression.ok) {
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -974,6 +999,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var could not infer a concrete type from this expression",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -985,6 +1011,7 @@ TypeEmitResult emitTypeDeclaration(
                 "var cannot infer a type from a void expression",
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -998,6 +1025,7 @@ TypeEmitResult emitTypeDeclaration(
                 "unsupported inferred type " + cpppTypeName(inferredType),
                 sourceLines
             );
+            rememberInvalidVariable(declaredVariables, variableName);
             return {true, false, "", {}};
         }
 
@@ -1116,6 +1144,7 @@ TypeEmitResult emitTypeDeclaration(
                 "expected variable name after ','",
                 sourceLines
             );
+            rememberInvalidVariables(declaredVariables, variables);
             return {true, false, "", {}};
         }
     }
@@ -1132,6 +1161,7 @@ TypeEmitResult emitTypeDeclaration(
                 "expected value after '='",
                 sourceLines
             );
+            rememberInvalidVariables(declaredVariables, variables);
             return {true, false, "", {}};
         }
 
@@ -1155,6 +1185,7 @@ TypeEmitResult emitTypeDeclaration(
             "expected ';' or '=' after variable name",
             sourceLines
         );
+        rememberInvalidVariables(declaredVariables, variables);
         return {true, false, "", {}};
     }
 
@@ -1188,12 +1219,14 @@ TypeEmitResult emitTypeDeclaration(
                         "multi-declaration requires the same number of values as variables",
                         sourceLines
                     );
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
 
                 for (const auto& value : values) {
                     if (value.first.empty()) {
                         recordSourceError(inputFile, lineNumber, value.second, "expected value after ','", sourceLines);
+                        rememberInvalidVariables(declaredVariables, variables);
                         return {true, false, "", {}};
                     }
 
@@ -1207,6 +1240,7 @@ TypeEmitResult emitTypeDeclaration(
                             sourceLines,
                             declaredVariables,
                             emitted)) {
+                        rememberInvalidVariables(declaredVariables, variables);
                         return {true, false, "", {}};
                     }
                     perVariableValues.push_back(emitted);
@@ -1214,7 +1248,7 @@ TypeEmitResult emitTypeDeclaration(
             } else if (targetType == PrimitiveType::Char) {
                 if (isCharLiteral(assignedValue)) {
                     emittedValue = "CPPPChar(" + assignedValue + ")";
-                } else if (shouldParseAsExpression(valueTokens)) {
+                } else {
                     if (!finishExpressionAssignment(
                             inputFile,
                             lineNumber,
@@ -1224,6 +1258,7 @@ TypeEmitResult emitTypeDeclaration(
                             sourceLines,
                             declaredVariables,
                             emittedValue)) {
+                        rememberInvalidVariables(declaredVariables, variables);
                         return {true, false, "", {}};
                     }
                 }
@@ -1249,8 +1284,9 @@ TypeEmitResult emitTypeDeclaration(
                     message,
                     sourceLines
                 );
+                rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
-            } else if (shouldParseAsExpression(valueTokens)) {
+            } else {
                 if (!finishExpressionAssignment(
                         inputFile,
                         lineNumber,
@@ -1260,17 +1296,9 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
-            } else {
-                recordSourceError(
-                    inputFile,
-                    lineNumber,
-                    assignedValueColumn,
-                    "char values must be a single character in single quotes",
-                    sourceLines
-                );
-                return {true, false, "", {}};
             }
         } else if (targetType == PrimitiveType::Bool) {
             if (isBoolLiteral(assignedValue)) {
@@ -1285,6 +1313,7 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else {
@@ -1295,6 +1324,7 @@ TypeEmitResult emitTypeDeclaration(
                     "bool requires true or false",
                     sourceLines
                 );
+                rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
         } else if (isListType(targetType)) {
@@ -1311,6 +1341,7 @@ TypeEmitResult emitTypeDeclaration(
                         listTokenIndex,
                         targetType,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
 
@@ -1322,6 +1353,7 @@ TypeEmitResult emitTypeDeclaration(
                         "unexpected token in list literal",
                         sourceLines
                     );
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else if (valueTokens.size() > 1 &&
@@ -1336,6 +1368,7 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else if (shouldParseAsExpression(valueTokens)) {
@@ -1348,6 +1381,7 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else {
@@ -1358,6 +1392,7 @@ TypeEmitResult emitTypeDeclaration(
                     "List values must use a list literal like [1, 2] or another List expression",
                     sourceLines
                 );
+                rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
         } else if (isSetType(targetType) || isMapType(targetType) || isPairType(targetType)) {
@@ -1385,6 +1420,7 @@ TypeEmitResult emitTypeDeclaration(
                     typeLabel + " values must use a " + std::string(isSet ? "set" : "map") + " literal like " + literalHint + " or another " + typeLabel + " expression",
                     sourceLines
                 );
+                rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             } else if (shouldParseAsExpression(valueTokens)) {
                 if (!finishExpressionAssignment(
@@ -1396,6 +1432,7 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else {
@@ -1406,6 +1443,7 @@ TypeEmitResult emitTypeDeclaration(
                     typeLabel + " values must use a " + std::string(isSet ? "set" : (isMap ? "map" : "pair")) + " literal like " + literalHint + " or another " + typeLabel + " expression",
                     sourceLines
                 );
+                rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
         } else if (targetType == PrimitiveType::Range) {
@@ -1418,6 +1456,7 @@ TypeEmitResult emitTypeDeclaration(
                     sourceLines,
                     declaredVariables,
                     emittedValue)) {
+                rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
         } else if (targetType == PrimitiveType::Int) {
@@ -1431,6 +1470,7 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else {
@@ -1442,6 +1482,7 @@ TypeEmitResult emitTypeDeclaration(
                         "int requires an integer literal",
                         sourceLines
                     );
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
 
@@ -1453,6 +1494,7 @@ TypeEmitResult emitTypeDeclaration(
                         "integer literal overflows CP++ int",
                         sourceLines
                     );
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             }
@@ -1467,6 +1509,7 @@ TypeEmitResult emitTypeDeclaration(
                         sourceLines,
                         declaredVariables,
                         emittedValue)) {
+                    rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
             } else if (assignedValue.find('.') != std::string::npos && assignedValue.find_first_of("lL") == std::string::npos) {
