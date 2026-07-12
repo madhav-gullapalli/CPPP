@@ -1472,6 +1472,7 @@ loop nobreak
   does not run if the loop exits through `break`.
 
   Example:
+    int x = 0;
     while (x < 3) {
         x++;
     } nobreak {
