@@ -1097,7 +1097,7 @@ private:
                 requireRuntimeHelper("CPPPStringLiteral");
                 return "CPPPStringLiteral(" + expr.text + ")";
             case LiteralExpr::Kind::Char:
-                requireRuntimeHelper("CPPPCharCore");
+                requireRuntimeHelper("CPPPCharType");
                 return "CPPPChar(" + expr.text + ")";
         }
         return expr.text;
@@ -1106,6 +1106,9 @@ private:
 // generateUnary implements the generateUnary behavior for the expressionParser.cpp module.
     std::string generateUnary(const UnaryExpr& expr) const {
         if (expr.op == "++" || expr.op == "--") {
+            if (expr.operand->inferredType == PrimitiveType::Char) {
+                requireRuntimeHelper(expr.op == "++" ? "CPPPCharIncrement" : "CPPPCharDecrement");
+            }
             const std::string operand = generateMutableAccess(*expr.operand);
             return "([&]() { auto& __cppp_ref = " + operand + "; auto __cppp_old = __cppp_ref; " +
                 expr.op + "__cppp_ref; return " + (expr.postfix ? "__cppp_old" : "__cppp_ref") + "; }())";

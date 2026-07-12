@@ -364,18 +364,25 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             }
 
             if (!context.canAttachElse) {
-                if (context.pendingLoopElse.active && parseElseHeader(afterBrace)) {
+                if (context.pendingLoopElse.active && parseNobreakHeader(afterBrace)) {
                     context.queueGeneratedLine(indentForDepth(context.blockDepth) + "} if (" + context.pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
                     ++context.blockDepth;
-                    context.pushBlock("loop else");
+                    context.pushBlock("loop nobreak");
                     context.pendingLoopElse.active = false;
                     continue;
                 }
 
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + 1, "else without matching if", context.sourceLines);
-                if (parseElseHeader(afterBrace)) {
+                const bool trailingNobreak = parseNobreakHeader(afterBrace);
+                recordSourceError(
+                    context.options.inputFile,
+                    lineNumber,
+                    statementStartColumn + 1,
+                    trailingNobreak ? "nobreak without matching loop" : "else without matching if",
+                    context.sourceLines
+                );
+                if (parseElseHeader(afterBrace) || trailingNobreak) {
                     ++context.blockDepth;
-                    context.pushBlock("else");
+                    context.pushBlock(trailingNobreak ? "loop nobreak" : "else");
                 } else {
                     ConditionHeader recoveryHeader;
                     if (parseElseIfHeader(afterBrace, recoveryHeader)) {
@@ -455,10 +462,10 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         if (context.pendingLoopElse.active) {
-            if (parseElseHeader(statement)) {
+            if (parseNobreakHeader(statement)) {
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "if (" + context.pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++context.blockDepth;
-                context.pushBlock("loop else");
+                context.pushBlock("loop nobreak");
                 context.pendingLoopElse.active = false;
                 context.canAttachElse = false;
                 continue;
@@ -522,6 +529,16 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "else without matching if", context.sourceLines);
             ++context.blockDepth;
             context.pushBlock("else");
+            ++context.suppressedBlockDepth;
+            context.pendingLoopElse.active = false;
+            context.canAttachElse = false;
+            continue;
+        }
+
+        if (parsed.kind == StatementParseResult::Kind::Nobreak) {
+            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "nobreak without matching loop", context.sourceLines);
+            ++context.blockDepth;
+            context.pushBlock("loop nobreak");
             ++context.suppressedBlockDepth;
             context.pendingLoopElse.active = false;
             context.canAttachElse = false;
@@ -639,7 +656,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 loopDeclaration = cppTypeForType(loopVariableType) + " " + forEachHeader.variableName;
                 context.declaredVariables[forEachHeader.variableName] = loopVariableType;
                 if (needsCharRuntimeHelperForType(loopVariableType)) {
-                    requireRuntimeHelper("CPPPCharCore");
+                    requireRuntimeHelper("CPPPCharType");
                 }
                 if (needsRangeRuntimeHelperForType(loopVariableType)) {
                     requireRuntimeHelper("CPPPRangeType");

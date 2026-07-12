@@ -20,6 +20,7 @@ struct StatementParseResult {
         Raw,
         CloseBrace,
         Else,
+        Nobreak,
         ElseIf,
         If,
         While,

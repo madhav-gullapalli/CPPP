@@ -1466,22 +1466,22 @@ break and continue
         print(i);
     }
 
-loop else
-  CP++ supports Python-style loop `else` blocks on `for`, foreach, `while`,
-  and `rep`. The `else` block runs only when the loop finishes normally and
+loop nobreak
+  CP++ supports Python-style loop `nobreak` blocks on `for`, foreach, `while`,
+  and `rep`. The `nobreak` block runs only when the loop finishes normally and
   does not run if the loop exits through `break`.
 
   Example:
     while (x < 3) {
         x++;
-    } else {
+    } nobreak {
         print("finished");
     }
 
-submit-mode loop-else optimization
+submit-mode loop-nobreak optimization
   In --submit mode, CP++ only keeps the internal loop-completion boolean for
-  loops that actually have a following loop `else`. Ordinary loops without a
-  loop `else` do not carry that extra helper state in generated C++.
+  loops that actually have a following loop `nobreak`. Ordinary loops without a
+  loop `nobreak` do not carry that extra helper state in generated C++.
 
 structured control-flow syntax errors
   Malformed if, else if, while, rep, for, and for-in headers are reported by
@@ -1614,6 +1614,18 @@ else without matching if
 
   Diagnostic:
     error: else without matching if
+
+nobreak without matching loop
+  A `nobreak` block must immediately follow a completed `for`, foreach,
+  `while`, or `rep` loop.
+
+  Example:
+    nobreak {
+        print(1);
+    }
+
+  Diagnostic:
+    error: nobreak without matching loop
 
 break can only be used inside a loop
   `break;` is only valid when the current statement is inside a `for`,
@@ -1824,10 +1836,10 @@ Runtime errors
 --------------
 
 submit helper pruning
-  In --submit mode, CP++ now emits only the generated runtime/helper functions
-  that the translated program actually references. If a program only needs
-  int input and plain printing, unrelated char, float, bool-input, and other
-  unused helpers are omitted from the generated C++.
+  In --submit mode, CP++ emits only the generated runtime types and individual
+  helper functions that the translated program actually references. A string
+  literal, for example, keeps the CP++ char type and string printer but omits
+  unrelated char input, output, and increment/decrement helpers.
 
   Example:
     int x = input();

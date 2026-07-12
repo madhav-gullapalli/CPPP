@@ -50,6 +50,13 @@ struct ElseStmt : Stmt {
     }
 };
 
+// NobreakStmt marks the completion block of a loop that did not break.
+struct NobreakStmt : Stmt {
+    explicit NobreakStmt(int sourceColumn) {
+        this->sourceColumn = sourceColumn;
+    }
+};
+
 // ElseIfStmt implements the ElseIfStmt behavior for the stmtAst.h module.
 struct ElseIfStmt : Stmt {
     ConditionHeader header;

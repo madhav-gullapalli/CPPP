@@ -106,6 +106,12 @@ StatementParseResult parseStatementAst(const std::string& statement, int sourceC
         return result;
     }
 
+    if (parseNobreakHeader(trimmed)) {
+        result.kind = StatementParseResult::Kind::Nobreak;
+        result.statement = std::make_unique<NobreakStmt>(sourceColumn);
+        return result;
+    }
+
     result.kind = StatementParseResult::Kind::Raw;
     result.statement = std::make_unique<RawStmt>(trimmed, sourceColumn);
     return result;

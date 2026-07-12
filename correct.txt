@@ -1435,27 +1435,27 @@ continue compile
         continue;
     }
 
-loop else while output
-  while-else runs after normal completion.
+loop nobreak while output
+  while-nobreak runs after normal completion.
 
   Example:
     int x = 0;
     while (x < 2) {
         x++;
-    } else {
+    } nobreak {
         print("done");
     }
 
   Output:
     done
 
-loop else for output
-  for-else runs after normal completion.
+loop nobreak for output
+  for-nobreak runs after normal completion.
 
   Example:
     for (int i = 0; i < 2; i++) {
         print(i, end = " ");
-    } else {
+    } nobreak {
         print("done");
     }
 

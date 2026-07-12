@@ -543,7 +543,8 @@ PrintEmitResult emitPrintStatement(
             generatedStatement += "cout << ' '; ";
         }
 
-        const bool delimitedArgument = isListType(expression.type) || isSetType(expression.type);
+        const bool stringArgument = isStringType(expression.type);
+        const bool delimitedArgument = (isListType(expression.type) && !stringArgument) || isSetType(expression.type) || (stringArgument && hasDelim);
         const bool helperArgument = delimitedArgument || isMapType(expression.type) || isPairType(expression.type);
         if (helperArgument) {
             if (hasDelim) {
@@ -555,12 +556,18 @@ PrintEmitResult emitPrintStatement(
                 requireRuntimeHelper("CPPPPrintValueString");
             }
             generatedStatement += hasDelim ? "CPPPPrintDelimited(cout, " : "CPPPPrintValue(cout, ";
+        } else if (stringArgument) {
+            requireRuntimeHelper("CPPPPrintValueString");
+            generatedStatement += "CPPPPrintValue(cout, ";
         } else {
+            if (expression.type == PrimitiveType::Char) {
+                requireRuntimeHelper("CPPPCharOutput");
+            }
             generatedStatement += "cout << ";
         }
         const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
         generatedStatement += expression.generatedExpression;
-        if (helperArgument) {
+        if (helperArgument || stringArgument) {
             if (hasDelim) {
                 generatedStatement += ", " + generatedDelim + "); ";
             } else {

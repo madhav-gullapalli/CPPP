@@ -115,6 +115,34 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Recursive list literals and recursive list operations are part of the implemented surface.
 - Complexity: O(1) for the type itself; operations vary
 
+### `range`
+
+- Syntax: `range values = range(stop);`, `range(start, stop)`, or `range(start, stop, step)`
+- What it does: Represents a lazy integer sequence. One-argument ranges start at zero; two-argument ranges choose an ascending or descending unit step; three-argument ranges use the supplied non-zero step magnitude in the required direction.
+- Notes: Ranges support foreach iteration, integer membership, truthiness through emptiness, and conversion to `List<int>` or `Set<int>`.
+- Complexity: O(1) storage and O(1) membership
+
+### `Set<T>`
+
+- Syntax: `Set<int> seen;`
+- What it does: Stores unique values in sorted order.
+- Notes: `Set` requires exactly one subtype. Nested collection values such as `Set<List<int>>` are supported when the element type is orderable.
+- Complexity: O(1) for the type itself; O(log n) insert, remove, and membership
+
+### `Map<K, V>`
+
+- Syntax: `Map<int, int> counts;`
+- What it does: Stores sorted key/value entries.
+- Notes: `Map` requires exactly two subtypes. Bracket access creates a default value for a missing key; use `at(key)` when the key must already exist.
+- Complexity: O(1) for the type itself; O(log n) lookup and update
+
+### `Pair<A, B>`
+
+- Syntax: `Pair<int, int> point;`
+- What it does: Stores two values, accessible at indexes `0` and `1`.
+- Notes: `Pair` requires exactly two subtypes and can be nested.
+- Complexity: O(1)
+
 ### Default values
 
 - Syntax:
@@ -142,6 +170,13 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - What it does: Declares multiple variables of the same type and initializes them positionally.
 - Notes: Counts must match.
 - Complexity: O(k) for `k` variables
+
+### Inferred `var` declaration
+
+- Syntax: `var total = values[0] + 1;`
+- What it does: Declares one variable whose type is inferred from its initializer.
+- Notes: `var` requires exactly one initialized variable. It can infer scalar, string, container, pair, and range-expression result types, but cannot infer from `input()` or an empty container literal such as `[]` or `{}`.
+- Complexity: O(1) plus initializer cost
 
 ### Assignment
 
@@ -215,6 +250,27 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Works recursively when the target type supports it.
 - Complexity: O(total elements)
 
+### Set literals
+
+- Syntax: `Set<int> seen = {3, 1, 2, 3};`
+- What it does: Creates a set from brace-delimited values.
+- Notes: Duplicate values are removed and iteration/printing are sorted. `{}` is contextual, so declare the target `Set<T>` type when creating an empty set.
+- Complexity: O(n log n) for `n` literal values
+
+### Map literals
+
+- Syntax: `Map<int, int> counts = {2:7, 1:4};`
+- What it does: Creates a map from brace-delimited `key:value` entries.
+- Notes: Keys and values must match the declared map types. Nested literals are supported, for example `Map<int, Set<int>> groups = {1:{2, 3}};`.
+- Complexity: O(n log n) for `n` entries
+
+### Pair literals
+
+- Syntax: `Pair<int, int> point = (4, 9);`
+- What it does: Creates a two-value pair.
+- Notes: Pair literals can be nested, for example `(1, (2, 3))`.
+- Complexity: O(1) plus element construction
+
 ## Conversions and Casts
 
 ### Implicit numeric conversions
@@ -228,12 +284,26 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Supported conversions include `bool -> char/int/float`, `char -> bool/int/float`, `int -> bool/float`, and `float -> bool`.
 - Complexity: O(1)
 
-### Explicit casts
+### Explicit scalar casts
 
-- Syntax: `(char)x`
-- What it does: Converts a value explicitly.
-- Notes: Use when an implicit conversion is rejected.
-- Complexity: O(1)
+- Syntax: `int("42")`, `char(65)`, `string(2.5)`
+- What it does: Converts among implemented scalar types.
+- Notes: `bool`, `char`, `int`, `float`, and `string` are cast functions, not C++-style `(Type)value` syntax. String-to-scalar casts validate their input and report CP++ runtime errors in `--run` for invalid text.
+- Complexity: O(1), except proportional to string length for string parsing/formatting
+
+### Container and range casts
+
+- Syntax:
+  ```cpp
+  Set<int> seen = Set([4, 1, 4]);
+  List<int> ordered = List(seen);
+  Map<int, int> counts = Map([(3, 9), (1, 4)]);
+  List<Pair<int, int>> entries = List(counts);
+  List<int> values = List(range(5));
+  ```
+- What it does: Converts a List to a Set, a Set or Map to a List, a List of Pair values to a Map, and a range to a List or Set.
+- Notes: Set and Map conversion results follow sorted iteration order. Container casts preserve compatible nested types and reject incompatible target types.
+- Complexity: O(n log n) for set/map materialization; O(n) for list materialization
 
 ## Functions
 
@@ -435,8 +505,8 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 ### Length
 
 - Syntax: `len(values)`
-- What it does: Returns the number of elements in a list as an `int`.
-- Notes: Also works on `string`.
+- What it does: Returns the number of elements in a collection as an `int`.
+- Notes: Works on `List`, `string`, `Set`, and `Map` values.
 - Complexity: O(1)
 
 ### Minimum of a list
@@ -491,6 +561,67 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - What it does: Breaks a list into a `List<List<T>>` using either one element or a same-typed sublist delimiter.
 - Notes: Consecutive delimiters are skipped, so they do not produce empty pieces.
 - Complexity: grows with list and delimiter length
+
+## Ranges
+
+### Construct and iterate ranges
+
+- Syntax:
+  ```cpp
+  for (int x in range(5)) { print(x); }
+  for (int x in range(5, 1)) { print(x); }
+  for (int x in range(2, 11, 3)) { print(x); }
+  ```
+- What it does: Iterates `[0, stop)`, `[start, stop)` with an inferred direction, or a stepped sequence.
+- Notes: `range(start, start)` is empty. Range arguments must be `int` values, and a three-argument range rejects zero steps.
+- Complexity: O(iterations)
+
+### Range membership and materialization
+
+- Syntax: `x in range(...)`, `List(range(...))`, `Set(range(...))`
+- What it does: Tests whether an integer belongs to a range or materializes its values into a collection.
+- Notes: Membership is arithmetic and does not build an intermediate list. `List(range)` and `Set(range)` always produce `int` elements.
+- Complexity: O(1) membership; O(n) List materialization; O(n log n) Set materialization
+
+## Sets, Maps, and Pairs
+
+### Set operations
+
+- Syntax:
+  ```cpp
+  Set<int> seen = {3, 1, 2};
+  seen.add(4);
+  print(2 in seen, seen.remove(1));
+  ```
+- What it does: Adds, removes, and checks membership of unique sorted values.
+- Notes: `print(seen, delim = ",")` prints the values in sorted order. `min(set)`, `max(set)`, `set.prev(x)`, and `set.next(x)` expose ordered traversal operations.
+- Complexity: O(log n) add/remove/membership; O(1) min/max; O(log n) prev/next
+
+### Map operations
+
+- Syntax:
+  ```cpp
+  Map<int, int> counts = {2:7, 1:4};
+  counts[3] = 9;
+  print(counts[1], counts.at(2), 3 in counts);
+  ```
+- What it does: Reads and updates values by sorted keys.
+- Notes: `map[key]` inserts a default value if the key is missing. `map.at(key)` requires an existing key, while `map.remove(key)` returns and removes one. `min(map)`, `max(map)`, `map.prev(key)`, and `map.next(key)` operate on keys.
+- Complexity: O(log n) access, update, membership, remove, prev, and next; O(1) min/max
+
+### Pair access and map iteration
+
+- Syntax:
+  ```cpp
+  Pair<int, int> point = (4, 9);
+  point[0] += 1;
+  for (Pair<int, int> entry in counts) {
+      print(entry[0], entry[1]);
+  }
+  ```
+- What it does: Accesses mutable pair elements and iterates a map as sorted `Pair<key, value>` entries.
+- Notes: Pair indexes are exactly `0` and `1`. Foreach also supports `Set` values and `for (var entry in counts)` inference.
+- Complexity: O(1) pair access; O(n) traversal
 
 ## Strings
 
@@ -619,15 +750,15 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: `string` values print as ordinary text, not bracketed character lists. `List` values print with bracketed formatting, including nested lists.
 - Complexity: proportional to output size
 
-### Print with list delimiter
+### Print with collection delimiter
 
 - Syntax:
   ```cpp
   print([1, 2, 3], delim = " ")
   print("abc", delim = '-')
   ```
-- What it does: Prints the top-level elements of a list using a custom delimiter.
-- Notes: Strings participate through their `List<char>` behavior, so delimiters also work on strings.
+- What it does: Prints the top-level elements of a List or Set using a custom delimiter.
+- Notes: Strings participate through their `List<char>` behavior, so delimiters also work on strings. Maps do not support `delim` because their printed entries already contain key/value punctuation.
 - Complexity: proportional to output size
 
 ### Empty print
@@ -724,7 +855,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
   }
   ```
 - What it does: Repeats while the condition remains true.
-- Notes: Supports loop `else`.
+- Notes: Supports loop `nobreak`.
 - Complexity: O(iterations)
 
 ### Classic `for`
@@ -739,7 +870,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: A variable declared in the initializer belongs to the loop scope.
 - Complexity: O(iterations)
 
-### Foreach `for (T x in list)`
+### Foreach `for (T x in iterable)`
 
 - Syntax:
   ```cpp
@@ -747,8 +878,8 @@ Complexities below describe the CP++ operation itself at the language level. Gen
       ...
   }
   ```
-- What it does: Iterates over list elements in order.
-- Notes: The right-hand side must be a list expression. Since `string` behaves like a built-in `List<char>`, `for (char c in s)` is also supported.
+- What it does: Iterates over collection or range elements in order.
+- Notes: The right-hand side may be a List, string, Set, Map, or range expression. Maps yield `Pair<key, value>` values in key order, and `var` can infer the loop variable type.
 - Complexity: O(n)
 
 ### `rep(count)`
@@ -777,7 +908,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Valid in classic `for`, foreach, `while`, and `rep`.
 - Complexity: O(1)
 
-### Loop `else`
+### Loop `nobreak`
 
 - Syntax:
   ```cpp
@@ -785,12 +916,12 @@ Complexities below describe the CP++ operation itself at the language level. Gen
       if (x == target) {
           break;
       }
-  } else {
+  } nobreak {
       print("not found");
   }
   ```
-- What it does: Executes the `else` block only if the loop finishes normally without hitting `break`.
-- Notes: Supported on classic `for`, foreach, `while`, and `rep`. In `--submit`, helper state is only kept when a loop actually has an `else`.
+- What it does: Executes the `nobreak` block only if the loop finishes normally without hitting `break`.
+- Notes: Supported on classic `for`, foreach, `while`, and `rep`. In `--submit`, helper state is only kept when a loop actually has a `nobreak`.
 - Complexity: O(iterations)
 
 ## Runtime-Checked Behavior in `--run`

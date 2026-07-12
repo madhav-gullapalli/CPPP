@@ -75,4 +75,5 @@ ConditionParseResult parseConditionHeaderDetailed(const std::string& statement, 
 ConditionParseResult parseElseIfHeaderDetailed(const std::string& statement);
 ForParseResult parseForHeaderDetailed(const std::string& statement);
 bool parseElseHeader(const std::string& statement);
+bool parseNobreakHeader(const std::string& statement);
 bool parseElseIfHeader(const std::string& statement, ConditionHeader& header);

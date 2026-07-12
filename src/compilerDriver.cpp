@@ -93,7 +93,7 @@ std::string executablePathFor(const std::string& inputFile, const std::string& e
 
 void pruneSubmitLoopHelpers(CompileContext& context) {
     // Submit mode prefers cleaner contest-style output, so strip loop-completion
-    // helpers that are no longer referenced by any lowered loop-else code.
+    // helpers that are no longer referenced by any lowered loop-nobreak code.
     std::vector<std::string> usedLoopFlags;
     for (const GeneratedLine& line : context.generatedMainLines) {
         const std::string trimmed = trim(line.text);

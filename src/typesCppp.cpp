@@ -26,7 +26,7 @@ std::set<std::string>& runtimeRequirementSet() {
 std::vector<RuntimeHelper> runtimeHelpers() {
     std::vector<RuntimeHelper> helpers = {
         {
-            "CPPPCharCore",
+            "CPPPCharType",
             {
                 "struct CPPPChar {",
                 "    char value = '\\0';",
@@ -34,7 +34,14 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "    CPPPChar(char initialValue) : value(initialValue) {}",
                 "    operator char() const { return value; }",
                 "};",
-                "",
+                ""
+            },
+            {},
+            {"CPPPChar"}
+        },
+        {
+            "CPPPCharOutput",
+            {
                 "ostream& operator<<(ostream& output, const CPPPChar& value) {",
                 "    if (value.value == '\\0') {",
                 "        return output << 0;",
@@ -42,22 +49,42 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "",
                 "    return output << value.value;",
                 "}",
-                "",
+                ""
+            },
+            {"CPPPCharType"},
+            {"operator<<(ostream& output, const CPPPChar"}
+        },
+        {
+            "CPPPCharInput",
+            {
                 "istream& operator>>(istream& input, CPPPChar& value) {",
                 "    char ch;",
                 "    input >> ch;",
                 "    value = CPPPChar(ch);",
                 "    return input;",
                 "}",
-                "",
-                "CPPPChar& operator++(CPPPChar& value) { ++value.value; return value; }",
-                "CPPPChar operator++(CPPPChar& value, int) { CPPPChar old = value; ++value; return old; }",
-                "CPPPChar& operator--(CPPPChar& value) { --value.value; return value; }",
-                "CPPPChar operator--(CPPPChar& value, int) { CPPPChar old = value; --value; return old; }",
                 ""
             },
-            {},
-            {"CPPPChar"}
+            {"CPPPCharType"},
+            {"operator>>(istream& input, CPPPChar"}
+        },
+        {
+            "CPPPCharIncrement",
+            {
+                "CPPPChar& operator++(CPPPChar& value) { ++value.value; return value; }",
+                ""
+            },
+            {"CPPPCharType"},
+            {"operator++(CPPPChar"}
+        },
+        {
+            "CPPPCharDecrement",
+            {
+                "CPPPChar& operator--(CPPPChar& value) { --value.value; return value; }",
+                ""
+            },
+            {"CPPPCharType"},
+            {"operator--(CPPPChar"}
         },
         {
             "CPPPRangeType",
@@ -209,7 +236,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "bool CPPPToBoolChar(const CPPPChar& value) { return value.value != '\\0'; }",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharType"},
             {"CPPPToBoolChar("}
         },
         {
@@ -222,7 +249,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "bool CPPPToBool(const CPPPChar& value) { return value.value != '\\0'; }",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharType"},
             {"CPPPToBool("}
         },
         {
@@ -240,7 +267,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "CPPPChar CPPPInputChar() { CPPPChar value; cin >> value; return value; }",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharInput"},
             {"CPPPInputChar("}
         },
         {
@@ -262,7 +289,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPInputFloat("}
         },
         {
-            "CPPPInputString",
+            "CPPPInputStringWord",
             {
                 "vector<CPPPChar> CPPPInputString() {",
                 "    string value;",
@@ -274,7 +301,14 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "    }",
                 "    return result;",
                 "}",
-                "",
+                ""
+            },
+            {"CPPPCharType"},
+            {"CPPPInputString()"}
+        },
+        {
+            "CPPPInputStringCount",
+            {
                 "vector<CPPPChar> CPPPInputString(long long count) {",
                 "    string value;",
                 "    value.reserve(static_cast<size_t>(max(0LL, count)));",
@@ -295,8 +329,8 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
-            {"CPPPInputString("}
+            {"CPPPCharType"},
+            {"CPPPInputString(long long"}
         },
         {
             "CPPPInputList",
@@ -348,7 +382,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharType"},
             {"CPPPStringLiteral("}
         },
         {
@@ -362,7 +396,14 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "    }",
                 "    return result;",
                 "}",
-                "",
+                ""
+            },
+            {"CPPPCharType"},
+            {"CPPPStringFromStd("}
+        },
+        {
+            "CPPPStdStringFromChars",
+            {
                 "string CPPPStdStringFromChars(const vector<CPPPChar>& value) {",
                 "    string result;",
                 "    result.reserve(value.size());",
@@ -373,8 +414,8 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
-            {"CPPPStringFromStd(", "CPPPStdStringFromChars("}
+            {"CPPPCharType"},
+            {"CPPPStdStringFromChars("}
         },
         {
             "CPPPToStringBool",
@@ -395,7 +436,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharType"},
             {"CPPPToStringChar("}
         },
         {
@@ -437,7 +478,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPStringFromStd"},
+            {"CPPPStdStringFromChars"},
             {"CPPPStringToBool("}
         },
         {
@@ -451,7 +492,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharType"},
             {"CPPPStringToChar("}
         },
         {
@@ -482,7 +523,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPStringFromStd"},
+            {"CPPPStdStringFromChars"},
             {"CPPPStringToInt("}
         },
         {
@@ -525,7 +566,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPStringFromStd"},
+            {"CPPPStdStringFromChars"},
             {"CPPPStringToFloat("}
         },
         {
@@ -604,7 +645,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore"},
+            {"CPPPCharType"},
             {"CPPPPrintValueString("}
         },
         {
@@ -720,7 +761,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharCore", "CPPPPrintValue"},
+            {"CPPPCharType", "CPPPPrintValue"},
             {"CPPPPrintDelimited("}
         }
     };

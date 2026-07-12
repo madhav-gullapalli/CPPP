@@ -1031,7 +1031,7 @@ TypeEmitResult emitTypeDeclaration(
 
         declaredVariables[variableName] = inferredType;
         if (needsCharRuntimeHelper(inferredType)) {
-            requireRuntimeHelper("CPPPCharCore");
+            requireRuntimeHelper("CPPPCharType");
         }
         if (needsRangeRuntimeHelper(inferredType)) {
             requireRuntimeHelper("CPPPRangeType");
@@ -1542,7 +1542,7 @@ TypeEmitResult emitTypeDeclaration(
     }
 
     if (needsCharRuntimeHelper(targetType)) {
-        requireRuntimeHelper("CPPPCharCore");
+        requireRuntimeHelper("CPPPCharType");
     }
     if (needsRangeRuntimeHelper(targetType)) {
         requireRuntimeHelper("CPPPRangeType");

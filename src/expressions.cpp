@@ -390,7 +390,7 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
             requireRuntimeHelper("CPPPToBoolFallback");
             return "CPPPToBool(" + expression + ")";
         case PrimitiveType::Char:
-            requireRuntimeHelper("CPPPCharCore");
+            requireRuntimeHelper("CPPPCharType");
             return "CPPPChar(static_cast<char>(" + expression + "))";
         case PrimitiveType::Int:
             return "static_cast<long long>(" + expression + ")";
@@ -609,7 +609,7 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
 // inputFunctionForType implements the inputFunctionForType behavior for the expressions.cpp module.
 std::string inputFunctionForType(const Type& type) {
     if (isStringType(type)) {
-        requireRuntimeHelper("CPPPInputString");
+        requireRuntimeHelper("CPPPInputStringWord");
         return "CPPPInputString()";
     }
 
@@ -694,7 +694,7 @@ bool emitInputCallForType(
         if (!isImplicitlyConvertible(expression.type, PrimitiveType::Int) || expression.type != PrimitiveType::Int) {
             emittedSize = castExpressionTo(emittedSize, expression.type, PrimitiveType::Int);
         }
-        requireRuntimeHelper("CPPPInputString");
+        requireRuntimeHelper("CPPPInputStringCount");
         emittedExpression = "CPPPInputString(" + emittedSize + ")";
         return true;
     }

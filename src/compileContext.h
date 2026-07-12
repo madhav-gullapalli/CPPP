@@ -47,7 +47,7 @@ struct GeneratedLine {
     std::vector<SourceRange> sourceRanges;
 };
 
-// Tracks whether a just-closed loop can attach a trailing `else`.
+// Tracks whether a just-closed loop can attach a trailing `nobreak`.
 struct PendingLoopElse {
     bool active = false;
     std::string breakFlagName;
@@ -123,7 +123,7 @@ struct CompileContext {
     }
 
     // Finds the innermost surrounding loop helper flag for break/continue and
-    // loop-else lowering.
+    // loop-nobreak lowering.
     std::string nearestLoopBreakFlag() const {
         for (int i = static_cast<int>(blockKinds.size()) - 1; i >= 0; --i) {
             const std::string& kind = blockKinds[static_cast<size_t>(i)];

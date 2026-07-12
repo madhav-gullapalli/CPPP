@@ -486,6 +486,15 @@ bool parseElseHeader(const std::string& statement) {
     return trim(statement.substr(0, statement.size() - 1)) == "else";
 }
 
+// parseNobreakHeader parses the loop completion block header.
+bool parseNobreakHeader(const std::string& statement) {
+    if (statement.empty() || statement.back() != '{') {
+        return false;
+    }
+
+    return trim(statement.substr(0, statement.size() - 1)) == "nobreak";
+}
+
 // parseElseIfHeader parses elseifheaders for the compiler pipeline.
 bool parseElseIfHeader(const std::string& statement, ConditionHeader& header) {
     if (statement.empty() || statement.back() != '{') {
