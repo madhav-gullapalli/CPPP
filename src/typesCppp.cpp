@@ -62,18 +62,18 @@ void collectContainerMemberUses(const std::string& line, std::set<std::string>& 
     if (line.find(" : ") != std::string::npos) { members.insert("begin"); members.insert("end"); }
 }
 
-std::vector<std::string> sharedContainerSupport(
+std::vector<std::string> containerSupport(
     const std::set<std::string>& requiredTypes,
     const std::set<std::string>& requiredMembers
 ) {
     const std::vector<std::string> all = {
         "template <typename A, typename B>",
         "class CPPPPair {",
-        "    shared_ptr<pair<A,B>> values;",
+        "    pair<A,B>* values;",
         "public:",
-        "    CPPPPair() : values(make_shared<pair<A,B>>()) {}",
-        "    CPPPPair(const A& firstValue, const B& secondValue) : values(make_shared<pair<A,B>>(firstValue, secondValue)) {}",
-        "    template <typename X, typename Y> CPPPPair(const pair<X,Y>& value) : values(make_shared<pair<A,B>>(value.first, value.second)) {}",
+        "    CPPPPair() : values(new pair<A,B>()) {}",
+        "    CPPPPair(const A& firstValue, const B& secondValue) : values(new pair<A,B>(firstValue, secondValue)) {}",
+        "    template <typename X, typename Y> CPPPPair(const pair<X,Y>& value) : values(new pair<A,B>(value.first, value.second)) {}",
         "    A& first() { return values->first; } const A& first() const { return values->first; }",
         "    B& second() { return values->second; } const B& second() const { return values->second; }",
         "    friend bool operator==(const CPPPPair& a, const CPPPPair& b) { return *a.values == *b.values; }",
@@ -86,18 +86,18 @@ std::vector<std::string> sharedContainerSupport(
         "",
         "template <typename T>",
         "class CPPPList {",
-        "    shared_ptr<vector<T>> values;",
+        "    vector<T>* values;",
         "public:",
         "    using value_type = T; using size_type = typename vector<T>::size_type; using difference_type = typename vector<T>::difference_type;",
         "    using reference = typename vector<T>::reference; using const_reference = typename vector<T>::const_reference;",
         "    using iterator = typename vector<T>::iterator; using const_iterator = typename vector<T>::const_iterator;",
         "    using reverse_iterator = typename vector<T>::reverse_iterator; using const_reverse_iterator = typename vector<T>::const_reverse_iterator;",
-        "    CPPPList() : values(make_shared<vector<T>>()) {}",
-        "    CPPPList(initializer_list<T> init) : values(make_shared<vector<T>>(init)) {}",
-        "    CPPPList(const vector<T>& init) : values(make_shared<vector<T>>(init)) {}",
-        "    CPPPList(vector<T>&& init) : values(make_shared<vector<T>>(std::move(init))) {}",
-        "    template <typename U> CPPPList(const vector<U>& init) : values(make_shared<vector<T>>()) { values->reserve(init.size()); for (const auto& item : init) values->emplace_back(item); }",
-        "    template <typename It> CPPPList(It first, It last) : values(make_shared<vector<T>>(first, last)) {}",
+        "    CPPPList() : values(new vector<T>()) {}",
+        "    CPPPList(initializer_list<T> init) : values(new vector<T>(init)) {}",
+        "    CPPPList(const vector<T>& init) : values(new vector<T>(init)) {}",
+        "    CPPPList(vector<T>&& init) : values(new vector<T>(std::move(init))) {}",
+        "    template <typename U> CPPPList(const vector<U>& init) : values(new vector<T>()) { values->reserve(init.size()); for (const auto& item : init) values->emplace_back(item); }",
+        "    template <typename It> CPPPList(It first, It last) : values(new vector<T>(first, last)) {}",
         "    iterator begin() { return values->begin(); }",
         "    const_iterator begin() const { return values->begin(); }",
         "    iterator end() { return values->end(); }",
@@ -141,13 +141,15 @@ std::vector<std::string> sharedContainerSupport(
         "",
         "template <typename T>",
         "class CPPPSet {",
-        "    shared_ptr<set<T>> values;",
+        "    struct Compare { bool operator()(const T& left, const T& right) const { return left < right; } };",
+        "    using storage_type = set<T, Compare>;",
+        "    storage_type* values;",
         "public:",
-        "    using value_type = T; using size_type = typename set<T>::size_type; using iterator = typename set<T>::iterator; using const_iterator = typename set<T>::const_iterator; using reverse_iterator = typename set<T>::reverse_iterator; using const_reverse_iterator = typename set<T>::const_reverse_iterator;",
-        "    CPPPSet() : values(make_shared<set<T>>()) {} CPPPSet(initializer_list<T> init) : values(make_shared<set<T>>(init)) {}",
-        "    CPPPSet(const set<T>& init) : values(make_shared<set<T>>(init)) {} CPPPSet(set<T>&& init) : values(make_shared<set<T>>(std::move(init))) {}",
-        "    template <typename U> CPPPSet(const set<U>& init) : values(make_shared<set<T>>()) { for (const auto& item : init) values->emplace(item); }",
-        "    template <typename It> CPPPSet(It first, It last) : values(make_shared<set<T>>(first, last)) {}",
+        "    using value_type = T; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
+        "    CPPPSet() : values(new storage_type()) {} CPPPSet(initializer_list<T> init) : values(new storage_type(init)) {}",
+        "    CPPPSet(const set<T>& init) : values(new storage_type(init.begin(), init.end())) {} CPPPSet(set<T>&& init) : values(new storage_type(init.begin(), init.end())) {}",
+        "    template <typename U> CPPPSet(const set<U>& init) : values(new storage_type()) { for (const auto& item : init) values->emplace(item); }",
+        "    template <typename It> CPPPSet(It first, It last) : values(new storage_type(first, last)) {}",
         "    iterator begin() { return values->begin(); } const_iterator begin() const { return values->begin(); } iterator end() { return values->end(); } const_iterator end() const { return values->end(); }",
         "    reverse_iterator rbegin() { return values->rbegin(); } const_reverse_iterator rbegin() const { return values->rbegin(); } reverse_iterator rend() { return values->rend(); } const_reverse_iterator rend() const { return values->rend(); }",
         "    bool empty() const { return values->empty(); } size_type size() const { return values->size(); } void clear() { values->clear(); }",
@@ -156,19 +158,21 @@ std::vector<std::string> sharedContainerSupport(
         "    iterator find(const T& key) { return values->find(key); } const_iterator find(const T& key) const { return values->find(key); }",
         "    iterator lower_bound(const T& key) { return values->lower_bound(key); } const_iterator lower_bound(const T& key) const { return values->lower_bound(key); }",
         "    iterator upper_bound(const T& key) { return values->upper_bound(key); } const_iterator upper_bound(const T& key) const { return values->upper_bound(key); }",
-        "    operator set<T>&() { return *values; } operator const set<T>&() const { return *values; }",
+        "    operator storage_type&() { return *values; } operator const storage_type&() const { return *values; }",
         "    friend bool operator==(const CPPPSet& a, const CPPPSet& b) { return *a.values == *b.values; } friend bool operator!=(const CPPPSet& a, const CPPPSet& b) { return !(a == b); }",
         "    friend bool operator<(const CPPPSet& a, const CPPPSet& b) { return *a.values < *b.values; } friend bool operator>(const CPPPSet& a, const CPPPSet& b) { return b < a; } friend bool operator<=(const CPPPSet& a, const CPPPSet& b) { return !(b < a); } friend bool operator>=(const CPPPSet& a, const CPPPSet& b) { return !(a < b); }",
         "};",
         "",
         "template <typename K, typename V>",
         "class CPPPMap {",
-        "    shared_ptr<map<K,V>> values;",
+        "    struct Compare { bool operator()(const K& left, const K& right) const { return left < right; } };",
+        "    using storage_type = map<K,V,Compare>;",
+        "    storage_type* values;",
         "public:",
-        "    using value_type = pair<const K,V>; using size_type = typename map<K,V>::size_type; using iterator = typename map<K,V>::iterator; using const_iterator = typename map<K,V>::const_iterator; using reverse_iterator = typename map<K,V>::reverse_iterator; using const_reverse_iterator = typename map<K,V>::const_reverse_iterator;",
-        "    CPPPMap() : values(make_shared<map<K,V>>()) {} CPPPMap(initializer_list<value_type> init) : values(make_shared<map<K,V>>(init)) {}",
-        "    CPPPMap(const map<K,V>& init) : values(make_shared<map<K,V>>(init)) {} CPPPMap(map<K,V>&& init) : values(make_shared<map<K,V>>(std::move(init))) {}",
-        "    template <typename It> CPPPMap(It first, It last) : values(make_shared<map<K,V>>(first, last)) {}",
+        "    using value_type = pair<const K,V>; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
+        "    CPPPMap() : values(new storage_type()) {} CPPPMap(initializer_list<value_type> init) : values(new storage_type(init)) {}",
+        "    CPPPMap(const map<K,V>& init) : values(new storage_type(init.begin(), init.end())) {} CPPPMap(map<K,V>&& init) : values(new storage_type(init.begin(), init.end())) {}",
+        "    template <typename It> CPPPMap(It first, It last) : values(new storage_type(first, last)) {}",
         "    iterator begin() { return values->begin(); } const_iterator begin() const { return values->begin(); } iterator end() { return values->end(); } const_iterator end() const { return values->end(); }",
         "    reverse_iterator rbegin() { return values->rbegin(); } const_reverse_iterator rbegin() const { return values->rbegin(); } reverse_iterator rend() { return values->rend(); } const_reverse_iterator rend() const { return values->rend(); }",
         "    bool empty() const { return values->empty(); } size_type size() const { return values->size(); } void clear() { values->clear(); }",
@@ -178,7 +182,7 @@ std::vector<std::string> sharedContainerSupport(
         "    iterator find(const K& key) { return values->find(key); } const_iterator find(const K& key) const { return values->find(key); }",
         "    iterator lower_bound(const K& key) { return values->lower_bound(key); } const_iterator lower_bound(const K& key) const { return values->lower_bound(key); }",
         "    iterator upper_bound(const K& key) { return values->upper_bound(key); } const_iterator upper_bound(const K& key) const { return values->upper_bound(key); }",
-        "    operator map<K,V>&() { return *values; } operator const map<K,V>&() const { return *values; }",
+        "    operator storage_type&() { return *values; } operator const storage_type&() const { return *values; }",
         "    friend bool operator==(const CPPPMap& a, const CPPPMap& b) { return *a.values == *b.values; } friend bool operator!=(const CPPPMap& a, const CPPPMap& b) { return !(a == b); }",
         "    friend bool operator<(const CPPPMap& a, const CPPPMap& b) { return *a.values < *b.values; } friend bool operator>(const CPPPMap& a, const CPPPMap& b) { return b < a; } friend bool operator<=(const CPPPMap& a, const CPPPMap& b) { return !(b < a); } friend bool operator>=(const CPPPMap& a, const CPPPMap& b) { return !(a < b); }",
         "};",
@@ -917,7 +921,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
 
 // typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.cpp module.
 std::vector<std::string> typeSupportPreamble() {
-    std::vector<std::string> preamble = sharedContainerSupport({"CPPPPair", "CPPPList", "CPPPSet", "CPPPMap"}, {"all"});
+    std::vector<std::string> preamble = containerSupport({"CPPPPair", "CPPPList", "CPPPSet", "CPPPMap"}, {"all"});
     for (const RuntimeHelper& helper : runtimeHelpers()) {
         preamble.insert(preamble.end(), helper.code.begin(), helper.code.end());
     }
@@ -1047,7 +1051,7 @@ std::vector<std::string> typeSupportPreambleForSubmit(
             if (line.find("CPPPMap<") != std::string::npos) containerTypes.insert("CPPPMap");
         }
     }
-    std::vector<std::string> preamble = sharedContainerSupport(containerTypes, containerMembers);
+    std::vector<std::string> preamble = containerSupport(containerTypes, containerMembers);
     for (const RuntimeHelper& helper : helpers) {
         if (resolvedHelpers.count(helper.name) == 0) {
             continue;
