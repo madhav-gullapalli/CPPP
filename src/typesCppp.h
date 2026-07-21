@@ -46,10 +46,20 @@ std::vector<RuntimeHelper> runtimeHelpers();
 // typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.h module.
 std::vector<std::string> typeSupportPreamble();
 // typeSupportPreambleForSubmit implements the typeSupportPreambleForSubmit behavior for the typesCppp.h module.
-std::vector<std::string> typeSupportPreambleForSubmit(const std::set<std::string>& requiredHelpers);
+std::vector<std::string> typeSupportPreambleForSubmit(
+    const std::set<std::string>& requiredHelpers,
+    const std::set<std::string>& requiredContainerTypes = {},
+    const std::set<std::string>& requiredContainerMembers = {}
+);
 void clearRequiredRuntimeHelpers();
 void requireRuntimeHelper(const std::string& helperName);
 const std::set<std::string>& requiredRuntimeHelpers();
+void requireCopyHelpersForType(const Type& type);
+void requirePrintHelpersForType(const Type& type);
+void setRuntimeRequirementOwner(const std::string& ownerKey);
+std::set<std::string> requiredRuntimeHelpersForOwners(const std::set<std::string>& ownerKeys);
+void requireStructMethod(const std::string& structName, const std::string& methodName);
+const std::set<std::string>& requiredStructMethods();
 // cppTypeForType implements the cppTypeForType behavior for the typesCppp.h module.
 std::string cppTypeForType(const Type& type);
 ParsedTypeResult parseDeclaredTypeTokens(

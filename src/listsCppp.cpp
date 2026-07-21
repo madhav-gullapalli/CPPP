@@ -121,7 +121,7 @@ bool emitTypedListLiteralAt(
     ++tokenIndex;
     if (tokenIndex < tokens.size() && tokens[tokenIndex].kind == TokenKind::RightBracket) {
         ++tokenIndex;
-        emittedValue = "vector<" + elementCppType + ">{}";
+        emittedValue = "CPPPList<" + elementCppType + ">{}";
         return true;
     }
 
@@ -269,7 +269,7 @@ bool emitTypedListLiteralAt(
 
         if (tokens[tokenIndex].kind == TokenKind::RightBracket) {
             ++tokenIndex;
-            emittedValue = "vector<" + elementCppType + ">{";
+            emittedValue = "CPPPList<" + elementCppType + ">{";
             for (size_t i = 0; i < elements.size(); ++i) {
                 if (i > 0) {
                     emittedValue += ", ";
@@ -301,11 +301,11 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListInsert",
             {
                 "template <typename T, typename U>",
-                "void CPPPListInsert(vector<T>& list, const U& value, long long index, int line, int column) {",
+                "void CPPPListInsert(CPPPList<T>& list, const U& value, long long index, int line, int column) {",
                 "    if (index < 0 || index > static_cast<long long>(list.size())) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
                 "    }",
-                "    list.insert(list.begin() + static_cast<typename vector<T>::difference_type>(index), value);",
+                "    list.insert(list.begin() + static_cast<typename CPPPList<T>::difference_type>(index), value);",
                 "}",
                 ""
             },
@@ -316,7 +316,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListPop",
             {
                 "template <typename T>",
-                "T CPPPListPop(vector<T>& list, int line, int column) {",
+                "T CPPPListPop(CPPPList<T>& list, int line, int column) {",
                 "    if (list.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot remove from empty list\");",
                 "    }",
@@ -333,11 +333,11 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListRemoveAt",
             {
                 "template <typename T>",
-                "T CPPPListRemoveAt(vector<T>& list, long long index, int line, int column) {",
+                "T CPPPListRemoveAt(CPPPList<T>& list, long long index, int line, int column) {",
                 "    if (index < 0 || index >= static_cast<long long>(list.size())) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
                 "    }",
-                "    auto iterator = list.begin() + static_cast<typename vector<T>::difference_type>(index);",
+                "    auto iterator = list.begin() + static_cast<typename CPPPList<T>::difference_type>(index);",
                 "    T value = *iterator;",
                 "    list.erase(iterator);",
                 "    return value;",
@@ -351,11 +351,11 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListSet",
             {
                 "template <typename T, typename U>",
-                "void CPPPListSet(vector<T>& list, long long index, const U& value, int line, int column) {",
+                "void CPPPListSet(CPPPList<T>& list, long long index, const U& value, int line, int column) {",
                 "    if (index < 0 || index >= static_cast<long long>(list.size())) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":invalid list index\");",
                 "    }",
-                "    list[static_cast<typename vector<T>::difference_type>(index)] = value;",
+                "    list[static_cast<typename CPPPList<T>::difference_type>(index)] = value;",
                 "}",
                 ""
             },
@@ -366,7 +366,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListAt",
             {
                 "template <typename T>",
-                "long long CPPPNormalizeListIndex(const vector<T>& list, long long index, int line, int column) {",
+                "long long CPPPNormalizeListIndex(const CPPPList<T>& list, long long index, int line, int column) {",
                 "    if (index < 0) {",
                 "        index += static_cast<long long>(list.size());",
                 "    }",
@@ -377,8 +377,8 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
                 "}",
                 "",
                 "template <typename T>",
-                "typename vector<T>::const_reference CPPPListAt(const vector<T>& list, long long index, int line, int column) {",
-                "    return list[static_cast<typename vector<T>::difference_type>(CPPPNormalizeListIndex(list, index, line, column))];",
+                "typename CPPPList<T>::const_reference CPPPListAt(const CPPPList<T>& list, long long index, int line, int column) {",
+                "    return list[static_cast<typename CPPPList<T>::difference_type>(CPPPNormalizeListIndex(list, index, line, column))];",
                 "}",
                 ""
             },
@@ -389,8 +389,8 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListRef",
             {
                 "template <typename T>",
-                "decltype(auto) CPPPListRef(vector<T>& list, long long index, int line, int column) {",
-                "    return list[static_cast<typename vector<T>::difference_type>(CPPPNormalizeListIndex(list, index, line, column))];",
+                "decltype(auto) CPPPListRef(CPPPList<T>& list, long long index, int line, int column) {",
+                "    return list[static_cast<typename CPPPList<T>::difference_type>(CPPPNormalizeListIndex(list, index, line, column))];",
                 "}",
                 ""
             },
@@ -401,7 +401,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListSlice",
             {
                 "template <typename T>",
-                "vector<T> CPPPListSlice(const vector<T>& list, long long start, long long end) {",
+                "CPPPList<T> CPPPListSlice(const CPPPList<T>& list, long long start, long long end) {",
                 "    const long long size = static_cast<long long>(list.size());",
                 "    if (start < 0) {",
                 "        start += size;",
@@ -414,9 +414,9 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
                 "    if (start >= end) {",
                 "        return {};",
                 "    }",
-                "    return vector<T>(",
-                "        list.begin() + static_cast<typename vector<T>::difference_type>(start),",
-                "        list.begin() + static_cast<typename vector<T>::difference_type>(end)",
+                "    return CPPPList<T>(",
+                "        list.begin() + static_cast<typename CPPPList<T>::difference_type>(start),",
+                "        list.begin() + static_cast<typename CPPPList<T>::difference_type>(end)",
                 "    );",
                 "}",
                 ""
@@ -428,7 +428,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListContainsSublist",
             {
                 "template <typename T>",
-                "bool CPPPListContainsSublist(const vector<T>& haystack, const vector<T>& needle) {",
+                "bool CPPPListContainsSublist(const CPPPList<T>& haystack, const CPPPList<T>& needle) {",
                 "    if (needle.empty()) {",
                 "        return true;",
                 "    }",
@@ -467,8 +467,8 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListFindValue",
             {
                 "template <typename T, typename U>",
-                "vector<long long> CPPPListFindValue(const vector<T>& haystack, const U& needle) {",
-                "    vector<long long> matches;",
+                "CPPPList<long long> CPPPListFindValue(const CPPPList<T>& haystack, const U& needle) {",
+                "    CPPPList<long long> matches;",
                 "    for (size_t i = 0; i < haystack.size(); ++i) {",
                 "        if (haystack[i] == needle) {",
                 "            matches.push_back(static_cast<long long>(i));",
@@ -485,8 +485,8 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListFindSublist",
             {
                 "template <typename T>",
-                "vector<long long> CPPPListFindSublist(const vector<T>& haystack, const vector<T>& needle) {",
-                "    vector<long long> matches;",
+                "CPPPList<long long> CPPPListFindSublist(const CPPPList<T>& haystack, const CPPPList<T>& needle) {",
+                "    CPPPList<long long> matches;",
                 "    if (needle.empty()) {",
                 "        for (size_t i = 0; i <= haystack.size(); ++i) {",
                 "            matches.push_back(static_cast<long long>(i));",
@@ -529,15 +529,15 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListSplitValue",
             {
                 "template <typename T, typename U>",
-                "vector<vector<T>> CPPPListSplitValue(const vector<T>& haystack, const U& needle) {",
-                "    vector<vector<T>> parts;",
-                "    vector<T> current;",
+                "CPPPList<CPPPList<T>> CPPPListSplitValue(const CPPPList<T>& haystack, const U& needle) {",
+                "    CPPPList<CPPPList<T>> parts;",
+                "    CPPPList<T> current;",
                 "    bool matched = false;",
                 "    for (const T& value : haystack) {",
                 "        if (value == needle) {",
                 "            matched = true;",
                 "            if (!current.empty()) {",
-                "                parts.push_back(current);",
+                "                parts.emplace_back(current.begin(), current.end());",
                 "                current.clear();",
                 "            }",
                 "        } else {",
@@ -545,7 +545,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
                 "        }",
                 "    }",
                 "    if (!current.empty() || !matched) {",
-                "        parts.push_back(current);",
+                "        parts.emplace_back(current.begin(), current.end());",
                 "    }",
                 "    return parts;",
                 "}",
@@ -558,11 +558,11 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListSplitSublist",
             {
                 "template <typename T>",
-                "vector<vector<T>> CPPPListSplitSublist(const vector<T>& haystack, const vector<T>& needle) {",
+                "CPPPList<CPPPList<T>> CPPPListSplitSublist(const CPPPList<T>& haystack, const CPPPList<T>& needle) {",
                 "    if (needle.empty()) {",
                 "        return {haystack};",
                 "    }",
-                "    vector<vector<T>> parts;",
+                "    CPPPList<CPPPList<T>> parts;",
                 "    auto start = haystack.begin();",
                 "    bool matched = false;",
                 "    while (true) {",
@@ -574,7 +574,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
                 "        if (start != found) {",
                 "            parts.emplace_back(start, found);",
                 "        }",
-                "        start = found + static_cast<typename vector<T>::difference_type>(needle.size());",
+                "        start = found + static_cast<typename CPPPList<T>::difference_type>(needle.size());",
                 "    }",
                 "    if (start != haystack.end() || !matched) {",
                 "        parts.emplace_back(start, haystack.end());",
@@ -590,7 +590,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListMin",
             {
                 "template <typename T>",
-                "typename vector<T>::const_reference CPPPListMin(const vector<T>& list, int line, int column) {",
+                "typename CPPPList<T>::const_reference CPPPListMin(const CPPPList<T>& list, int line, int column) {",
                 "    if (list.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take min of empty list\");",
                 "    }",
@@ -605,7 +605,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPListMax",
             {
                 "template <typename T>",
-                "typename vector<T>::const_reference CPPPListMax(const vector<T>& list, int line, int column) {",
+                "typename CPPPList<T>::const_reference CPPPListMax(const CPPPList<T>& list, int line, int column) {",
                 "    if (list.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take max of empty list\");",
                 "    }",
@@ -620,7 +620,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPSetRemove",
             {
                 "template <typename T, typename U>",
-                "T CPPPSetRemove(set<T>& values, const U& key, int line, int column) {",
+                "T CPPPSetRemove(CPPPSet<T>& values, const U& key, int line, int column) {",
                 "    T lookupKey = key;",
                 "    auto iterator = values.find(lookupKey);",
                 "    if (iterator == values.end()) {",
@@ -639,7 +639,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPSetMin",
             {
                 "template <typename T>",
-                "const T& CPPPSetMin(const set<T>& values, int line, int column) {",
+                "const T& CPPPSetMin(const CPPPSet<T>& values, int line, int column) {",
                 "    if (values.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take min of empty set\");",
                 "    }",
@@ -654,7 +654,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPSetMax",
             {
                 "template <typename T>",
-                "const T& CPPPSetMax(const set<T>& values, int line, int column) {",
+                "const T& CPPPSetMax(const CPPPSet<T>& values, int line, int column) {",
                 "    if (values.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take max of empty set\");",
                 "    }",
@@ -669,7 +669,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPSetPrev",
             {
                 "template <typename T, typename U>",
-                "const T& CPPPSetPrev(const set<T>& values, const U& key, int line, int column) {",
+                "const T& CPPPSetPrev(const CPPPSet<T>& values, const U& key, int line, int column) {",
                 "    T lookupKey = key;",
                 "    auto iterator = values.lower_bound(lookupKey);",
                 "    if (iterator == values.begin()) {",
@@ -687,7 +687,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPSetNext",
             {
                 "template <typename T, typename U>",
-                "const T& CPPPSetNext(const set<T>& values, const U& key, int line, int column) {",
+                "const T& CPPPSetNext(const CPPPSet<T>& values, const U& key, int line, int column) {",
                 "    T lookupKey = key;",
                 "    auto iterator = values.upper_bound(lookupKey);",
                 "    if (iterator == values.end()) {",
@@ -704,7 +704,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPMapRemove",
             {
                 "template <typename K, typename V, typename U>",
-                "V CPPPMapRemove(map<K, V>& values, const U& key, int line, int column) {",
+                "V CPPPMapRemove(CPPPMap<K, V>& values, const U& key, int line, int column) {",
                 "    K lookupKey = key;",
                 "    auto iterator = values.find(lookupKey);",
                 "    if (iterator == values.end()) {",
@@ -723,7 +723,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPMapMin",
             {
                 "template <typename K, typename V>",
-                "const K& CPPPMapMin(const map<K, V>& values, int line, int column) {",
+                "const K& CPPPMapMin(const CPPPMap<K, V>& values, int line, int column) {",
                 "    if (values.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take min of empty map\");",
                 "    }",
@@ -738,7 +738,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPMapMax",
             {
                 "template <typename K, typename V>",
-                "const K& CPPPMapMax(const map<K, V>& values, int line, int column) {",
+                "const K& CPPPMapMax(const CPPPMap<K, V>& values, int line, int column) {",
                 "    if (values.empty()) {",
                 "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take max of empty map\");",
                 "    }",
@@ -753,7 +753,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPMapAt",
             {
                 "template <typename K, typename V, typename U>",
-                "const V& CPPPMapAt(const map<K, V>& values, const U& key, int line, int column) {",
+                "const V& CPPPMapAt(const CPPPMap<K, V>& values, const U& key, int line, int column) {",
                 "    K lookupKey = key;",
                 "    auto iterator = values.find(lookupKey);",
                 "    if (iterator == values.end()) {",
@@ -770,7 +770,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPMapPrev",
             {
                 "template <typename K, typename V, typename U>",
-                "const K& CPPPMapPrev(const map<K, V>& values, const U& key, int line, int column) {",
+                "const K& CPPPMapPrev(const CPPPMap<K, V>& values, const U& key, int line, int column) {",
                 "    K lookupKey = key;",
                 "    auto iterator = values.lower_bound(lookupKey);",
                 "    if (iterator == values.begin()) {",
@@ -788,7 +788,7 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             "CPPPMapNext",
             {
                 "template <typename K, typename V, typename U>",
-                "const K& CPPPMapNext(const map<K, V>& values, const U& key, int line, int column) {",
+                "const K& CPPPMapNext(const CPPPMap<K, V>& values, const U& key, int line, int column) {",
                 "    K lookupKey = key;",
                 "    auto iterator = values.upper_bound(lookupKey);",
                 "    if (iterator == values.end()) {",

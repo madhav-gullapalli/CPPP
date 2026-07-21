@@ -45,6 +45,7 @@ struct GeneratedLine {
     std::string text;
     int sourceLine = 0;
     std::vector<SourceRange> sourceRanges;
+    std::string submitOwnerKey;
 };
 
 // Tracks whether a just-closed loop can attach a trailing `nobreak`.
@@ -85,6 +86,8 @@ struct CompileContext {
     bool inFunction = false;
     bool inStruct = false;
     std::string currentStructName;
+    std::string currentStructMethodName;
+    std::string currentTopLevelFunctionName;
     std::vector<std::string> currentStructFields;
     FunctionSignature currentFunction;
     std::map<std::string, Type> savedDeclaredVariables;
@@ -96,23 +99,31 @@ struct CompileContext {
 
     // Output that must live above generated functions and above main().
     void queueTopLevelLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
-        generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges)});
+        const std::string ownerKey = currentStructMethodName.empty()
+            ? (currentStructName.empty() ? "" : "struct:" + currentStructName)
+            : "method:" + currentStructName + "." + currentStructMethodName;
+        generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
     }
 
     // Output for emitted user-defined function bodies.
     void queueFunctionLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
-        generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
+        const std::string ownerKey = currentTopLevelFunctionName.empty() ? "" : "function:" + currentTopLevelFunctionName;
+        generatedFunctionLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
     }
 
     // Default queue used during statement lowering. The current OutputTarget
     // decides whether the line lands in a function body or generated main().
     void queueGeneratedLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         if (outputTarget == OutputTarget::Function) {
-            generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
+            const std::string ownerKey = currentTopLevelFunctionName.empty() ? "" : "function:" + currentTopLevelFunctionName;
+            generatedFunctionLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
         } else if (outputTarget == OutputTarget::TopLevel) {
-            generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges)});
+            const std::string ownerKey = currentStructMethodName.empty()
+                ? (currentStructName.empty() ? "" : "struct:" + currentStructName)
+                : "method:" + currentStructName + "." + currentStructMethodName;
+            generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
         } else {
-            generatedMainLines.push_back({text, sourceLine, std::move(ranges)});
+            generatedMainLines.push_back({text, sourceLine, std::move(ranges), ""});
         }
     }
 

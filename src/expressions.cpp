@@ -109,7 +109,7 @@ std::string emitPairInputExpression(const Type& type) {
         return "";
     }
 
-    return "make_pair(" + first + ", " + second + ")";
+    return "CPPPPair<" + cppTypeForType(type.subtypes[0]) + ", " + cppTypeForType(type.subtypes[1]) + ">(" + first + ", " + second + ")";
 }
 
 std::string castLambdaExpression(const Type& from, const Type& to) {
@@ -469,9 +469,9 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
             return expression;
         case PrimitiveType::Pair:
             if (isPairType(from)) {
-                return "make_pair(" +
-                    castExpressionTo("(" + expression + ").first", from.subtypes[0], to.subtypes[0]) + ", " +
-                    castExpressionTo("(" + expression + ").second", from.subtypes[1], to.subtypes[1]) + ")";
+                return "CPPPPair<" + cppTypeForType(to.subtypes[0]) + ", " + cppTypeForType(to.subtypes[1]) + ">(" +
+                    castExpressionTo("(" + expression + ").first()", from.subtypes[0], to.subtypes[0]) + ", " +
+                    castExpressionTo("(" + expression + ").second()", from.subtypes[1], to.subtypes[1]) + ")";
             }
             return expression;
     }
@@ -603,7 +603,7 @@ std::string cppTypeForInput(const Type& type) {
         if (first.empty() || second.empty()) {
             return "";
         }
-        return "pair<" + first + ", " + second + ">";
+        return "CPPPPair<" + first + ", " + second + ">";
     }
     return "";
 }

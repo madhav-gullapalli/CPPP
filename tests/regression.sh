@@ -42,7 +42,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=23
+TOTAL_STEPS=24
 CURRENT_STEP=0
 
 progress() {
@@ -192,12 +192,25 @@ assert_not_contains "${int_to_bool_case%.cppp}.cpp" "CPPPToBoolFloat" "submit pr
 assert_not_contains "${int_to_bool_case%.cppp}.cpp" "CPPPToBoolChar" "submit prunes unused char-to-bool helper"
 pass "submit mode keeps only required typed bool helper"
 
+progress "submit dead-code pruning"
+submit_dead_code_case="$(stage_case "$TEST_DIR/submit_dead_code.cppp")"
+run_submit_ok "$submit_dead_code_case" "$LOG_DIR/submit_dead_code.log" "submit dead-code case builds"
+assert_contains "${submit_dead_code_case%.cppp}.cpp" "long long keep()" "submit keeps the used method"
+assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "long long discard()" "submit prunes an unused sibling method"
+assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "struct Unused" "submit prunes an unused struct"
+assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "unusedFunction" "submit prunes an unreachable function"
+assert_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPPair {" "submit keeps the used Pair runtime class"
+assert_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPList {" "submit keeps the used List runtime class"
+assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPSet {" "submit prunes the unused Set runtime class"
+assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPMap {" "submit prunes the unused Map runtime class"
+pass "submit mode prunes unused functions, structs, methods, and runtime classes"
+
 progress "list literal truthiness"
 list_truthiness_case="$(stage_case "$TEST_DIR/list_truthiness.cppp")"
 run_submit_ok "$list_truthiness_case" "$LOG_DIR/list_truthiness.log" "list truthiness submit builds"
 assert_contains "${list_truthiness_case%.cppp}.cpp" "if ((!(even).empty()))" "named list truthiness lowers to emptiness check"
-assert_contains "${list_truthiness_case%.cppp}.cpp" "if ((!(vector<long long>{1}).empty()))" "list literal truthiness lowers inline"
-assert_contains "${list_truthiness_case%.cppp}.cpp" "vector<vector<long long>> grid = vector<vector<long long>>{vector<long long>{1, 2}, vector<long long>{3}};" "nested list literal lowers correctly"
+assert_contains "${list_truthiness_case%.cppp}.cpp" "if ((!(CPPPList<long long>{1}).empty()))" "list literal truthiness lowers inline"
+assert_contains "${list_truthiness_case%.cppp}.cpp" "CPPPList<CPPPList<long long>> grid = CPPPList<CPPPList<long long>>{CPPPList<long long>{1, 2}, CPPPList<long long>{3}};" "nested list literal lowers correctly"
 pass "list literals and truthiness regressions are covered"
 
 progress "list literal mismatch"

@@ -547,10 +547,9 @@ PrintEmitResult emitPrintStatement(
         const bool delimitedArgument = (isListType(expression.type) && !stringArgument) || isSetType(expression.type) || (stringArgument && hasDelim);
         const bool helperArgument = delimitedArgument || isMapType(expression.type) || isPairType(expression.type) || isStructType(expression.type);
         if (helperArgument) {
+            requirePrintHelpersForType(expression.type);
             if (hasDelim) {
                 requireRuntimeHelper("CPPPPrintDelimited");
-            } else {
-                requireRuntimeHelper("CPPPPrintValue");
             }
             if (printedTypeNeedsStringHelper(expression.type) || delimNeedsStringHelper) {
                 requireRuntimeHelper("CPPPPrintValueString");
@@ -643,7 +642,7 @@ PrintEmitResult emitDescribeStatement(
     }
 
     const std::string label = escapeForCppStringLiteral(trim(argument.valueText));
-    requireRuntimeHelper("CPPPPrintValue");
+    requirePrintHelpersForType(expression.type);
     if (printedTypeNeedsStringHelper(expression.type)) {
         requireRuntimeHelper("CPPPPrintValueString");
     }

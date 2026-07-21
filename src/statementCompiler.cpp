@@ -147,6 +147,12 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
     for (const SourceFragment& fragment : sourceFragments) {
+        const std::string requirementOwner = !context.currentStructMethodName.empty()
+            ? "method:" + context.currentStructName + "." + context.currentStructMethodName
+            : (!context.currentStructName.empty()
+                ? "struct:" + context.currentStructName
+                : (context.currentTopLevelFunctionName.empty() ? "" : "function:" + context.currentTopLevelFunctionName));
+        setRuntimeRequirementOwner(requirementOwner);
         const int lineNumber = fragment.lineNumber;
         const std::string& line = fragment.text;
         const size_t commentStart = findLineCommentStart(line);
@@ -225,7 +231,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     if (i > 0) {
                         constructor += ", ";
                     }
-                    constructor += fieldName + "(move(value_" + fieldName + "))";
+                    constructor += fieldName + "(std::move(value_" + fieldName + "))";
                     ++i;
                 }
                 constructor += " {}";
@@ -235,23 +241,14 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             const auto& fieldOrder = context.declaredStructFieldOrders[context.currentStructName];
             context.queueTopLevelLine("    " + context.currentStructName + "(const " + context.currentStructName + "& other) {", lineNumber);
             for (const std::string& fieldName : fieldOrder) {
-                const Type& fieldType = fields.at(fieldName);
-                if (isStructType(fieldType)) {
-                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + " ? make_unique<" + fieldType.name + ">(*other." + fieldName + ") : nullptr;", lineNumber);
-                } else {
-                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
-                }
+                requireCopyHelpersForType(fields.at(fieldName));
+                context.queueTopLevelLine("        " + fieldName + " = CPPPCopy(other." + fieldName + ");", lineNumber);
             }
             context.queueTopLevelLine("    }", lineNumber);
             context.queueTopLevelLine("    " + context.currentStructName + "& operator=(const " + context.currentStructName + "& other) {", lineNumber);
             context.queueTopLevelLine("        if (this == &other) return *this;", lineNumber);
             for (const std::string& fieldName : fieldOrder) {
-                const Type& fieldType = fields.at(fieldName);
-                if (isStructType(fieldType)) {
-                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + " ? make_unique<" + fieldType.name + ">(*other." + fieldName + ") : nullptr;", lineNumber);
-                } else {
-                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
-                }
+                context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
             }
             context.queueTopLevelLine("        return *this;", lineNumber);
             context.queueTopLevelLine("    }", lineNumber);
@@ -268,12 +265,17 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 if (isStructType(fieldType)) {
                     equal += "((" + fieldName + " && other." + fieldName + ") ? (*" + fieldName + " == *other." + fieldName + ") : (!" + fieldName + " && !other." + fieldName + "))";
                 } else {
+                    if (isCollectionType(fieldType) || isPairType(fieldType)) {
+                        requireRuntimeHelper("CPPPContainerCompare");
+                    }
                     equal += fieldName + " == other." + fieldName;
                 }
             }
             equal += "; }";
             context.queueTopLevelLine(equal, lineNumber);
-            requireRuntimeHelper("CPPPPrintValue");
+            for (const std::string& fieldName : fieldOrder) {
+                requirePrintHelpersForType(fields.at(fieldName));
+            }
             context.queueTopLevelLine("    friend ostream& operator<<(ostream& output, const " + context.currentStructName + "& value) {", lineNumber);
             context.queueTopLevelLine("        output << '{';", lineNumber);
             fieldIndex = 0;
@@ -315,6 +317,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                         continue;
                     }
                     context.declaredStructMethods[context.currentStructName][methodHeader.signature.name] = methodHeader.signature;
+                    context.currentStructMethodName = methodHeader.signature.name;
                     context.queueTopLevelLine("    " + methodHeader.generatedSignature, lineNumber);
                     context.savedDeclaredVariables = context.declaredVariables;
                     context.declaredVariables = context.declaredStructs[context.currentStructName];
@@ -390,6 +393,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     continue;
                 }
                 context.declaredFunctions[functionHeader.signature.name] = functionHeader.signature;
+                context.currentTopLevelFunctionName = functionHeader.signature.name;
                 context.queueFunctionLine(functionHeader.generatedSignature + (hasComment ? " " + commentText : ""), lineNumber);
                 context.savedDeclaredVariables = context.declaredVariables;
                 context.declaredVariables.clear();
@@ -549,6 +553,11 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     context.declaredVariables = context.savedDeclaredVariables;
                     context.savedDeclaredVariables.clear();
                     context.currentFunction = FunctionSignature{};
+                    if (context.inStruct) {
+                        context.currentStructMethodName.clear();
+                    } else {
+                        context.currentTopLevelFunctionName.clear();
+                    }
                     context.canAttachElse = false;
                     context.pendingLoopElse.active = false;
                     context.pendingLoopElse.breakFlagName.clear();

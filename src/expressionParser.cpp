@@ -31,26 +31,26 @@ std::string cppTypeForExpressionType(const Type& type) {
             return "CPPPRange";
         case PrimitiveType::List:
             if (type.subtypes.size() == 1) {
-                return "vector<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
+                return "CPPPList<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
             }
             return "";
         case PrimitiveType::Set:
             if (type.subtypes.size() == 1) {
-                return "set<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
+                return "CPPPSet<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
             }
             return "";
         case PrimitiveType::Map:
             if (type.subtypes.size() == 2) {
-                return "map<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
+                return "CPPPMap<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
             }
             return "";
         case PrimitiveType::Pair:
             if (type.subtypes.size() == 2) {
-                return "pair<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
+                return "CPPPPair<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
             }
             return "";
         case PrimitiveType::Struct:
-            return "unique_ptr<" + type.name + ">";
+            return "shared_ptr<" + type.name + ">";
         case PrimitiveType::Unknown:
             return "";
     }
@@ -527,6 +527,20 @@ private:
                 return false;
             }
             expr.inferredType = PrimitiveType::Int;
+            return true;
+        }
+
+        if (expr.callee == "copy") {
+            if (expr.receiver || expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "copy must be called as copy(value)");
+                return false;
+            }
+            if (expr.arguments[0]->inferredType == PrimitiveType::Unknown ||
+                expr.arguments[0]->inferredType == PrimitiveType::Void) {
+                report(expr.arguments[0]->sourceColumn, "copy() needs a value with an unambiguous type");
+                return false;
+            }
+            expr.inferredType = expr.arguments[0]->inferredType;
             return true;
         }
 
@@ -1180,7 +1194,8 @@ private:
     std::string concatenatedListExpression(const BinaryExpr& expr) const {
         const std::string left = generate(*expr.left);
         const std::string right = generate(*expr.right);
-        return "([&]() { auto __cppp_left = " + left + "; auto __cppp_right = " + right +
+        const std::string elementType = cppTypeForExpressionType(expr.inferredType.subtypes[0]);
+        return "([&]() { const auto& __cppp_left_source = " + left + "; CPPPList<" + elementType + "> __cppp_left(__cppp_left_source.begin(), __cppp_left_source.end()); auto __cppp_right = " + right +
             "; __cppp_left.insert(__cppp_left.end(), __cppp_right.begin(), __cppp_right.end()); return __cppp_left; }())";
     }
 
@@ -1223,6 +1238,11 @@ private:
     std::string generateBinary(const BinaryExpr& expr) const {
         const std::string left = generate(*expr.left);
         const std::string right = generate(*expr.right);
+
+        if ((isCollectionType(expr.left->inferredType) || isPairType(expr.left->inferredType)) &&
+            (expr.op == "==" || expr.op == "!=" || expr.op == "<" || expr.op == ">" || expr.op == "<=" || expr.op == ">=")) {
+            requireRuntimeHelper("CPPPContainerCompare");
+        }
 
         if (expr.op == "in") {
             if (isRangeType(expr.right->inferredType)) {
@@ -1297,10 +1317,17 @@ private:
     std::string generateCall(const CallExpr& expr) const {
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const std::string receiver = generate(*expr.receiver);
+            requireStructMethod(expr.receiver->inferredType.name, expr.callee);
+            const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             std::string call = "(" + receiver + ")->" + expr.callee + "(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) call += ", ";
-                call += generate(*expr.arguments[i]);
+                std::string argument = generate(*expr.arguments[i]);
+                if (method != nullptr && method->parameters[i].deepCopy) {
+                    requireCopyHelpersForType(method->parameters[i].type);
+                    argument = "CPPPCopy(" + argument + ")";
+                }
+                call += argument;
             }
             call += ")";
             if (!emitRuntimeChecks) {
@@ -1312,21 +1339,12 @@ private:
         }
         const Type constructedType = declaredTypeForName(expr.callee);
         if (isStructType(constructedType) && !expr.receiver) {
-            const std::map<std::string, Type>* fields = declaredStructFieldsForName(constructedType.name);
-            const std::vector<std::string>* fieldOrder = declaredStructFieldOrderForName(constructedType.name);
-            std::string generated = "make_unique<" + constructedType.name + ">(";
+            std::string generated = "make_shared<" + constructedType.name + ">(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) {
                     generated += ", ";
                 }
                 std::string argument = generate(*expr.arguments[i]);
-                const auto field = (fields == nullptr || fieldOrder == nullptr || i >= fieldOrder->size()) ? std::map<std::string, Type>::const_iterator{} : fields->find((*fieldOrder)[i]);
-                const auto* literal = dynamic_cast<const LiteralExpr*>(expr.arguments[i].get());
-                if (fields != nullptr && field != fields->end() && isStructType(field->second) &&
-                    !(literal != nullptr && literal->kind == LiteralExpr::Kind::Null)) {
-                    requireRuntimeHelper("CPPPStructClone");
-                    argument = "CPPPStructClone(" + argument + ")";
-                }
                 generated += argument;
             }
             return generated + ")";
@@ -1334,6 +1352,11 @@ private:
 
         if (expr.callee == "len") {
             return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
+        }
+
+        if (expr.callee == "copy") {
+            requireCopyHelpersForType(expr.arguments[0]->inferredType);
+            return "CPPPCopy(" + generate(*expr.arguments[0]) + ")";
         }
 
         if (expr.callee == "remove") {
@@ -1568,6 +1591,10 @@ private:
                 if (expr.arguments[i]->inferredType != parameterType) {
                     argument = castExpressionTo(argument, expr.arguments[i]->inferredType, parameterType);
                 }
+                if (function->second.parameters[i].deepCopy) {
+                    requireCopyHelpersForType(function->second.parameters[i].type);
+                    argument = "CPPPCopy(" + argument + ")";
+                }
             }
             generated += argument;
         }
@@ -1590,7 +1617,7 @@ private:
         }
         if (isPairType(expr.base->inferredType)) {
             const auto* literal = dynamic_cast<const LiteralExpr*>(expr.index.get());
-            return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first" : "second") + ")";
+            return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
         }
         const Type keyType = expr.base->inferredType.subtypes[0];
         if (!isImplicitlyConvertible(expr.index->inferredType, keyType) || expr.index->inferredType != keyType) {
@@ -1619,7 +1646,7 @@ private:
             }
             if (isPairType(index->base->inferredType)) {
                 const auto* literal = dynamic_cast<const LiteralExpr*>(index->index.get());
-                return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first" : "second") + ")";
+                return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
             }
             const Type keyType = index->base->inferredType.subtypes[0];
             if (!isImplicitlyConvertible(index->index->inferredType, keyType) || index->index->inferredType != keyType) {
@@ -1643,13 +1670,13 @@ private:
             requireRuntimeHelper("CPPPListSlice");
             return "CPPPListSlice(" + base + ", " + start + ", " + end + ")";
         }
-        return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<vector<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
+        return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
     }
 
 // generateListLiteral implements the generateListLiteral behavior for the expressionParser.cpp module.
     std::string generateListLiteral(const ListLiteralExpr& expr) const {
         const Type elementType = expr.inferredType.subtypes[0];
-        std::string generated = "vector<" + cppTypeForExpressionType(elementType) + ">{";
+        std::string generated = "CPPPList<" + cppTypeForExpressionType(elementType) + ">{";
         for (size_t i = 0; i < expr.elements.size(); ++i) {
             if (i > 0) {
                 generated += ", ";
@@ -1666,7 +1693,7 @@ private:
 
     std::string generateSetLiteral(const SetLiteralExpr& expr) const {
         const Type elementType = expr.inferredType.subtypes[0];
-        std::string generated = "set<" + cppTypeForExpressionType(elementType) + ">{";
+        std::string generated = "CPPPSet<" + cppTypeForExpressionType(elementType) + ">{";
         for (size_t i = 0; i < expr.elements.size(); ++i) {
             if (i > 0) {
                 generated += ", ";
@@ -1684,7 +1711,7 @@ private:
     std::string generateMapLiteral(const MapLiteralExpr& expr) const {
         const Type keyType = expr.inferredType.subtypes[0];
         const Type valueType = expr.inferredType.subtypes[1];
-        std::string generated = "map<" + cppTypeForExpressionType(keyType) + ", " + cppTypeForExpressionType(valueType) + ">{";
+        std::string generated = "CPPPMap<" + cppTypeForExpressionType(keyType) + ", " + cppTypeForExpressionType(valueType) + ">{";
         for (size_t i = 0; i < expr.entries.size(); ++i) {
             if (i > 0) {
                 generated += ", ";
@@ -1704,7 +1731,7 @@ private:
     }
 
     std::string generatePairLiteral(const PairLiteralExpr& expr) const {
-        return "make_pair(" + generate(*expr.first) + ", " + generate(*expr.second) + ")";
+        return "CPPPPair<" + cppTypeForExpressionType(expr.first->inferredType) + ", " + cppTypeForExpressionType(expr.second->inferredType) + ">(" + generate(*expr.first) + ", " + generate(*expr.second) + ")";
     }
 
     std::string generateField(const FieldExpr& expr) const {
@@ -1742,7 +1769,7 @@ std::string generateMutableAccessExpression(
         }
         if (isPairType(index->base->inferredType)) {
             const auto* literal = dynamic_cast<const LiteralExpr*>(index->index.get());
-            return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first" : "second") + ")";
+            return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
         }
         const Type keyType = index->base->inferredType.subtypes[0];
         if (!isImplicitlyConvertible(index->index->inferredType, keyType) || index->index->inferredType != keyType) {
@@ -2483,6 +2510,15 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
         }
         if (identifier.text == "split") {
             report(identifier, "split must be called as list.split(delimiter)");
+            ok = false;
+            return nullptr;
+        }
+        if (identifier.text == "copy" &&
+            check(TokenKind::LeftParen) &&
+            current + 2 < tokens.size() &&
+            tokens[current + 1].kind == TokenKind::LeftBracket &&
+            tokens[current + 2].kind == TokenKind::RightBracket) {
+            report(tokens[current + 1], "copy() cannot infer the type of an empty list; declare the list type first");
             ok = false;
             return nullptr;
         }

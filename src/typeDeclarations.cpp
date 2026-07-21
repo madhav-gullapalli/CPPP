@@ -148,7 +148,7 @@ const std::map<std::string, TypeInfo>& primitiveTypes() {
         {"char", {"CPPPChar", "CPPPChar()"}},
         {"float", {"long double", "0.0L"}},
         {"range", {"CPPPRange", "CPPPRange()"}},
-        {"string", {"vector<CPPPChar>", "{}"}},
+        {"string", {"CPPPList<CPPPChar>", "{}"}},
     };
 
     return types;
@@ -196,7 +196,7 @@ TypeInfo typeInfoFor(const Type& type) {
         if (subtypeInfo.cppType.empty()) {
             return {"", ""};
         }
-        return {"vector<" + subtypeInfo.cppType + ">", "{}"};
+        return {"CPPPList<" + subtypeInfo.cppType + ">", "{}"};
     }
 
     if (isSetType(type)) {
@@ -204,7 +204,7 @@ TypeInfo typeInfoFor(const Type& type) {
         if (subtypeInfo.cppType.empty()) {
             return {"", ""};
         }
-        return {"set<" + subtypeInfo.cppType + ">", "{}"};
+        return {"CPPPSet<" + subtypeInfo.cppType + ">", "{}"};
     }
 
     if (isMapType(type)) {
@@ -213,7 +213,7 @@ TypeInfo typeInfoFor(const Type& type) {
         if (keyInfo.cppType.empty() || valueInfo.cppType.empty()) {
             return {"", ""};
         }
-        return {"map<" + keyInfo.cppType + ", " + valueInfo.cppType + ">", "{}"};
+        return {"CPPPMap<" + keyInfo.cppType + ", " + valueInfo.cppType + ">", "{}"};
     }
 
     if (isPairType(type)) {
@@ -222,11 +222,11 @@ TypeInfo typeInfoFor(const Type& type) {
         if (firstInfo.cppType.empty() || secondInfo.cppType.empty()) {
             return {"", ""};
         }
-        return {"pair<" + firstInfo.cppType + ", " + secondInfo.cppType + ">", "{" + firstInfo.defaultValue + ", " + secondInfo.defaultValue + "}"};
+        return {"CPPPPair<" + firstInfo.cppType + ", " + secondInfo.cppType + ">", "{" + firstInfo.defaultValue + ", " + secondInfo.defaultValue + "}"};
     }
 
     if (isStructType(type)) {
-        return {"unique_ptr<" + type.name + ">", "nullptr"};
+        return {"shared_ptr<" + type.name + ">", "nullptr"};
     }
 
     const auto primitive = primitiveTypes().find(cpppTypeName(type));
@@ -293,7 +293,7 @@ bool emitTypedListLiteralAt(
     std::vector<std::string> elements;
     if (tokenIndex < tokens.size() && tokens[tokenIndex].kind == TokenKind::RightBracket) {
         ++tokenIndex;
-        emittedValue = "vector<" + elementInfo.cppType + ">{}";
+        emittedValue = "CPPPList<" + elementInfo.cppType + ">{}";
         return true;
     }
 
@@ -421,7 +421,7 @@ bool emitTypedListLiteralAt(
 
         if (tokens[tokenIndex].kind == TokenKind::RightBracket) {
             ++tokenIndex;
-            emittedValue = "vector<" + elementInfo.cppType + ">{";
+            emittedValue = "CPPPList<" + elementInfo.cppType + ">{";
             for (size_t i = 0; i < elements.size(); ++i) {
                 if (i > 0) {
                     emittedValue += ", ";
@@ -1465,8 +1465,6 @@ TypeEmitResult emitTypeDeclaration(
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
-            requireRuntimeHelper("CPPPStructClone");
-            emittedValue = "CPPPStructClone(" + emittedValue + ")";
         } else if (targetType == PrimitiveType::Range) {
             if (!finishExpressionAssignment(
                     inputFile,

@@ -971,6 +971,30 @@ pair reassignment
   Output:
     (3,5)
 
+pair assignment aliases output
+  Assigning a Pair aliases the same two element slots.
+
+  Example:
+    Pair<int, int> first = (1,2);
+    Pair<int, int> second = first;
+    second[0] = 9;
+    print(first, second);
+
+  Output:
+    (9,2) (9,2)
+
+copy Pair output
+  copy() creates an independent deep copy of a Pair and its elements.
+
+  Example:
+    Pair<int, List<int>> first = (1,[2, 3]);
+    Pair<int, List<int>> second = copy(first);
+    second[1][0] = 8;
+    print(first, second);
+
+  Output:
+    (1,[2, 3]) (1,[8, 3])
+
 pair lvalue updates
   Pair elements behave like ordinary mutable variables, even when nested.
 
@@ -2747,9 +2771,9 @@ alphabet from char and range
 Synthesis tests
 ---------------
 
-struct fields, deep copies, and recursive links output
-  Structs expose public fields, copy deeply, and may hold a recursive struct
-  link that defaults to NULL.
+struct fields, aliases, and recursive links output
+  Structs expose public fields, assignment aliases an existing struct, and may
+  hold a recursive struct link that defaults to NULL.
 
   Example:
     struct Point {
@@ -2777,9 +2801,9 @@ struct fields, deep copies, and recursive links output
     print(head);
 
   Output:
-    {x: 2, y: 3}
     {x: 9, y: 3}
-    {corner: {x: 2, y: 3}, side: 7}
+    {x: 9, y: 3}
+    {corner: {x: 9, y: 3}, side: 7}
     {value: 1, next: {value: 3, next: NULL}}
 
 struct equality output
@@ -2894,6 +2918,245 @@ LinkedList struct synthesis output
   Output:
     10 20 3
     20 30 2
+
+DoublyLinkedList shared recursive links output
+  Shared struct links allow a doubly linked list to maintain both next and
+  prev links while add, remove, and get update the list consistently.
+
+  Example:
+    struct Node {
+        int val;
+        Node next;
+        Node prev;
+    }
+    struct DoublyLinkedList {
+        Node head;
+        Node tail;
+        int size;
+        void add(int x, int loc) {
+            if (size == 0) {
+                Node node = Node(x, NULL, NULL);
+                head = node;
+                tail = node;
+                size++;
+                return;
+            }
+            if (loc == 0) {
+                Node node = Node(x, head, NULL);
+                head.prev = node;
+                head = node;
+                size++;
+                return;
+            }
+            if (loc == size) {
+                Node node = Node(x, NULL, tail);
+                tail.next = node;
+                tail = node;
+                size++;
+                return;
+            }
+            Node current = head;
+            int index = 0;
+            while (index < loc - 1) {
+                current = current.next;
+                index++;
+            }
+            Node node = Node(x, current.next, current);
+            current.next.prev = node;
+            current.next = node;
+            size++;
+        }
+        int remove(int loc) {
+            Node current = head;
+            int index = 0;
+            while (index < loc) {
+                current = current.next;
+                index++;
+            }
+            int removed = current.val;
+            if (current.prev == NULL) {
+                head = current.next;
+            } else {
+                current.prev.next = current.next;
+            }
+            if (current.next == NULL) {
+                tail = current.prev;
+            } else {
+                current.next.prev = current.prev;
+            }
+            size--;
+            return removed;
+        }
+        int get(int loc) {
+            Node current = head;
+            int index = 0;
+            while (index < loc) {
+                current = current.next;
+                index++;
+            }
+            return current.val;
+        }
+    }
+    DoublyLinkedList list = DoublyLinkedList(NULL, NULL, 0);
+    list.add(10, 0);
+    list.add(30, 1);
+    list.add(20, 1);
+    print(list.get(0), list.get(1), list.get(2), list.size);
+    print(list.head.next.prev.val, list.tail.prev.val);
+    print(list.remove(1), list.get(1), list.head.next.prev.val, list.size);
+
+  Output:
+    10 20 30 3
+    10 20
+    20 30 10 2
+
+List assignment aliases output
+  Assigning a List shares its outer storage, so mutations through either name
+  are visible through both names.
+
+  Example:
+    List<int> first = [1, 2];
+    List<int> second = first;
+    second[0] = 9;
+    second.add(3);
+    print(first, second);
+
+  Output:
+    [9, 2, 3] [9, 2, 3]
+
+nested List and Set assignment aliases output
+  Aliasing applies recursively to nested Lists and Sets.
+
+  Example:
+    Set<int> inner = {1, 2};
+    List<Set<int>> first = [inner];
+    List<Set<int>> second = first;
+    second[0].add(3);
+    print(first, second);
+
+  Output:
+    [{1, 2, 3}] [{1, 2, 3}]
+
+shallow List string copy output
+  A new outer List literal can copy string references without copying the
+  strings themselves.
+
+  Example:
+    List<string> words = ["cat", "dog"];
+    List<string> shallow = [words[0], words[1]];
+    shallow[0][0] = 'b';
+    shallow.add("owl");
+    print(words, shallow);
+
+  Output:
+    [bat, dog] [bat, dog, owl]
+
+copy List output
+  copy(list) recursively duplicates the List so later mutations are isolated.
+
+  Example:
+    List<int> first = [1, 2];
+    List<int> second = copy(first);
+    second[0] = 9;
+    print(first, second);
+
+  Output:
+    [1, 2] [9, 2]
+
+copy nested List output
+  copy() is deep, including nested containers.
+
+  Example:
+    List<List<int>> first = [[1], [2]];
+    List<List<int>> second = copy(first);
+    second[0][0] = 8;
+    print(first, second);
+
+  Output:
+    [[1], [2]] [[8], [2]]
+
+copy int output
+  copy() accepts primitives, although ordinary primitive assignment already
+  copies by value.
+
+  Example:
+    int first = 4;
+    int second = copy(first);
+    second = 7;
+    print(first, second);
+
+  Output:
+    4 7
+
+copy Map output
+  copy() duplicates Map storage and deeply copies mapped containers.
+
+  Example:
+    Map<int, List<int>> first = {1:[2, 3]};
+    Map<int, List<int>> second = copy(first);
+    second[1][0] = 9;
+    second[2] = [4];
+    print(first, second);
+
+  Output:
+    {1:[2, 3]} {1:[9, 3], 2:[4]}
+
+copy custom struct output
+  copy() recursively duplicates a custom struct and its container fields.
+
+  Example:
+    struct Box {
+        int value;
+        List<int> items;
+    }
+    Box first = Box(3, [4, 5]);
+    Box second = copy(first);
+    second.value = 8;
+    second.items[0] = 9;
+    print(first, second);
+
+  Output:
+    {value: 3, items: [4, 5]} {value: 8, items: [9, 5]}
+
+copy recursive struct output
+  copy() follows non-circular recursive struct links and duplicates every node.
+
+  Example:
+    struct Node {
+        int value;
+        Node next;
+    }
+    Node tail = Node(2, NULL);
+    Node head = Node(1, tail);
+    Node copied = copy(head);
+    copied.next.value = 9;
+    print(head, copied);
+
+  Output:
+    {value: 1, next: {value: 2, next: NULL}} {value: 1, next: {value: 9, next: NULL}}
+
+copy inferred var output
+  var infers the result type returned by copy().
+
+  Example:
+    List<int> first = [1, 2];
+    var second = copy(first);
+    second[1] = 7;
+    print(first, second);
+
+  Output:
+    [1, 2] [1, 7]
+
+copy literal output
+  copy() accepts typed non-empty literals directly.
+
+  Example:
+    var values = copy([1, 2]);
+    values[0] = 6;
+    print(values);
+
+  Output:
+    [6, 2]
 
 two sum with Map
   Use a Map<int, int> for the standard O(n log n) seen-value solution.

@@ -138,7 +138,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `Point p = Point(2, 3);`, `Point empty;`
 - What it does: Constructs a struct from its fields, or declares a null struct when no constructor value is supplied.
-- Notes: A constructed struct lowers to a `unique_ptr` allocated with `make_unique`. A default-initialized struct is `NULL`. Constructor arguments must match field types and declaration order.
+- Notes: A constructed struct lowers to a `shared_ptr` allocated with `make_shared`. A default-initialized struct is `NULL`. Constructor arguments must match field types and declaration order.
 - Complexity: O(number of fields), excluding recursive container-copy cost.
 
 ### Struct fields
@@ -158,12 +158,16 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Method arguments must match their declared types. Methods may read and update the receiver's fields directly. Calling a method on `NULL` is a runtime error.
 - Complexity: The complexity of the method body.
 
-### Struct copying and reassignment
+In `--submit` output, reachability is tracked at function granularity. Unused
+struct methods, entirely unused structs, and unreachable top-level functions
+are omitted; methods and functions reached from retained code remain available.
 
-- Syntax: `Point copy = original;`, `copy = original;`
-- What it does: Copies or reassigns a struct by value.
-- Notes: CP++ performs a deep copy, including nested structs and containers, so later mutations do not alias the original object. Reassignment replaces the owned value.
-- Complexity: O(size of the copied object), including recursively owned values.
+### Struct aliasing and reassignment
+
+- Syntax: `Point alias = original;`, `alias = original;`
+- What it does: Makes both names refer to the same struct value.
+- Notes: Mutating fields through either alias is visible through the other. Use `copy(original)` when an independent value is required.
+- Complexity: O(1).
 
 ### Recursive structs
 
@@ -177,7 +181,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
   Node head = Node(1, tail);
   ```
 - What it does: Allows a struct to contain a field of its own type or another struct type.
-- Notes: Recursive fields default to `NULL`; recursive construction, field access, deep copying, and nested printing are supported. Struct links are uniquely owned (`unique_ptr` in generated C++), so CP++ supports one-way recursive structures such as linked lists, but cannot represent circular references (for example, a node whose `next` eventually points back to an earlier node).
+- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Struct links use shared ownership (`shared_ptr` in generated C++), so structures can contain back-links and cycles, including doubly linked lists. Printing, equality, or deep-copying a cycle recursively is not cycle-terminating; operate on its fields or break the cycle first.
 - Complexity: Proportional to the traversed recursive structure.
 
 ### Struct printing
@@ -205,7 +209,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
   }
   ```
 - What it does: Passes a struct to a function so the function can inspect and update its fields.
-- Notes: Struct parameters use owned-pointer references in generated C++, while CP++ source uses ordinary struct syntax.
+- Notes: Struct parameters share the same referenced object in generated C++, while CP++ source uses ordinary struct syntax.
 - Complexity: O(1) to pass the reference; operations inside the function determine total cost.
 
 ### `range`
@@ -233,7 +237,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `Pair<int, int> point;`
 - What it does: Stores two values, accessible at indexes `0` and `1`.
-- Notes: `Pair` requires exactly two subtypes and can be nested.
+- Notes: `Pair` requires exactly two subtypes and can be nested. Pair assignment aliases the same pair; use `copy(pair)` for an independent deep copy.
 - Complexity: O(1)
 
 ### Default values
@@ -454,11 +458,18 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 ### `deep` container parameters
 
 - Syntax: `void f(deep List<int> copy, List<int> ref){ ... }`
-- What it does: Passes the `deep` container parameter by copy instead of by reference.
-- Notes: `deep` is only implemented for collection-like parameters such as `List<...>` and `string`.
+- What it does: Passes the `deep` container parameter as an independent deep copy instead of an alias.
+- Notes: `deep` is only implemented for collection-like parameters such as `List<...>` and `string`; it has the same recursive copy behavior as `copy()`.
 - Complexity: proportional to the copied container size
 
 ## Expressions and Operators
+
+### Aliasing and `copy()`
+
+- Syntax: `List<int> alias = values;`, `var independent = copy(values);`
+- What it does: Ordinary assignment aliases Lists, strings, Sets, Maps, Pairs, and structs. `copy(value)` returns an independent deep copy.
+- Notes: Primitive assignment still copies the primitive value. Deep copying recursively duplicates nested containers and non-circular struct links. Constructing a new outer List from existing elements can intentionally make a shallow copy: for example, `[words[0], words[1]]` creates a new outer List while retaining aliases to the two strings.
+- Complexity: O(1) for alias assignment; O(size of the reachable non-circular value) for `copy()`.
 
 ### Variables
 

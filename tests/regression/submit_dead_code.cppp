@@ -1,0 +1,21 @@
+struct Used {
+    int value;
+    int keep() {
+        return value;
+    }
+    int discard() {
+        return value + 1;
+    }
+}
+struct Unused {
+    int marker;
+    int never() {
+        return marker;
+    }
+}
+int unusedFunction() {
+    return 99;
+}
+Pair<int, List<int>> item = (1, [2]);
+Used used = Used(4);
+print(copy(item), used.keep());

@@ -1834,50 +1834,36 @@ split method delimiter must be <element> or <list>
   Diagnostic:
     error: split() delimiter must be int or List<int>
 
+Copy errors
+-----------
+
+invalid expression passed to copy
+  copy() requires one complete, valid CP++ expression.
+
+  Example:
+    List<int> values = [1, 2];
+    var result = copy(values + );
+
+  Diagnostic:
+    error: expected expression
+
+copy cannot infer an empty list type
+  An empty literal has no element type for var or copy() to infer. Declare a
+  typed value first, then copy that value.
+
+  Example:
+    var values = copy([]);
+
+  Diagnostic:
+    error: copy() cannot infer the type of an empty list; declare the list type first
+
 Runtime errors
 --------------
 
-circular struct reference
-  Struct links are uniquely owned, so a node cannot link back to itself or form
-  a circular graph. Use a one-way recursive structure instead.
-
-  Example:
-    struct Node {
-        int val;
-        Node next;
-    }
-    struct LinkedList {
-        Node head;
-        int size;
-        void add(int x, int loc) {
-            if (loc == 0) {
-                head = Node(x, head);
-                size++;
-                return;
-            }
-            if (loc == 1) {
-                head.next = Node(x, head.next);
-                size++;
-            }
-        }
-        int get(int loc) {
-            if (loc == 0) {
-                return head.val;
-            }
-            return head.next.val;
-        }
-    }
-    LinkedList list = LinkedList(NULL, 0);
-    list.add(10, 0);
-    list.head.next = list.head;
-
-  Diagnostic:
-    error: runtime error: cannot create a circular struct reference; CP++ struct links are uniquely owned
-
 structs
-  A struct groups public fields and typed methods. Struct values use deep-copy
-  assignment, recursive struct fields default to NULL, and field access uses
-  normal method-style syntax.
+  A struct groups public fields and typed methods. Struct assignment aliases an
+  existing value, recursive struct fields default to NULL, and copy(value)
+  performs an explicit deep copy.
 
   Example:
     struct Point {
@@ -2009,7 +1995,9 @@ submit helper pruning
   In --submit mode, CP++ emits only the generated runtime types and individual
   helper functions that the translated program actually references. A string
   literal, for example, keeps the CP++ char type and string printer but omits
-  unrelated char input, output, and increment/decrement helpers.
+  unrelated char input, output, and increment/decrement helpers. Struct methods
+  are pruned individually, so using one method does not retain its siblings.
+  Entire unused structs and unreachable top-level functions are omitted too.
 
   Example:
     int x = input();
@@ -2366,7 +2354,8 @@ print delim requires a List value
     error: print delim requires a List value
 
 Pair expects 2 subtypes like Pair<int, int>
-  Pair is a generic container type with exactly two subtypes.
+  Pair is an aliasing generic container type with exactly two subtypes. Assign
+  it directly to share both slots, or use copy(pair) for an independent value.
 
   Example:
     Pair<int> point;
