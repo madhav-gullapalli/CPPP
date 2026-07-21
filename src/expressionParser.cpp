@@ -50,7 +50,7 @@ std::string cppTypeForExpressionType(const Type& type) {
             }
             return "";
         case PrimitiveType::Struct:
-            return type.name + "*";
+            return "cppp_smart_pointer<" + type.name + ">";
         case PrimitiveType::Unknown:
             return "";
     }
@@ -1339,7 +1339,7 @@ private:
         }
         const Type constructedType = declaredTypeForName(expr.callee);
         if (isStructType(constructedType) && !expr.receiver) {
-            std::string generated = "new " + constructedType.name + "(";
+            std::string generated = "cppp_smart_pointer<" + constructedType.name + ">::make(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) {
                     generated += ", ";

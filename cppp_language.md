@@ -138,7 +138,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `Point p = Point(2, 3);`, `Point empty;`
 - What it does: Constructs a struct from its fields, or declares a null struct when no constructor value is supplied.
-- Notes: A constructed struct lowers to a raw pointer allocated with `new`. A default-initialized struct is `NULL`. Constructor arguments must match field types and declaration order. Struct allocations intentionally live for the lifetime of the generated program.
+- Notes: A constructed struct lowers to CP++'s reference-counted pointer handle. A default-initialized struct is `NULL`. Constructor arguments must match field types and declaration order. Acyclic composite values are reclaimed automatically when their final alias is released; cycles remain allocated.
 - Complexity: O(number of fields), excluding recursive container-copy cost.
 
 ### Struct fields
@@ -181,7 +181,7 @@ are omitted; methods and functions reached from retained code remain available.
   Node head = Node(1, tail);
   ```
 - What it does: Allows a struct to contain a field of its own type or another struct type.
-- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Struct links are raw pointers, so structures can contain back-links and cycles, including doubly linked lists. Generated programs intentionally do not reclaim object allocations. Printing, equality, or deep-copying a cycle recursively is not cycle-terminating; operate on its fields or break the cycle first.
+- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Struct links use CP++'s reference-counted pointer handle, so structures can contain back-links and cycles, including doubly linked lists. Acyclic links are reclaimed automatically; cycles are intentionally not collected. Printing, equality, or deep-copying a cycle recursively is not cycle-terminating; operate on its fields or break the cycle first.
 - Complexity: Proportional to the traversed recursive structure.
 
 ### Struct printing

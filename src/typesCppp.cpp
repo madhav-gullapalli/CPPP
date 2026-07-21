@@ -62,6 +62,42 @@ void collectContainerMemberUses(const std::string& line, std::set<std::string>& 
     if (line.find(" : ") != std::string::npos) { members.insert("begin"); members.insert("end"); }
 }
 
+std::vector<std::string> smartPointerSupport() {
+    return {
+        "template <typename T>",
+        "class cppp_smart_pointer {",
+        "    struct Block {",
+        "        size_t refcount = 1;",
+        "        T data;",
+        "        template <typename... Args> explicit Block(Args&&... args) : data(std::forward<Args>(args)...) {}",
+        "    };",
+        "    Block* block = nullptr;",
+        "    void addref() { if (block) ++block->refcount; }",
+        "    void delref() { if (block && --block->refcount == 0) delete block; }",
+        "public:",
+        "    cppp_smart_pointer() = default;",
+        "    cppp_smart_pointer(nullptr_t) {}",
+        "    cppp_smart_pointer(const cppp_smart_pointer& other) : block(other.block) { addref(); }",
+        "    cppp_smart_pointer(cppp_smart_pointer&& other) noexcept : block(other.block) { other.block = nullptr; }",
+        "    ~cppp_smart_pointer() { delref(); }",
+        "    cppp_smart_pointer& operator=(const cppp_smart_pointer& other) { if (this != &other) { Block* replacement = other.block; if (replacement) ++replacement->refcount; delref(); block = replacement; } return *this; }",
+        "    cppp_smart_pointer& operator=(cppp_smart_pointer&& other) noexcept { if (this != &other) { Block* replacement = other.block; other.block = nullptr; delref(); block = replacement; } return *this; }",
+        "    cppp_smart_pointer& operator=(nullptr_t) { delref(); block = nullptr; return *this; }",
+        "    template <typename... Args> static cppp_smart_pointer make(Args&&... args) { cppp_smart_pointer result; result.block = new Block(std::forward<Args>(args)...); return result; }",
+        "    T* operator->() { return &block->data; }",
+        "    const T* operator->() const { return &block->data; }",
+        "    T& operator*() { return block->data; }",
+        "    const T& operator*() const { return block->data; }",
+        "    explicit operator bool() const { return block != nullptr; }",
+        "    bool operator==(nullptr_t) const { return block == nullptr; }",
+        "    bool operator!=(nullptr_t) const { return block != nullptr; }",
+        "    friend bool operator==(nullptr_t, const cppp_smart_pointer& value) { return value == nullptr; }",
+        "    friend bool operator!=(nullptr_t, const cppp_smart_pointer& value) { return value != nullptr; }",
+        "};",
+        ""
+    };
+}
+
 std::vector<std::string> containerSupport(
     const std::set<std::string>& requiredTypes,
     const std::set<std::string>& requiredMembers
@@ -69,11 +105,11 @@ std::vector<std::string> containerSupport(
     const std::vector<std::string> all = {
         "template <typename A, typename B>",
         "class CPPPPair {",
-        "    pair<A,B>* values;",
+        "    cppp_smart_pointer<pair<A,B>> values;",
         "public:",
-        "    CPPPPair() : values(new pair<A,B>()) {}",
-        "    CPPPPair(const A& firstValue, const B& secondValue) : values(new pair<A,B>(firstValue, secondValue)) {}",
-        "    template <typename X, typename Y> CPPPPair(const pair<X,Y>& value) : values(new pair<A,B>(value.first, value.second)) {}",
+        "    CPPPPair() : values(cppp_smart_pointer<pair<A,B>>::make()) {}",
+        "    CPPPPair(const A& firstValue, const B& secondValue) : values(cppp_smart_pointer<pair<A,B>>::make(firstValue, secondValue)) {}",
+        "    template <typename X, typename Y> CPPPPair(const pair<X,Y>& value) : values(cppp_smart_pointer<pair<A,B>>::make(value.first, value.second)) {}",
         "    A& first() { return values->first; } const A& first() const { return values->first; }",
         "    B& second() { return values->second; } const B& second() const { return values->second; }",
         "    friend bool operator==(const CPPPPair& a, const CPPPPair& b) { return *a.values == *b.values; }",
@@ -86,18 +122,18 @@ std::vector<std::string> containerSupport(
         "",
         "template <typename T>",
         "class CPPPList {",
-        "    vector<T>* values;",
+        "    cppp_smart_pointer<vector<T>> values;",
         "public:",
         "    using value_type = T; using size_type = typename vector<T>::size_type; using difference_type = typename vector<T>::difference_type;",
         "    using reference = typename vector<T>::reference; using const_reference = typename vector<T>::const_reference;",
         "    using iterator = typename vector<T>::iterator; using const_iterator = typename vector<T>::const_iterator;",
         "    using reverse_iterator = typename vector<T>::reverse_iterator; using const_reverse_iterator = typename vector<T>::const_reverse_iterator;",
-        "    CPPPList() : values(new vector<T>()) {}",
-        "    CPPPList(initializer_list<T> init) : values(new vector<T>(init)) {}",
-        "    CPPPList(const vector<T>& init) : values(new vector<T>(init)) {}",
-        "    CPPPList(vector<T>&& init) : values(new vector<T>(std::move(init))) {}",
-        "    template <typename U> CPPPList(const vector<U>& init) : values(new vector<T>()) { values->reserve(init.size()); for (const auto& item : init) values->emplace_back(item); }",
-        "    template <typename It> CPPPList(It first, It last) : values(new vector<T>(first, last)) {}",
+        "    CPPPList() : values(cppp_smart_pointer<vector<T>>::make()) {}",
+        "    CPPPList(initializer_list<T> init) : values(cppp_smart_pointer<vector<T>>::make(init)) {}",
+        "    CPPPList(const vector<T>& init) : values(cppp_smart_pointer<vector<T>>::make(init)) {}",
+        "    CPPPList(vector<T>&& init) : values(cppp_smart_pointer<vector<T>>::make(std::move(init))) {}",
+        "    template <typename U> CPPPList(const vector<U>& init) : values(cppp_smart_pointer<vector<T>>::make()) { values->reserve(init.size()); for (const auto& item : init) values->emplace_back(item); }",
+        "    template <typename It> CPPPList(It first, It last) : values(cppp_smart_pointer<vector<T>>::make(first, last)) {}",
         "    iterator begin() { return values->begin(); }",
         "    const_iterator begin() const { return values->begin(); }",
         "    iterator end() { return values->end(); }",
@@ -143,13 +179,13 @@ std::vector<std::string> containerSupport(
         "class CPPPSet {",
         "    struct Compare { bool operator()(const T& left, const T& right) const { return left < right; } };",
         "    using storage_type = set<T, Compare>;",
-        "    storage_type* values;",
+        "    cppp_smart_pointer<storage_type> values;",
         "public:",
         "    using value_type = T; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
-        "    CPPPSet() : values(new storage_type()) {} CPPPSet(initializer_list<T> init) : values(new storage_type(init)) {}",
-        "    CPPPSet(const set<T>& init) : values(new storage_type(init.begin(), init.end())) {} CPPPSet(set<T>&& init) : values(new storage_type(init.begin(), init.end())) {}",
-        "    template <typename U> CPPPSet(const set<U>& init) : values(new storage_type()) { for (const auto& item : init) values->emplace(item); }",
-        "    template <typename It> CPPPSet(It first, It last) : values(new storage_type(first, last)) {}",
+        "    CPPPSet() : values(cppp_smart_pointer<storage_type>::make()) {} CPPPSet(initializer_list<T> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
+        "    CPPPSet(const set<T>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {} CPPPSet(set<T>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
+        "    template <typename U> CPPPSet(const set<U>& init) : values(cppp_smart_pointer<storage_type>::make()) { for (const auto& item : init) values->emplace(item); }",
+        "    template <typename It> CPPPSet(It first, It last) : values(cppp_smart_pointer<storage_type>::make(first, last)) {}",
         "    iterator begin() { return values->begin(); } const_iterator begin() const { return values->begin(); } iterator end() { return values->end(); } const_iterator end() const { return values->end(); }",
         "    reverse_iterator rbegin() { return values->rbegin(); } const_reverse_iterator rbegin() const { return values->rbegin(); } reverse_iterator rend() { return values->rend(); } const_reverse_iterator rend() const { return values->rend(); }",
         "    bool empty() const { return values->empty(); } size_type size() const { return values->size(); } void clear() { values->clear(); }",
@@ -167,12 +203,12 @@ std::vector<std::string> containerSupport(
         "class CPPPMap {",
         "    struct Compare { bool operator()(const K& left, const K& right) const { return left < right; } };",
         "    using storage_type = map<K,V,Compare>;",
-        "    storage_type* values;",
+        "    cppp_smart_pointer<storage_type> values;",
         "public:",
         "    using value_type = pair<const K,V>; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
-        "    CPPPMap() : values(new storage_type()) {} CPPPMap(initializer_list<value_type> init) : values(new storage_type(init)) {}",
-        "    CPPPMap(const map<K,V>& init) : values(new storage_type(init.begin(), init.end())) {} CPPPMap(map<K,V>&& init) : values(new storage_type(init.begin(), init.end())) {}",
-        "    template <typename It> CPPPMap(It first, It last) : values(new storage_type(first, last)) {}",
+        "    CPPPMap() : values(cppp_smart_pointer<storage_type>::make()) {} CPPPMap(initializer_list<value_type> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
+        "    CPPPMap(const map<K,V>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {} CPPPMap(map<K,V>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
+        "    template <typename It> CPPPMap(It first, It last) : values(cppp_smart_pointer<storage_type>::make(first, last)) {}",
         "    iterator begin() { return values->begin(); } const_iterator begin() const { return values->begin(); } iterator end() { return values->end(); } const_iterator end() const { return values->end(); }",
         "    reverse_iterator rbegin() { return values->rbegin(); } const_reverse_iterator rbegin() const { return values->rbegin(); } reverse_iterator rend() { return values->rend(); } const_reverse_iterator rend() const { return values->rend(); }",
         "    bool empty() const { return values->empty(); } size_type size() const { return values->size(); } void clear() { values->clear(); }",
@@ -849,7 +885,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPCharType"},
             {"CPPPPrintValueString("}
         },
-        {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "template <typename T> void CPPPPrintValue(ostream& output, T* const& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
+        {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const cppp_smart_pointer<T>& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
         {"CPPPPrintValuePair", {"template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value) { output << '('; CPPPPrintValue(output, value.first()); output << ','; CPPPPrintValue(output, value.second()); output << ')'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueList", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values) { output << '['; for (size_t i = 0; i < values.size(); ++i) { if (i > 0) output << \", \"; CPPPPrintValue(output, values[i]); } output << ']'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueSet", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values) { output << '{'; bool first = true; for (const auto& value : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, value); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
@@ -859,8 +895,8 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             "CPPPStructClone",
             {
                 "template <typename T>",
-                "T* CPPPStructClone(T* const& value) {",
-                "    return value ? new T(*value) : nullptr;",
+                "cppp_smart_pointer<T> CPPPStructClone(const cppp_smart_pointer<T>& value) {",
+                "    return value ? cppp_smart_pointer<T>::make(*value) : nullptr;",
                 "}",
                 ""
             },
@@ -872,7 +908,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {"CPPPCopyList", {"template <typename T> struct CPPPDeepCopier<CPPPList<T>> { static CPPPList<T> run(const CPPPList<T>& value) { CPPPList<T> result; result.reserve(value.size()); for (const auto& item : value) result.push_back(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopySet", {"template <typename T> struct CPPPDeepCopier<CPPPSet<T>> { static CPPPSet<T> run(const CPPPSet<T>& value) { CPPPSet<T> result; for (const auto& item : value) result.insert(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyMap", {"template <typename K, typename V> struct CPPPDeepCopier<CPPPMap<K,V>> { static CPPPMap<K,V> run(const CPPPMap<K,V>& value) { CPPPMap<K,V> result; for (const auto& item : value) result[CPPPCopy(item.first)] = CPPPCopy(item.second); return result; } };", ""}, {"CPPPCopyBase"}, {}},
-        {"CPPPCopyStruct", {"template <typename T> struct CPPPDeepCopier<T*> { static T* run(T* const& value) { return value ? new T(*value) : nullptr; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopyStruct", {"template <typename T> struct CPPPDeepCopier<cppp_smart_pointer<T>> { static cppp_smart_pointer<T> run(const cppp_smart_pointer<T>& value) { return value ? cppp_smart_pointer<T>::make(*value) : nullptr; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopy", {"template <typename T> T CPPPCopy(const T& value) { return CPPPDeepCopier<T>::run(value); }", ""}, {"CPPPCopyBase"}, {"CPPPCopy("}},
         {
             "CPPPPrintDelimited",
@@ -921,7 +957,9 @@ std::vector<RuntimeHelper> runtimeHelpers() {
 
 // typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.cpp module.
 std::vector<std::string> typeSupportPreamble() {
-    std::vector<std::string> preamble = containerSupport({"CPPPPair", "CPPPList", "CPPPSet", "CPPPMap"}, {"all"});
+    std::vector<std::string> preamble = smartPointerSupport();
+    const std::vector<std::string> containers = containerSupport({"CPPPPair", "CPPPList", "CPPPSet", "CPPPMap"}, {"all"});
+    preamble.insert(preamble.end(), containers.begin(), containers.end());
     for (const RuntimeHelper& helper : runtimeHelpers()) {
         preamble.insert(preamble.end(), helper.code.begin(), helper.code.end());
     }
@@ -1051,7 +1089,9 @@ std::vector<std::string> typeSupportPreambleForSubmit(
             if (line.find("CPPPMap<") != std::string::npos) containerTypes.insert("CPPPMap");
         }
     }
-    std::vector<std::string> preamble = containerSupport(containerTypes, containerMembers);
+    std::vector<std::string> preamble = smartPointerSupport();
+    const std::vector<std::string> containers = containerSupport(containerTypes, containerMembers);
+    preamble.insert(preamble.end(), containers.begin(), containers.end());
     for (const RuntimeHelper& helper : helpers) {
         if (resolvedHelpers.count(helper.name) == 0) {
             continue;
