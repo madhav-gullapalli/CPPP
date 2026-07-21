@@ -115,6 +115,99 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Recursive list literals and recursive list operations are part of the implemented surface.
 - Complexity: O(1) for the type itself; operations vary
 
+## Structs (Classes)
+
+### Struct declaration
+
+- Syntax:
+  ```cpp
+  struct Point {
+      int x;
+      int y;
+      void shift(int amount) {
+          x += amount;
+          y += amount;
+      }
+  }
+  ```
+- What it does: Declares a public CP++ struct with typed fields and typed methods.
+- Notes: CP++ methods refer to fields directly by name; `self` is not used. Struct fields and methods are public.
+- Complexity: Declaration-time cost is proportional to the number of fields and methods.
+
+### Struct construction and default values
+
+- Syntax: `Point p = Point(2, 3);`, `Point empty;`
+- What it does: Constructs a struct from its fields, or declares a null struct when no constructor value is supplied.
+- Notes: A constructed struct lowers to a `unique_ptr` allocated with `make_unique`. A default-initialized struct is `NULL`. Constructor arguments must match field types and declaration order.
+- Complexity: O(number of fields), excluding recursive container-copy cost.
+
+### Struct fields
+
+- Syntax: `p.x`, `p.x = 7`
+- What it does: Reads and writes public struct fields.
+- Notes: Struct fields can be primitive values, containers, or other structs. Recursive fields are allowed because struct-valued fields use owned pointer representation.
+- Complexity: O(1) for a direct field access, excluding the value being assigned.
+
+### Struct methods
+
+- Syntax:
+  ```cpp
+  p.shift(1);
+  ```
+- What it does: Calls a method declared inside the struct.
+- Notes: Method arguments must match their declared types. Methods may read and update the receiver's fields directly. Calling a method on `NULL` is a runtime error.
+- Complexity: The complexity of the method body.
+
+### Struct copying and reassignment
+
+- Syntax: `Point copy = original;`, `copy = original;`
+- What it does: Copies or reassigns a struct by value.
+- Notes: CP++ performs a deep copy, including nested structs and containers, so later mutations do not alias the original object. Reassignment replaces the owned value.
+- Complexity: O(size of the copied object), including recursively owned values.
+
+### Recursive structs
+
+- Syntax:
+  ```cpp
+  struct Node {
+      int value;
+      Node next;
+  }
+  Node tail = Node(2, NULL);
+  Node head = Node(1, tail);
+  ```
+- What it does: Allows a struct to contain a field of its own type or another struct type.
+- Notes: Recursive fields default to `NULL`; recursive construction, field access, deep copying, and nested printing are supported.
+- Complexity: Proportional to the traversed recursive structure.
+
+### Struct printing
+
+- Syntax: `print(point);`
+- What it does: Prints a struct as JSON-like named fields, in declaration order.
+- Notes: Nested structs use nested braces, containers retain their normal formatting, and null struct values print as `NULL`.
+- Complexity: O(size of the printed object).
+
+### Struct equality
+
+- Syntax: `a == b`, `a != b`, `a == NULL`
+- What it does: Compares all fields recursively, including nested structs and containers.
+- Notes: Two null structs compare equal. Ordering comparisons on structs are not supported. `=` is assignment; use `==` for equality.
+- Complexity: O(size of the compared objects) in the worst case.
+
+### Struct function parameters
+
+- Syntax:
+  ```cpp
+  void rotate(Point point) {
+      int oldX = point.x;
+      point.x = -point.y;
+      point.y = oldX;
+  }
+  ```
+- What it does: Passes a struct to a function so the function can inspect and update its fields.
+- Notes: Struct parameters use owned-pointer references in generated C++, while CP++ source uses ordinary struct syntax.
+- Complexity: O(1) to pass the reference; operations inside the function determine total cost.
+
 ### `range`
 
 - Syntax: `range values = range(stop);`, `range(start, stop)`, or `range(start, stop, step)`
@@ -555,8 +648,8 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax:
   ```cpp
-  split(values, 2)
-  split(values, [2, 3])
+  values.split(2)
+  values.split([2, 3])
   ```
 - What it does: Breaks a list into a `List<List<T>>` using either one element or a same-typed sublist delimiter.
 - Notes: Consecutive delimiters are skipped, so they do not produce empty pieces.
@@ -664,10 +757,10 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax:
   ```cpp
-  split("a--b--c", "--")
-  split("a b c", ' ')
+  "a--b--c".split("--")
+  "a b c".split(' ')
   ```
-- What it does: Splits a string through the same list-style `split(...)` operation because `string` behaves like `List<char>`.
+- What it does: Splits a string through the same list-style `.split(...)` operation because `string` behaves like `List<char>`.
 - Notes: The result is a `List<string>`.
 - Complexity: grows with string and delimiter length
 
