@@ -340,6 +340,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 lineNumber,
                 line,
                 fieldStatement,
+                statementStartColumn,
                 context.sourceLines,
                 fieldNames
             );
@@ -461,7 +462,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             }
 
             if (allowDeclaration) {
-                const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, part, context.sourceLines, context.declaredVariables);
+                const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, part, partColumn, context.sourceLines, context.declaredVariables);
                 if (typeResult.matched) {
                     if (!typeResult.ok) {
                         return false;
@@ -806,6 +807,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     lineNumber,
                     line,
                     forEachHeader.declaration,
+                    statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
                     context.sourceLines,
                     context.declaredVariables
                 );
@@ -1218,10 +1220,16 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
+        const std::map<std::string, Type> declarationsBefore = context.declaredVariables;
+        const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, statementBody, statementStartColumn, context.sourceLines, context.declaredVariables);
         if (typeResult.matched) {
             if (!typeResult.ok) {
                 continue;
+            }
+            if (!context.blockDeclaredNames.empty()) {
+                for (const auto& variable : context.declaredVariables) {
+                    if (declarationsBefore.count(variable.first) == 0) context.blockDeclaredNames.back().push_back(variable.first);
+                }
             }
 
             context.queueGeneratedLine(

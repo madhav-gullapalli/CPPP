@@ -177,7 +177,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
   Node head = Node(1, tail);
   ```
 - What it does: Allows a struct to contain a field of its own type or another struct type.
-- Notes: Recursive fields default to `NULL`; recursive construction, field access, deep copying, and nested printing are supported.
+- Notes: Recursive fields default to `NULL`; recursive construction, field access, deep copying, and nested printing are supported. Struct links are uniquely owned (`unique_ptr` in generated C++), so CP++ supports one-way recursive structures such as linked lists, but cannot represent circular references (for example, a node whose `next` eventually points back to an earlier node).
 - Complexity: Proportional to the traversed recursive structure.
 
 ### Struct printing

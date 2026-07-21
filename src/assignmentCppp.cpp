@@ -33,6 +33,26 @@ bool isAssignmentOperatorToken(const Token& token) {
     return token.kind == TokenKind::Equals || isCompoundAssignmentOperator(token);
 }
 
+bool isDirectStructSelfLink(const std::string& target, const std::string& value) {
+    const std::vector<Token> targetTokens = tokenize(target);
+    const std::vector<Token> valueTokens = tokenize(value);
+    std::vector<std::string> targetNames;
+    std::vector<std::string> valueNames;
+    for (const Token& token : targetTokens) {
+        if (token.kind == TokenKind::Identifier) targetNames.push_back(token.text);
+    }
+    for (const Token& token : valueTokens) {
+        if (token.kind == TokenKind::Identifier) valueNames.push_back(token.text);
+    }
+    if (targetNames.size() < 2 || valueNames.size() + 1 != targetNames.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < valueNames.size(); ++i) {
+        if (targetNames[i] != valueNames[i]) return false;
+    }
+    return true;
+}
+
 // compoundOperator implements the compoundOperator behavior for the assignmentCppp.cpp module.
 std::string compoundOperator(const std::string& assignmentOperator) {
     return assignmentOperator.substr(0, assignmentOperator.size() - 1);
@@ -407,6 +427,16 @@ AssignmentEmitResult emitAssignmentStatement(
             sourceLines
         );
         return {true, false, "", {}};
+    }
+
+    if (emitRuntimeChecks && simpleAssignment && isStructType(target.type) &&
+        expression.type == target.type && isDirectStructSelfLink(targets[0].text, expressionText)) {
+        return {
+            true,
+            true,
+            "    throw runtime_error(\"" + std::to_string(lineNumber) + ":" + std::to_string(expressionColumn) + ":cannot create a circular struct reference; CP++ struct links are uniquely owned\");",
+            {}
+        };
     }
 
     std::string emittedExpression = expression.generatedExpression;

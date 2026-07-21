@@ -66,6 +66,7 @@ TypeEmitResult emitTypeDeclaration(
     int lineNumber,
     const std::string& sourceLine,
     const std::string& statementBody,
+    int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     std::map<std::string, Type>& declaredVariables
 );

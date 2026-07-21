@@ -2145,14 +2145,11 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
         return nullptr;
     }
     const Token& method = previous();
-    if (method.text == "next" && !check(TokenKind::LeftParen)) {
+    if (!check(TokenKind::LeftParen)) {
         return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method));
     }
     if (method.text != "remove" && method.text != "find" && method.text != "at" && method.text != "split" &&
         method.text != "prev" && method.text != "next") {
-        if (!check(TokenKind::LeftParen)) {
-            return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method));
-        }
         if (match(TokenKind::LeftParen)) {
             const Token& leftParen = previous();
             std::vector<std::unique_ptr<Expr>> arguments;

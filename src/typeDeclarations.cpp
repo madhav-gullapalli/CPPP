@@ -849,10 +849,12 @@ TypeEmitResult emitTypeDeclaration(
     int lineNumber,
     const std::string& sourceLine,
     const std::string& statementBody,
+    int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     std::map<std::string, Type>& declaredVariables
 ) {
     (void)sourceLine;
+    const auto sourceColumn = [statementStartColumn](int tokenColumn) { return statementStartColumn + tokenColumn - 1; };
 
     const std::vector<Token> tokens = tokenize(statementBody);
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
@@ -877,7 +879,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                variableColumn,
+                sourceColumn(variableColumn),
                 "var declarations require a variable name",
                 sourceLines
             );
@@ -888,7 +890,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                variableColumn,
+                sourceColumn(variableColumn),
                 "variable '" + variableName + "' is already declared",
                 sourceLines
             );
@@ -1048,7 +1050,7 @@ TypeEmitResult emitTypeDeclaration(
             generatedStatement,
             {{
                 lineNumber,
-                variableColumn,
+                sourceColumn(variableColumn),
                 5 + static_cast<int>(inferredInfo.cppType.size()) + 1,
                 5 + static_cast<int>(inferredInfo.cppType.size()) + static_cast<int>(variableName.size())
             }}
@@ -1101,7 +1103,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                variableColumn,
+                sourceColumn(variableColumn),
                 "expected variable name after " + typeName,
                 sourceLines
             );

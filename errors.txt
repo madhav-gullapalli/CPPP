@@ -1837,6 +1837,43 @@ split method delimiter must be <element> or <list>
 Runtime errors
 --------------
 
+circular struct reference
+  Struct links are uniquely owned, so a node cannot link back to itself or form
+  a circular graph. Use a one-way recursive structure instead.
+
+  Example:
+    struct Node {
+        int val;
+        Node next;
+    }
+    struct LinkedList {
+        Node head;
+        int size;
+        void add(int x, int loc) {
+            if (loc == 0) {
+                head = Node(x, head);
+                size++;
+                return;
+            }
+            if (loc == 1) {
+                head.next = Node(x, head.next);
+                size++;
+            }
+        }
+        int get(int loc) {
+            if (loc == 0) {
+                return head.val;
+            }
+            return head.next.val;
+        }
+    }
+    LinkedList list = LinkedList(NULL, 0);
+    list.add(10, 0);
+    list.head.next = list.head;
+
+  Diagnostic:
+    error: runtime error: cannot create a circular struct reference; CP++ struct links are uniquely owned
+
 structs
   A struct groups public fields and typed methods. Struct values use deep-copy
   assignment, recursive struct fields default to NULL, and field access uses
