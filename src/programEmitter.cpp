@@ -57,7 +57,9 @@ std::set<std::string> reachableSubmitOwners(const CompileContext& context) {
     };
 
     for (size_t index = 0; index < pendingText.size(); ++index) {
-        const std::string& text = pendingText[index];
+        // addOwner() may append to pendingText and reallocate its storage.
+        // Keep a value copy so the text being scanned cannot dangle.
+        const std::string text = pendingText[index];
         for (const auto& function : context.declaredFunctions) {
             if (text.find(function.first + "(") != std::string::npos) {
                 addOwner("function:" + function.first, reachable, pendingText);
