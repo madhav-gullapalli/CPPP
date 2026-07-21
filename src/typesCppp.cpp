@@ -654,6 +654,12 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "template <typename T>",
                 "void CPPPPrintValue(ostream& output, const T& value);",
                 "",
+                "template <typename T>",
+                "void CPPPPrintValue(ostream& output, const unique_ptr<T>& value) {",
+                "    if (!value) { output << \"NULL\"; return; }",
+                "    CPPPPrintValue(output, *value);",
+                "}",
+                "",
                 "template <typename A, typename B>",
                 "void CPPPPrintValue(ostream& output, const pair<A, B>& value);",
                 "",
@@ -725,6 +731,18 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             },
             {},
             {"CPPPPrintValue("}
+        },
+        {
+            "CPPPStructClone",
+            {
+                "template <typename T>",
+                "unique_ptr<T> CPPPStructClone(const unique_ptr<T>& value) {",
+                "    return value ? make_unique<T>(*value) : nullptr;",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPStructClone("}
         },
         {
             "CPPPPrintDelimited",

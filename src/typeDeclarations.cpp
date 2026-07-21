@@ -225,6 +225,10 @@ TypeInfo typeInfoFor(const Type& type) {
         return {"pair<" + firstInfo.cppType + ", " + secondInfo.cppType + ">", "{" + firstInfo.defaultValue + ", " + secondInfo.defaultValue + "}"};
     }
 
+    if (isStructType(type)) {
+        return {"unique_ptr<" + type.name + ">", "nullptr"};
+    }
+
     const auto primitive = primitiveTypes().find(cpppTypeName(type));
     if (primitive != primitiveTypes().end()) {
         return primitive->second;
@@ -1446,6 +1450,21 @@ TypeEmitResult emitTypeDeclaration(
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
+        } else if (isStructType(targetType)) {
+            if (!finishExpressionAssignment(
+                    inputFile,
+                    lineNumber,
+                    assignedValue,
+                    assignedValueColumn,
+                    targetType,
+                    sourceLines,
+                    declaredVariables,
+                    emittedValue)) {
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            requireRuntimeHelper("CPPPStructClone");
+            emittedValue = "CPPPStructClone(" + emittedValue + ")";
         } else if (targetType == PrimitiveType::Range) {
             if (!finishExpressionAssignment(
                     inputFile,

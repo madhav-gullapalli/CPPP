@@ -410,6 +410,10 @@ AssignmentEmitResult emitAssignmentStatement(
     }
 
     std::string emittedExpression = expression.generatedExpression;
+    if (isStructType(target.type) && expression.type == target.type) {
+        requireRuntimeHelper("CPPPStructClone");
+        emittedExpression = "CPPPStructClone(" + emittedExpression + ")";
+    }
     if (expression.type != target.type) {
         emittedExpression = castExpressionTo(emittedExpression, expression.type, target.type);
     }

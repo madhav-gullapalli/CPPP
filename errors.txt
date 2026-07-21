@@ -1801,40 +1801,172 @@ input() size must be int
   Diagnostic:
     error: input() size must be int
 
-split()
-  split(list, delimiter) breaks a List into a List of sublists. The delimiter
+split method
+  list.split(delimiter) breaks a List into a List of sublists. The delimiter
   must be either one element of the List's element type, or another List with
   the exact same type as the first argument. Consecutive delimiters are
   skipped, so they do not produce empty pieces.
 
   Example:
     List<int> values = [1, 2, 3, 2, 1];
-    print(split(values, 2));
-    print(split("hello  world im gay", "  "));
+    print(values.split(2));
+    string text = "hello  world im gay";
+    print(text.split("  "));
 
-split() expects a List value as the first argument
-  The first split() argument is the haystack being split, so it must be a
-  List-like value such as List<int> or string.
+split must be called as a method
+  The value before `.split()` is the haystack, so it must be a List-like value
+  such as List<int> or string.
 
   Example:
     print(split(123, 2));
 
   Diagnostic:
-    error: split() expects a List value as the first argument
+    error: split must be called as list.split(delimiter)
 
-split() delimiter must be <element> or <list>
-  The second split() argument must be either one element of the haystack's
+split method delimiter must be <element> or <list>
+  The split() argument must be either one element of the haystack's
   element type, or another List of the exact same type as the haystack.
 
   Example:
     List<int> values = [1, 2, 3];
-    print(split(values, 2.5));
+    print(values.split(2.5));
 
   Diagnostic:
     error: split() delimiter must be int or List<int>
 
 Runtime errors
 --------------
+
+structs
+  A struct groups public fields and typed methods. Struct values use deep-copy
+  assignment, recursive struct fields default to NULL, and field access uses
+  normal method-style syntax.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+        void shift(int amount) {
+            x += amount;
+            y += amount;
+        }
+    }
+    Point point = Point(2, 3);
+    point.shift(1);
+    print(point);
+
+null struct field access
+  A default-initialized struct variable is NULL. Access a field only after
+  constructing the struct or checking it against NULL.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    Point point;
+    print(point.x);
+
+  Diagnostic:
+    error: runtime error: cannot access a field on null Point
+
+struct constructor field type
+  A constructor value must match the declared field type.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    Point point = Point("bad");
+
+  Diagnostic:
+    error: cannot use string for field 'x' of Point
+
+unknown struct field
+  A struct field must be declared in that struct.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    Point point = Point(1);
+    print(point.y);
+
+  Diagnostic:
+    error: struct Point has no field 'y'
+
+unknown struct method
+  A struct method must be declared in that struct.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    Point point = Point(1);
+    point.move();
+
+  Diagnostic:
+    error: struct Point has no method 'move'
+
+struct method argument type
+  Method arguments must match the declared parameter types.
+
+  Example:
+    struct Counter {
+        int x;
+        void add(int amount) {
+            x += amount;
+        }
+    }
+    Counter counter = Counter(0);
+    counter.add("bad");
+
+  Diagnostic:
+    error: cannot use string as int for add()
+
+struct field scope
+  Struct fields are only available through a struct value outside a method.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    print(x);
+
+  Diagnostic:
+    error: use of undeclared variable 'x'
+
+method local scope
+  Variables declared inside a method do not escape that method.
+
+  Example:
+    struct Point {
+        int x;
+        void set() {
+            int local = 1;
+            x = local;
+        }
+    }
+    print(local);
+
+  Diagnostic:
+    error: use of undeclared variable 'local'
+
+null struct method call
+  Calling a method on a NULL struct is a runtime error. Check against NULL or
+  construct the value first.
+
+  Example:
+    struct Counter {
+        int x;
+        void increment() {
+            x++;
+        }
+    }
+    Counter counter;
+    counter.increment();
+
+  Diagnostic:
+    error: runtime error: cannot call increment() on null Counter
 
 submit helper pruning
   In --submit mode, CP++ emits only the generated runtime types and individual

@@ -22,6 +22,21 @@ const std::map<std::string, FunctionSignature>*& declaredFunctionsForExpressions
     return functions;
 }
 
+const std::map<std::string, std::map<std::string, Type>>*& declaredStructsForExpressions() {
+    static const std::map<std::string, std::map<std::string, Type>>* structs = nullptr;
+    return structs;
+}
+
+const std::map<std::string, std::vector<std::string>>*& declaredStructFieldOrdersForExpressions() {
+    static const std::map<std::string, std::vector<std::string>>* orders = nullptr;
+    return orders;
+}
+
+const std::map<std::string, std::map<std::string, FunctionSignature>>*& declaredStructMethodsForExpressions() {
+    static const std::map<std::string, std::map<std::string, FunctionSignature>>* methods = nullptr;
+    return methods;
+}
+
 // trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
@@ -119,6 +134,8 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Map:
         case PrimitiveType::Pair:
             return 2;
+        case PrimitiveType::Struct:
+            return 0;
         case PrimitiveType::Unknown:
             return 0;
     }
@@ -165,6 +182,8 @@ std::string cpppTypeName(const Type& type) {
                 return "Pair<" + cpppTypeName(type.subtypes[0]) + ", " + cpppTypeName(type.subtypes[1]) + ">";
             }
             return "Pair";
+        case PrimitiveType::Struct:
+            return type.name;
         case PrimitiveType::Unknown:
             return "unknown";
     }
@@ -197,6 +216,10 @@ bool isMapType(const Type& type) {
 
 bool isPairType(const Type& type) {
     return type.primitive == PrimitiveType::Pair && type.subtypes.size() == 2;
+}
+
+bool isStructType(const Type& type) {
+    return type.primitive == PrimitiveType::Struct && !type.name.empty();
 }
 
 bool isCollectionType(const Type& type) {
@@ -233,6 +256,10 @@ bool canCollectionCastElementType(const Type& from, const Type& to) {
 bool isImplicitlyConvertible(const Type& from, const Type& to) {
     if (to == PrimitiveType::Bool && isCollectionType(from)) {
         return true;
+    }
+
+    if (isStructType(from) || isStructType(to)) {
+        return from == to;
     }
 
     if (!from.subtypes.empty() || !to.subtypes.empty()) {
@@ -383,6 +410,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                     return "(!(" + expression + ").empty())";
                 case PrimitiveType::Pair:
                     return expression;
+                case PrimitiveType::Struct:
+                    return "(" + expression + " != nullptr)";
                 case PrimitiveType::Unknown:
                     requireRuntimeHelper("CPPPToBoolFallback");
                     return "CPPPToBool(" + expression + ")";
@@ -433,6 +462,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
             }
             return expression;
         case PrimitiveType::Range:
+            return expression;
+        case PrimitiveType::Struct:
             return expression;
         case PrimitiveType::Unknown:
             return expression;
@@ -496,7 +527,54 @@ Type declaredTypeForName(const std::string& name) {
         return Type(PrimitiveType::List, {Type(PrimitiveType::Char)});
     }
 
+    const auto* structs = declaredStructsForExpressions();
+    if (structs && structs->count(name) != 0) {
+        return Type(PrimitiveType::Struct, name);
+    }
+
     return PrimitiveType::Unknown;
+}
+
+void setDeclaredStructsForExpressions(const std::map<std::string, std::map<std::string, Type>>* declaredStructs) {
+    declaredStructsForExpressions() = declaredStructs;
+}
+
+void setDeclaredStructFieldOrdersForExpressions(const std::map<std::string, std::vector<std::string>>* fieldOrders) {
+    declaredStructFieldOrdersForExpressions() = fieldOrders;
+}
+
+void setDeclaredStructMethodsForExpressions(const std::map<std::string, std::map<std::string, FunctionSignature>>* methods) {
+    declaredStructMethodsForExpressions() = methods;
+}
+
+const std::map<std::string, Type>* declaredStructFieldsForName(const std::string& name) {
+    const auto* structs = declaredStructsForExpressions();
+    if (structs == nullptr) {
+        return nullptr;
+    }
+    const auto found = structs->find(name);
+    return found == structs->end() ? nullptr : &found->second;
+}
+
+const std::vector<std::string>* declaredStructFieldOrderForName(const std::string& name) {
+    const auto* orders = declaredStructFieldOrdersForExpressions();
+    if (orders == nullptr) {
+        return nullptr;
+    }
+    const auto found = orders->find(name);
+    return found == orders->end() ? nullptr : &found->second;
+}
+
+const FunctionSignature* declaredStructMethodForType(const Type& type, const std::string& name) {
+    if (!isStructType(type) || declaredStructMethodsForExpressions() == nullptr) {
+        return nullptr;
+    }
+    const auto methods = declaredStructMethodsForExpressions()->find(type.name);
+    if (methods == declaredStructMethodsForExpressions()->end()) {
+        return nullptr;
+    }
+    const auto method = methods->second.find(name);
+    return method == methods->second.end() ? nullptr : &method->second;
 }
 
 // cppTypeForInput implements the cppTypeForInput behavior for the expressions.cpp module.
@@ -637,6 +715,8 @@ std::string inputFunctionForType(const Type& type) {
             return "";
         case PrimitiveType::Pair:
             return emitPairInputExpression(type);
+        case PrimitiveType::Struct:
+            return "";
     }
 
     return "";

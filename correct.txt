@@ -1704,22 +1704,23 @@ nested input indexed assignment compile
     grid[0][1] = input();
 
 split by value output
-  split(list, value) returns the non-empty pieces between matching elements.
+  list.split(value) returns the non-empty pieces between matching elements.
 
   Example:
     List<int> values = [1, 2, 3, 2, 1];
-    print(split(values, 2));
+    print(values.split(2));
 
   Output:
     [[1], [3], [1]]
 
 split by sublist output
-  split(list, sublist) returns the non-empty pieces between matching
+  list.split(sublist) returns the non-empty pieces between matching
   sublists. This also powers string splitting because string is List<char>.
 
   Example:
-    print(split("hello  world im gay", "  "));
-    print(split("hello  world im gay", ' '));
+    string text = "hello  world im gay";
+    print(text.split("  "));
+    print(text.split(' '));
 
   Output:
     [hello, world im gay]
@@ -2745,6 +2746,154 @@ alphabet from char and range
 
 Synthesis tests
 ---------------
+
+struct fields, deep copies, and recursive links output
+  Structs expose public fields, copy deeply, and may hold a recursive struct
+  link that defaults to NULL.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+    }
+    struct Box {
+        Point corner;
+        int side;
+    }
+    struct Node {
+        int value;
+        Node next;
+    }
+    Point first = Point(2, 3);
+    Point second = first;
+    second.x = 9;
+    Box box = Box(first, 7);
+    Node tail = Node(2, NULL);
+    Node head = Node(1, tail);
+    head.next = Node(3, NULL);
+    print(first);
+    print(second);
+    print(box);
+    print(head);
+
+  Output:
+    {x: 2, y: 3}
+    {x: 9, y: 3}
+    {corner: {x: 2, y: 3}, side: 7}
+    {value: 1, next: {value: 3, next: NULL}}
+
+struct equality output
+  Struct equality compares every field, including recursively owned fields.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+    }
+    Point a = Point(1, 2);
+    Point b = Point(1, 2);
+    Point c = Point(2, 1);
+    Point empty;
+    print(a == b, a == c, empty == NULL);
+
+  Output:
+    1 0 1
+
+struct function parameter output
+  Struct parameters are passed by reference, so a function can update fields.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+        int z;
+    }
+    void rotate(Point point) {
+        int oldX = point.x;
+        point.x = -point.y;
+        point.y = oldX;
+        point.z = point.z + 1;
+    }
+    Point point = Point(2, 5, 8);
+    rotate(point);
+    print(point);
+
+  Output:
+    {x: -5, y: 2, z: 9}
+
+struct methods output
+  Struct methods use field names directly inside their body.
+
+  Example:
+    struct Counter {
+        int x;
+        void increment() {
+            x++;
+        }
+        bool equals(Counter other) {
+            return x == other.x;
+        }
+    }
+    Counter first = Counter(3);
+    Counter second = Counter(3);
+    first.increment();
+    print(first.x, first.equals(second));
+
+  Output:
+    4 0
+
+LinkedList struct synthesis output
+  Struct methods can compose recursive Node values into a linked list with
+  indexed add, remove, and get operations.
+
+  Example:
+    struct Node {
+        int val;
+        Node next;
+    }
+    struct LinkedList {
+        Node head;
+        int size;
+        void add(int x, int loc) {
+            if (loc == 0) {
+                head = Node(x, head);
+                size++;
+                return;
+            }
+            if (loc == 1) {
+                head.next = Node(x, head.next);
+                size++;
+            }
+        }
+        int remove(int loc) {
+            if (loc == 0) {
+                int removedHead = head.val;
+                head = head.next;
+                size--;
+                return removedHead;
+            }
+            int removedValue = head.next.val;
+            head.next = head.next.next;
+            size--;
+            return removedValue;
+        }
+        int get(int loc) {
+            if (loc == 0) {
+                return head.val;
+            }
+            return head.next.val;
+        }
+    }
+    LinkedList list = LinkedList(NULL, 0);
+    list.add(10, 0);
+    list.add(30, 1);
+    list.add(20, 1);
+    print(list.get(0), list.get(1), list.size);
+    print(list.remove(1), list.get(1), list.size);
+
+  Output:
+    10 20 3
+    20 30 2
 
 two sum with Map
   Use a Map<int, int> for the standard O(n log n) seen-value solution.

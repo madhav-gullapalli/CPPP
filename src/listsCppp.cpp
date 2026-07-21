@@ -869,6 +869,10 @@ ListEmitResult emitListStatement(
         return {true, false, "", {}};
     }
 
+    if (isStructType(receiver.type)) {
+        return {false, true, "", {}};
+    }
+
     const bool isAdd = actionName == "add";
     const bool isSort = actionName == "sort";
     const bool isReverse = actionName == "reverse";

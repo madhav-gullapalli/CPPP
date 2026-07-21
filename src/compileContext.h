@@ -55,7 +55,8 @@ struct PendingLoopElse {
 
 enum class OutputTarget {
     Main,
-    Function
+    Function,
+    TopLevel
 };
 
 // Shared mutable compiler state: source maps, symbols, output buffers, and
@@ -69,6 +70,9 @@ struct CompileContext {
     std::map<int, std::vector<SourceRange>> sourceRanges;
     std::map<std::string, Type> declaredVariables;
     std::map<std::string, FunctionSignature> declaredFunctions;
+    std::map<std::string, std::map<std::string, Type>> declaredStructs;
+    std::map<std::string, std::vector<std::string>> declaredStructFieldOrders;
+    std::map<std::string, std::map<std::string, FunctionSignature>> declaredStructMethods;
     std::vector<GeneratedLine> generatedTopLevelLines;
     std::vector<GeneratedLine> generatedFunctionLines;
     std::vector<GeneratedLine> generatedMainLines;
@@ -79,6 +83,9 @@ struct CompileContext {
     PendingLoopElse pendingLoopElse;
     OutputTarget outputTarget = OutputTarget::Main;
     bool inFunction = false;
+    bool inStruct = false;
+    std::string currentStructName;
+    std::vector<std::string> currentStructFields;
     FunctionSignature currentFunction;
     std::map<std::string, Type> savedDeclaredVariables;
     std::vector<std::string> blockKinds;
@@ -102,6 +109,8 @@ struct CompileContext {
     void queueGeneratedLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         if (outputTarget == OutputTarget::Function) {
             generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
+        } else if (outputTarget == OutputTarget::TopLevel) {
+            generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges)});
         } else {
             generatedMainLines.push_back({text, sourceLine, std::move(ranges)});
         }

@@ -143,6 +143,9 @@ bool needsRangeRuntimeHelperForType(const Type& type) {
 }
 
 void compileSourceFragments(CompileContext& context, const std::vector<SourceFragment>& sourceFragments) {
+    setDeclaredStructsForExpressions(&context.declaredStructs);
+    setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
+    setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
     for (const SourceFragment& fragment : sourceFragments) {
         const int lineNumber = fragment.lineNumber;
         const std::string& line = fragment.text;
@@ -170,6 +173,195 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         const int statementStartColumn = fragment.startColumn;
         const StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
+
+        if (!context.inStruct && context.blockDepth == 0) {
+            const std::vector<Token> structTokens = tokenize(statement);
+            if (structTokens.size() >= 4 && structTokens[0].kind == TokenKind::Identifier && structTokens[0].text == "struct") {
+                if (structTokens[1].kind != TokenKind::Identifier || structTokens[2].text != "{") {
+                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct declarations use syntax struct Name {", context.sourceLines);
+                    ++context.blockDepth;
+                    context.pushBlock("suppressed");
+                    ++context.suppressedBlockDepth;
+                    continue;
+                }
+                const std::string structName = structTokens[1].text;
+                if (context.declaredStructs.count(structName) != 0 || declaredTypeForName(structName) != PrimitiveType::Unknown) {
+                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + structTokens[1].span.startColumn - 1, "struct '" + structName + "' is already declared", context.sourceLines);
+                    ++context.blockDepth;
+                    context.pushBlock("suppressed");
+                    ++context.suppressedBlockDepth;
+                    continue;
+                }
+                context.declaredStructs[structName] = {};
+                context.declaredStructFieldOrders[structName] = {};
+                context.declaredStructMethods[structName] = {};
+                context.inStruct = true;
+                context.currentStructName = structName;
+                context.currentStructFields.clear();
+                ++context.blockDepth;
+                context.pushBlock("struct");
+                context.queueTopLevelLine("struct " + structName + " {");
+                continue;
+            }
+        }
+
+        if (context.inStruct && !context.inFunction && parsed.kind == StatementParseResult::Kind::CloseBrace) {
+            if (!static_cast<const CloseBraceStmt&>(*parsed.statement).trailingText.empty()) {
+                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unexpected text after struct closing brace", context.sourceLines);
+            }
+            if (!context.currentStructFields.empty()) {
+                std::string constructor = "    " + context.currentStructName + "(";
+                size_t i = 0;
+                for (const std::string& fieldName : context.declaredStructFieldOrders[context.currentStructName]) {
+                    if (i > 0) {
+                        constructor += ", ";
+                    }
+                    constructor += cppTypeForType(context.declaredStructs[context.currentStructName][fieldName]) + " value_" + fieldName;
+                    ++i;
+                }
+                constructor += ") : ";
+                i = 0;
+                for (const std::string& fieldName : context.declaredStructFieldOrders[context.currentStructName]) {
+                    if (i > 0) {
+                        constructor += ", ";
+                    }
+                    constructor += fieldName + "(move(value_" + fieldName + "))";
+                    ++i;
+                }
+                constructor += " {}";
+                context.queueTopLevelLine(constructor, lineNumber);
+            }
+            const auto& fields = context.declaredStructs[context.currentStructName];
+            const auto& fieldOrder = context.declaredStructFieldOrders[context.currentStructName];
+            context.queueTopLevelLine("    " + context.currentStructName + "(const " + context.currentStructName + "& other) {", lineNumber);
+            for (const std::string& fieldName : fieldOrder) {
+                const Type& fieldType = fields.at(fieldName);
+                if (isStructType(fieldType)) {
+                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + " ? make_unique<" + fieldType.name + ">(*other." + fieldName + ") : nullptr;", lineNumber);
+                } else {
+                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
+                }
+            }
+            context.queueTopLevelLine("    }", lineNumber);
+            context.queueTopLevelLine("    " + context.currentStructName + "& operator=(const " + context.currentStructName + "& other) {", lineNumber);
+            context.queueTopLevelLine("        if (this == &other) return *this;", lineNumber);
+            for (const std::string& fieldName : fieldOrder) {
+                const Type& fieldType = fields.at(fieldName);
+                if (isStructType(fieldType)) {
+                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + " ? make_unique<" + fieldType.name + ">(*other." + fieldName + ") : nullptr;", lineNumber);
+                } else {
+                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
+                }
+            }
+            context.queueTopLevelLine("        return *this;", lineNumber);
+            context.queueTopLevelLine("    }", lineNumber);
+            std::string equal = "    bool operator==(const " + context.currentStructName + "& other) const { return ";
+            if (fields.empty()) {
+                equal += "true";
+            }
+            size_t fieldIndex = 0;
+            for (const std::string& fieldName : fieldOrder) {
+                const Type& fieldType = fields.at(fieldName);
+                if (fieldIndex++ > 0) {
+                    equal += " && ";
+                }
+                if (isStructType(fieldType)) {
+                    equal += "((" + fieldName + " && other." + fieldName + ") ? (*" + fieldName + " == *other." + fieldName + ") : (!" + fieldName + " && !other." + fieldName + "))";
+                } else {
+                    equal += fieldName + " == other." + fieldName;
+                }
+            }
+            equal += "; }";
+            context.queueTopLevelLine(equal, lineNumber);
+            requireRuntimeHelper("CPPPPrintValue");
+            context.queueTopLevelLine("    friend ostream& operator<<(ostream& output, const " + context.currentStructName + "& value) {", lineNumber);
+            context.queueTopLevelLine("        output << '{';", lineNumber);
+            fieldIndex = 0;
+            for (const std::string& fieldName : fieldOrder) {
+                if (fieldIndex++ > 0) {
+                    context.queueTopLevelLine("        output << \", \";", lineNumber);
+                }
+                context.queueTopLevelLine("        output << \"" + fieldName + ": \"; CPPPPrintValue(output, value." + fieldName + ");", lineNumber);
+            }
+            context.queueTopLevelLine("        return output << '}';", lineNumber);
+            context.queueTopLevelLine("    }", lineNumber);
+            context.queueTopLevelLine("};", lineNumber);
+            context.inStruct = false;
+            context.currentStructName.clear();
+            context.currentStructFields.clear();
+            context.outputTarget = OutputTarget::Main;
+            --context.blockDepth;
+            if (!context.blockKinds.empty()) {
+                context.blockKinds.pop_back();
+                context.blockBreakFlags.pop_back();
+                context.blockDeclaredNames.pop_back();
+            }
+            continue;
+        }
+
+        if (context.inStruct && !context.inFunction) {
+            const size_t methodBrace = statement.find('{');
+            if (!context.inFunction && methodBrace != std::string::npos) {
+                const ParsedFunctionHeader methodHeader = parseFunctionHeader(
+                    context.options.inputFile,
+                    lineNumber,
+                    trim(statement.substr(0, methodBrace + 1)),
+                    statementStartColumn,
+                    context.sourceLines
+                );
+                if (methodHeader.matched && methodHeader.ok) {
+                    if (context.declaredStructMethods[context.currentStructName].count(methodHeader.signature.name) != 0) {
+                        recordSourceError(context.options.inputFile, lineNumber, methodHeader.nameColumn, "duplicate method '" + methodHeader.signature.name + "'", context.sourceLines);
+                        continue;
+                    }
+                    context.declaredStructMethods[context.currentStructName][methodHeader.signature.name] = methodHeader.signature;
+                    context.queueTopLevelLine("    " + methodHeader.generatedSignature, lineNumber);
+                    context.savedDeclaredVariables = context.declaredVariables;
+                    context.declaredVariables = context.declaredStructs[context.currentStructName];
+                    for (const FunctionParameter& parameter : methodHeader.signature.parameters) {
+                        context.declaredVariables[parameter.name] = parameter.type;
+                    }
+                    context.currentFunction = methodHeader.signature;
+                    context.inFunction = true;
+                    context.outputTarget = OutputTarget::TopLevel;
+                    ++context.blockDepth;
+                    context.pushBlock("function");
+                    continue;
+                }
+            }
+            std::map<std::string, Type> fieldNames;
+            std::string fieldStatement = statement;
+            if (!fieldStatement.empty() && fieldStatement.back() == ';') {
+                fieldStatement.pop_back();
+                fieldStatement = trim(fieldStatement);
+            }
+            const TypeEmitResult fieldResult = emitTypeDeclaration(
+                context.options.inputFile,
+                lineNumber,
+                line,
+                fieldStatement,
+                context.sourceLines,
+                fieldNames
+            );
+            if (fieldResult.matched) {
+                if (!fieldResult.ok) {
+                    continue;
+                }
+                for (const auto& field : fieldNames) {
+                    if (context.declaredStructs[context.currentStructName].count(field.first) != 0) {
+                        recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "field '" + field.first + "' is already declared", context.sourceLines);
+                        continue;
+                    }
+                    context.declaredStructs[context.currentStructName][field.first] = field.second;
+                    context.currentStructFields.push_back(field.first);
+                    context.declaredStructFieldOrders[context.currentStructName].push_back(field.first);
+                }
+                context.queueTopLevelLine("    " + trim(fieldResult.generatedStatement), lineNumber);
+                continue;
+            }
+            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct bodies currently require typed fields", context.sourceLines);
+            continue;
+        }
 
         const size_t functionBrace = statement.find('{');
         if (context.blockDepth == 0 && !context.inFunction && functionBrace != std::string::npos) {
@@ -352,7 +544,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
                 if (closedBlock == "function") {
                     context.inFunction = false;
-                    context.outputTarget = OutputTarget::Main;
+                    context.outputTarget = context.inStruct ? OutputTarget::TopLevel : OutputTarget::Main;
                     context.declaredVariables = context.savedDeclaredVariables;
                     context.savedDeclaredVariables.clear();
                     context.currentFunction = FunctionSignature{};

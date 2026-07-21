@@ -28,6 +28,7 @@ struct Expr {
 struct LiteralExpr : Expr {
     enum class Kind {
         Bool,
+        Null,
         Int,
         Float,
         String,
@@ -49,6 +50,17 @@ struct VariableExpr : Expr {
     std::string name;
 
     VariableExpr(std::string name, int sourceColumn) : name(std::move(name)) {
+        this->sourceColumn = sourceColumn;
+    }
+};
+
+// FieldExpr accesses a named public field on a CP++ struct value.
+struct FieldExpr : Expr {
+    std::unique_ptr<Expr> base;
+    std::string field;
+
+    FieldExpr(std::unique_ptr<Expr> base, std::string field, int sourceColumn) :
+        base(std::move(base)), field(std::move(field)) {
         this->sourceColumn = sourceColumn;
     }
 };

@@ -29,23 +29,28 @@ enum class PrimitiveType {
     List,
     Set,
     Map,
-    Pair
+    Pair,
+    Struct
 };
 
 // Type implements the Type behavior for the expressions.h module.
 struct Type {
     PrimitiveType primitive = PrimitiveType::Unknown;
     std::vector<Type> subtypes;
+    std::string name;
 
     Type() = default;
     Type(PrimitiveType primitive) : primitive(primitive) {}
     Type(PrimitiveType primitive, std::vector<Type> subtypes) :
         primitive(primitive),
         subtypes(std::move(subtypes)) {}
+    Type(PrimitiveType primitive, std::string name) :
+        primitive(primitive),
+        name(std::move(name)) {}
 };
 
 inline bool operator==(const Type& left, const Type& right) {
-    return left.primitive == right.primitive && left.subtypes == right.subtypes;
+    return left.primitive == right.primitive && left.subtypes == right.subtypes && left.name == right.name;
 }
 
 inline bool operator!=(const Type& left, const Type& right) {
@@ -99,6 +104,7 @@ bool isRangeType(const Type& type);
 bool isSetType(const Type& type);
 bool isMapType(const Type& type);
 bool isPairType(const Type& type);
+bool isStructType(const Type& type);
 bool isCollectionType(const Type& type);
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to);
@@ -127,6 +133,12 @@ bool emitInputCallForType(
 );
 void setExpressionRuntimeChecksEnabled(bool enabled);
 void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSignature>* declaredFunctions);
+void setDeclaredStructsForExpressions(const std::map<std::string, std::map<std::string, Type>>* declaredStructs);
+void setDeclaredStructFieldOrdersForExpressions(const std::map<std::string, std::vector<std::string>>* fieldOrders);
+void setDeclaredStructMethodsForExpressions(const std::map<std::string, std::map<std::string, FunctionSignature>>* methods);
+const std::map<std::string, Type>* declaredStructFieldsForName(const std::string& name);
+const std::vector<std::string>* declaredStructFieldOrderForName(const std::string& name);
+const FunctionSignature* declaredStructMethodForType(const Type& type, const std::string& name);
 std::unique_ptr<Expr> parseExpressionAst(
     const std::string& inputFile,
     int lineNumber,

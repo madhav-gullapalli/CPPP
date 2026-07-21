@@ -545,7 +545,7 @@ PrintEmitResult emitPrintStatement(
 
         const bool stringArgument = isStringType(expression.type);
         const bool delimitedArgument = (isListType(expression.type) && !stringArgument) || isSetType(expression.type) || (stringArgument && hasDelim);
-        const bool helperArgument = delimitedArgument || isMapType(expression.type) || isPairType(expression.type);
+        const bool helperArgument = delimitedArgument || isMapType(expression.type) || isPairType(expression.type) || isStructType(expression.type);
         if (helperArgument) {
             if (hasDelim) {
                 requireRuntimeHelper("CPPPPrintDelimited");

@@ -49,6 +49,8 @@ std::string cppTypeForExpressionType(const Type& type) {
                 return "pair<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
             }
             return "";
+        case PrimitiveType::Struct:
+            return "unique_ptr<" + type.name + ">";
         case PrimitiveType::Unknown:
             return "";
     }
@@ -79,6 +81,9 @@ public:
         }
         if (auto* variable = dynamic_cast<VariableExpr*>(&expr)) {
             return analyzeVariable(*variable);
+        }
+        if (auto* field = dynamic_cast<FieldExpr*>(&expr)) {
+            return analyzeField(*field);
         }
         if (auto* unary = dynamic_cast<UnaryExpr*>(&expr)) {
             return analyzeUnary(*unary);
@@ -187,6 +192,10 @@ private:
             return left == right && isLexicographicallyComparable(left);
         }
 
+        if (isStructType(left) || isStructType(right)) {
+            return left == right;
+        }
+
         return isNumericType(left) && isNumericType(right);
     }
 
@@ -276,6 +285,9 @@ private:
             case LiteralExpr::Kind::Bool:
                 expr.inferredType = PrimitiveType::Bool;
                 break;
+            case LiteralExpr::Kind::Null:
+                expr.inferredType = PrimitiveType::Unknown;
+                break;
             case LiteralExpr::Kind::Int:
                 expr.inferredType = PrimitiveType::Int;
                 break;
@@ -309,6 +321,25 @@ private:
 
         expr.inferredType = variable->second;
         expr.mutableValue = true;
+        return true;
+    }
+
+    bool analyzeField(FieldExpr& expr) {
+        if (!analyze(*expr.base)) {
+            return false;
+        }
+        if (!isStructType(expr.base->inferredType)) {
+            report(expr.sourceColumn, "field access requires a struct value");
+            return false;
+        }
+        const std::map<std::string, Type>* fields = declaredStructFieldsForName(expr.base->inferredType.name);
+        const auto field = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.field);
+        if (fields == nullptr || field == fields->end()) {
+            report(expr.sourceColumn, "struct " + expr.base->inferredType.name + " has no field '" + expr.field + "'");
+            return false;
+        }
+        expr.inferredType = field->second;
+        expr.mutableValue = expr.base->mutableValue;
         return true;
     }
 
@@ -418,11 +449,27 @@ private:
         if (expr.op == "==" || expr.op == "!=" || expr.op == "<" || expr.op == "<=" || expr.op == ">" || expr.op == ">=") {
             const Type& leftType = expr.left->inferredType;
             const Type& rightType = expr.right->inferredType;
+            const auto* leftLiteral = dynamic_cast<LiteralExpr*>(expr.left.get());
+            const auto* rightLiteral = dynamic_cast<LiteralExpr*>(expr.right.get());
+            const bool leftNull = leftLiteral != nullptr && leftLiteral->kind == LiteralExpr::Kind::Null;
+            const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
+            if (leftNull || rightNull) {
+                const Type& structSide = leftNull ? rightType : leftType;
+                if ((expr.op != "==" && expr.op != "!=") || !isStructType(structSide)) {
+                    report(expr.sourceColumn, "NULL can only be compared with a struct using == or !=");
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Bool;
+                return true;
+            }
             if (leftType.primitive == PrimitiveType::List || rightType.primitive == PrimitiveType::List) {
                 if (leftType != rightType || !isLexicographicallyComparable(leftType)) {
                     report(expr.sourceColumn, "cannot compare " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType));
                     return false;
                 }
+            } else if ((isStructType(leftType) || isStructType(rightType)) && expr.op != "==" && expr.op != "!=") {
+                report(expr.sourceColumn, "struct values only support == and != comparisons");
+                return false;
             } else if (!isComparable(leftType, rightType)) {
                 report(expr.sourceColumn, "cannot compare " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType));
                 return false;
@@ -480,6 +527,26 @@ private:
                 return false;
             }
             expr.inferredType = PrimitiveType::Int;
+            return true;
+        }
+
+        if (expr.receiver && isStructType(expr.receiver->inferredType)) {
+            const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
+            if (method == nullptr) {
+                report(expr.sourceColumn, "struct " + expr.receiver->inferredType.name + " has no method '" + expr.callee + "'");
+                return false;
+            }
+            if (expr.arguments.size() != method->parameters.size()) {
+                report(expr.sourceColumn, expr.callee + " expects " + std::to_string(method->parameters.size()) + " argument" + (method->parameters.size() == 1 ? "" : "s"));
+                return false;
+            }
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                if (!expr.arguments[i]->explicitCast && !isImplicitlyConvertible(expr.arguments[i]->inferredType, method->parameters[i].type)) {
+                    report(expr.arguments[i]->sourceColumn, "cannot use " + cpppTypeName(expr.arguments[i]->inferredType) + " as " + cpppTypeName(method->parameters[i].type) + " for " + expr.callee + "()");
+                    return false;
+                }
+            }
+            expr.inferredType = method->returnsVoid ? PrimitiveType::Void : method->returnType;
             return true;
         }
 
@@ -620,25 +687,29 @@ private:
         }
 
         if (expr.callee == "split") {
-            if (expr.arguments.size() != 2) {
-                report(expr.sourceColumn, "split() expects a List value and one delimiter");
+            if (!expr.receiver) {
+                report(expr.sourceColumn, "split must be called as list.split(delimiter)");
+                return false;
+            }
+            if (expr.arguments.size() != 1) {
+                report(expr.sourceColumn, "split() expects exactly one delimiter");
                 return false;
             }
 
-            const Type haystackType = expr.arguments[0]->inferredType;
+            const Type haystackType = expr.receiver->inferredType;
             if (haystackType.primitive != PrimitiveType::List || haystackType.subtypes.size() != 1) {
-                report(expr.sourceColumn, "split() expects a List value as the first argument");
+                report(expr.sourceColumn, "split() can only be used on List values");
                 return false;
             }
 
             const Type elementType = haystackType.subtypes[0];
-            const Type delimiterType = expr.arguments[1]->inferredType;
+            const Type delimiterType = expr.arguments[0]->inferredType;
             if (isListType(delimiterType)) {
                 if (delimiterType != haystackType) {
                     report(expr.sourceColumn, "split() delimiter must be " + cpppTypeName(elementType) + " or " + cpppTypeName(haystackType));
                     return false;
                 }
-            } else if (!expr.arguments[1]->explicitCast && !isImplicitlyConvertible(delimiterType, elementType)) {
+            } else if (!expr.arguments[0]->explicitCast && !isImplicitlyConvertible(delimiterType, elementType)) {
                 report(expr.sourceColumn, "split() delimiter must be " + cpppTypeName(elementType) + " or " + cpppTypeName(haystackType));
                 return false;
             }
@@ -704,6 +775,30 @@ private:
                 return false;
             }
             expr.inferredType = sumResultType(elementType);
+            return true;
+        }
+
+        const Type constructedType = declaredTypeForName(expr.callee);
+        if (!expr.receiver && isStructType(constructedType)) {
+            const std::map<std::string, Type>* definition = declaredStructFieldsForName(expr.callee);
+            const std::vector<std::string>* fieldOrder = declaredStructFieldOrderForName(expr.callee);
+            if (definition == nullptr || fieldOrder == nullptr || expr.arguments.size() != fieldOrder->size()) {
+                const size_t fieldCount = fieldOrder == nullptr ? 0 : fieldOrder->size();
+                report(expr.sourceColumn, expr.callee + " constructor expects " + std::to_string(fieldCount) + " field values");
+                return false;
+            }
+            size_t index = 0;
+            for (const std::string& fieldName : *fieldOrder) {
+                const auto field = definition->find(fieldName);
+                const auto* literal = dynamic_cast<LiteralExpr*>(expr.arguments[index].get());
+                const bool nullForStruct = literal != nullptr && literal->kind == LiteralExpr::Kind::Null && isStructType(field->second);
+                if (!nullForStruct && !expr.arguments[index]->explicitCast && !isImplicitlyConvertible(expr.arguments[index]->inferredType, field->second)) {
+                    report(expr.arguments[index]->sourceColumn, "cannot use " + cpppTypeName(expr.arguments[index]->inferredType) + " for field '" + field->first + "' of " + expr.callee);
+                    return false;
+                }
+                ++index;
+            }
+            expr.inferredType = constructedType;
             return true;
         }
 
@@ -964,6 +1059,9 @@ public:
         if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
             return variable->name;
         }
+        if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
+            return generateField(*field);
+        }
         if (const auto* unary = dynamic_cast<const UnaryExpr*>(&expr)) {
             return generateUnary(*unary);
         }
@@ -1090,9 +1188,10 @@ private:
     std::string generateLiteral(const LiteralExpr& expr) const {
         switch (expr.kind) {
             case LiteralExpr::Kind::Bool:
+            case LiteralExpr::Kind::Null:
             case LiteralExpr::Kind::Int:
             case LiteralExpr::Kind::Float:
-                return expr.text;
+                return expr.kind == LiteralExpr::Kind::Null ? "nullptr" : expr.text;
             case LiteralExpr::Kind::String:
                 requireRuntimeHelper("CPPPStringLiteral");
                 return "CPPPStringLiteral(" + expr.text + ")";
@@ -1163,6 +1262,26 @@ private:
             return "(" + castExpressionTo(left, expr.left->inferredType, PrimitiveType::Bool) + " " + expr.op + " " + castExpressionTo(right, expr.right->inferredType, PrimitiveType::Bool) + ")";
         }
 
+        const auto* leftLiteral = dynamic_cast<const LiteralExpr*>(expr.left.get());
+        const auto* rightLiteral = dynamic_cast<const LiteralExpr*>(expr.right.get());
+        const bool leftNull = leftLiteral != nullptr && leftLiteral->kind == LiteralExpr::Kind::Null;
+        const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
+        if ((expr.op == "==" || expr.op == "!=") && isStructType(expr.left->inferredType) && rightNull) {
+            const std::string equal = "(" + left + " == nullptr)";
+            return expr.op == "==" ? equal : "(!" + equal + ")";
+        }
+
+        if ((expr.op == "==" || expr.op == "!=") && isStructType(expr.right->inferredType) && leftNull) {
+            const std::string equal = "(" + right + " == nullptr)";
+            return expr.op == "==" ? equal : "(!" + equal + ")";
+        }
+
+        if ((expr.op == "==" || expr.op == "!=") && isStructType(expr.left->inferredType)) {
+            const std::string equal = "((" + left + " && " + right + ") ? (*" + left + " == *" + right + ") : (!" + left + " && !" + right + "))";
+            return expr.op == "==" ? equal : "(!" + equal + ")";
+        }
+
+
         if (emitRuntimeChecks && expr.inferredType == PrimitiveType::Int) {
             return checkedIntegerExpression(left, right, expr.op, expr.sourceColumn);
         }
@@ -1176,6 +1295,43 @@ private:
 
 // generateCall implements the generateCall behavior for the expressionParser.cpp module.
     std::string generateCall(const CallExpr& expr) const {
+        if (expr.receiver && isStructType(expr.receiver->inferredType)) {
+            const std::string receiver = generate(*expr.receiver);
+            std::string call = "(" + receiver + ")->" + expr.callee + "(";
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                if (i > 0) call += ", ";
+                call += generate(*expr.arguments[i]);
+            }
+            call += ")";
+            if (!emitRuntimeChecks) {
+                return call;
+            }
+            return "([&]() -> decltype(auto) { auto& __cppp_object = " + receiver + "; if (!__cppp_object) { " +
+                runtimeErrorThrowExpression(expr.sourceColumn, "cannot call " + expr.callee + "() on null " + expr.receiver->inferredType.name) +
+                "; } return " + call + "; }())";
+        }
+        const Type constructedType = declaredTypeForName(expr.callee);
+        if (isStructType(constructedType) && !expr.receiver) {
+            const std::map<std::string, Type>* fields = declaredStructFieldsForName(constructedType.name);
+            const std::vector<std::string>* fieldOrder = declaredStructFieldOrderForName(constructedType.name);
+            std::string generated = "make_unique<" + constructedType.name + ">(";
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                if (i > 0) {
+                    generated += ", ";
+                }
+                std::string argument = generate(*expr.arguments[i]);
+                const auto field = (fields == nullptr || fieldOrder == nullptr || i >= fieldOrder->size()) ? std::map<std::string, Type>::const_iterator{} : fields->find((*fieldOrder)[i]);
+                const auto* literal = dynamic_cast<const LiteralExpr*>(expr.arguments[i].get());
+                if (fields != nullptr && field != fields->end() && isStructType(field->second) &&
+                    !(literal != nullptr && literal->kind == LiteralExpr::Kind::Null)) {
+                    requireRuntimeHelper("CPPPStructClone");
+                    argument = "CPPPStructClone(" + argument + ")";
+                }
+                generated += argument;
+            }
+            return generated + ")";
+        }
+
         if (expr.callee == "len") {
             return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
         }
@@ -1265,16 +1421,16 @@ private:
         }
 
         if (expr.callee == "split") {
-            const std::string haystack = generate(*expr.arguments[0]);
-            const Type haystackType = expr.arguments[0]->inferredType;
+            const std::string haystack = generate(*expr.receiver);
+            const Type haystackType = expr.receiver->inferredType;
             const Type elementType = haystackType.subtypes[0];
-            const Type delimiterType = expr.arguments[1]->inferredType;
+            const Type delimiterType = expr.arguments[0]->inferredType;
             if (isListType(delimiterType) && delimiterType == haystackType) {
                 requireRuntimeHelper("CPPPListSplitSublist");
-                return "CPPPListSplitSublist(" + haystack + ", " + generate(*expr.arguments[1]) + ")";
+                return "CPPPListSplitSublist(" + haystack + ", " + generate(*expr.arguments[0]) + ")";
             }
 
-            std::string delimiter = generate(*expr.arguments[1]);
+            std::string delimiter = generate(*expr.arguments[0]);
             if (!isImplicitlyConvertible(delimiterType, elementType) || delimiterType != elementType) {
                 delimiter = castExpressionTo(delimiter, delimiterType, elementType);
             }
@@ -1471,6 +1627,10 @@ private:
             }
             return "((" + base + ")[" + generatedIndex + "])";
         }
+        if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
+            const std::string base = generate(*field->base);
+            return "((" + base + ")->" + field->field + ")";
+        }
         return generate(expr);
     }
 
@@ -1546,6 +1706,15 @@ private:
     std::string generatePairLiteral(const PairLiteralExpr& expr) const {
         return "make_pair(" + generate(*expr.first) + ", " + generate(*expr.second) + ")";
     }
+
+    std::string generateField(const FieldExpr& expr) const {
+        const std::string base = generate(*expr.base);
+        if (!emitRuntimeChecks) {
+            return "((" + base + ")->" + expr.field + ")";
+        }
+        return "([&]() -> decltype(auto) { auto& __cppp_object = " + base + "; if (!__cppp_object) { " +
+            runtimeErrorThrowExpression(expr.sourceColumn, "cannot access a field on null " + expr.base->inferredType.name) + "; } return (__cppp_object->" + expr.field + "); }())";
+    }
 };
 
 std::string generateMutableAccessExpression(
@@ -1580,6 +1749,9 @@ std::string generateMutableAccessExpression(
             generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, keyType);
         }
         return "((" + base + ")[" + generatedIndex + "])";
+    }
+    if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
+        return "((" + ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(*field->base) + ")->" + field->field + ")";
     }
     return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expr);
 }
@@ -1973,9 +2145,29 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
         return nullptr;
     }
     const Token& method = previous();
-    if (method.text != "remove" && method.text != "find" && method.text != "at" &&
+    if (method.text == "next" && !check(TokenKind::LeftParen)) {
+        return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method));
+    }
+    if (method.text != "remove" && method.text != "find" && method.text != "at" && method.text != "split" &&
         method.text != "prev" && method.text != "next") {
-        report(method, "unexpected token in expression");
+        if (!check(TokenKind::LeftParen)) {
+            return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method));
+        }
+        if (match(TokenKind::LeftParen)) {
+            const Token& leftParen = previous();
+            std::vector<std::unique_ptr<Expr>> arguments;
+            if (!match(TokenKind::RightParen)) {
+                arguments.push_back(parseExpression(ok));
+                while (ok && match(TokenKind::Comma)) arguments.push_back(parseExpression(ok));
+                if (ok && !match(TokenKind::RightParen)) {
+                    report(leftParen, "unclosed parenthesis in method call");
+                    ok = false;
+                    return nullptr;
+                }
+            }
+            return std::make_unique<CallExpr>(method.text, std::move(expression), std::move(arguments), absoluteColumn(method));
+        }
+        report(method, "unknown method '" + method.text + "'");
         ok = false;
         return nullptr;
     }
@@ -2000,6 +2192,8 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
                 report(leftParen, "at() expects exactly one key");
             } else if (method.text == "prev" || method.text == "next") {
                 report(leftParen, "unclosed parenthesis in " + method.text);
+            } else if (method.text == "split") {
+                report(leftParen, "split() expects exactly one delimiter");
             } else {
                 report(leftParen, "find() expects exactly one value or sublist");
             }
@@ -2019,6 +2213,11 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
     }
     if ((method.text == "prev" || method.text == "next") && arguments.size() != 1) {
         report(leftParen, method.text + "() expects exactly one key");
+        ok = false;
+        return nullptr;
+    }
+    if (method.text == "split" && arguments.size() != 1) {
+        report(leftParen, "split() expects exactly one delimiter");
         ok = false;
         return nullptr;
     }
@@ -2214,6 +2413,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
     if (check(TokenKind::Identifier) &&
         peek().text != "range" &&
         isTypeName(peek().text) &&
+        !isStructType(declaredTypeForName(peek().text)) &&
         current + 1 < tokens.size() &&
         tokens[current + 1].kind == TokenKind::LeftParen) {
         const Token typeToken = peek();
@@ -2264,6 +2464,9 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
         if (identifier.text == "true" || identifier.text == "false") {
             return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Bool, identifier.text, absoluteColumn(identifier));
         }
+        if (identifier.text == "NULL") {
+            return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Null, identifier.text, absoluteColumn(identifier));
+        }
         if (identifier.text == "len") {
             if (!match(TokenKind::LeftParen)) {
                 report(identifier, "len must be called as len(list)");
@@ -2281,11 +2484,14 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             }
             return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier));
         }
-        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum" || identifier.text == "abs" || identifier.text == "split" || identifier.text == "range") {
+        if (identifier.text == "split") {
+            report(identifier, "split must be called as list.split(delimiter)");
+            ok = false;
+            return nullptr;
+        }
+        if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum" || identifier.text == "abs" || identifier.text == "range") {
             if (!match(TokenKind::LeftParen)) {
-                if (identifier.text == "split") {
-                    report(identifier, "split must be called as split(list, delimiter)");
-                } else if (identifier.text == "range") {
+                if (identifier.text == "range") {
                     report(identifier, "range must be called as range(stop), range(start, stop), or range(start, stop, step)");
                 } else {
                     report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
