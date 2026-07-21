@@ -2919,7 +2919,7 @@ LinkedList struct synthesis output
     10 20 3
     20 30 2
 
-DoublyLinkedList shared recursive links output
+DoublyLinkedList raw recursive links output
   Shared struct links allow a doubly linked list to maintain both next and
   prev links while add, remove, and get update the list consistently.
 

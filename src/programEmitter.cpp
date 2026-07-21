@@ -213,7 +213,6 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
 "#include <iomanip>\n"
 "#include <iostream>\n"
 "#include <limits>\n"
-"#include <memory>\n"
 "#include <map>\n"
 "#include <numeric>\n"
 "#include <queue>\n"

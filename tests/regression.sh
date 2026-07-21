@@ -42,7 +42,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=24
+TOTAL_STEPS=25
 CURRENT_STEP=0
 
 progress() {
@@ -158,7 +158,24 @@ assert_contains "${primitives_case%.cppp}.cpp" "long long a = 3;" "int lowers to
 assert_contains "${primitives_case%.cppp}.cpp" "long double b = 2.5L;" "float literal gets long-double suffix"
 assert_contains "${primitives_case%.cppp}.cpp" "CPPPChar c = CPPPChar('x');" "char lowers to CPPPChar"
 assert_contains "${primitives_case%.cppp}.cpp" "bool ok = true;" "bool lowers to bool"
+assert_not_contains "${primitives_case%.cppp}.cpp" "shared_ptr<pair<A,B>>" "Pair storage is pointer-backed without shared_ptr"
+assert_not_contains "${primitives_case%.cppp}.cpp" "shared_ptr<vector<T>>" "List storage is pointer-backed without shared_ptr"
+assert_not_contains "${primitives_case%.cppp}.cpp" "shared_ptr<set<T>>" "Set storage is pointer-backed without shared_ptr"
+assert_not_contains "${primitives_case%.cppp}.cpp" "shared_ptr<map<K,V>>" "Map storage is pointer-backed without shared_ptr"
+assert_contains "${primitives_case%.cppp}.cpp" "struct Compare { bool operator()(const T& left, const T& right) const" "Set uses value comparison for pointer-backed aliases"
+assert_contains "${primitives_case%.cppp}.cpp" "struct Compare { bool operator()(const K& left, const K& right) const" "Map uses value comparison for pointer-backed aliases"
+assert_not_contains "${primitives_case%.cppp}.cpp" "shared_ptr" "generated runtime uses no shared_ptr storage"
+assert_not_contains "${primitives_case%.cppp}.cpp" "make_shared" "generated runtime uses raw allocation"
 pass "primitive declarations still compile and lower correctly"
+
+progress "pointer-backed container aliases"
+container_aliases_case="$(stage_case "$TEST_DIR/container_pointer_aliases.cppp")"
+run_program_ok "$container_aliases_case" "$LOG_DIR/container_pointer_aliases.log" "pointer-backed container aliases run"
+assert_contains "$LOG_DIR/container_pointer_aliases.log" "2 1 3 4 {(1,0), (2,0)} 6" "containers and objects alias with value ordering"
+assert_contains "${container_aliases_case%.cppp}.cpp" "Node* objectFirst = new Node(5, nullptr);" "struct construction uses raw pointers"
+assert_not_contains "${container_aliases_case%.cppp}.cpp" "shared_ptr" "object programs contain no shared_ptr"
+assert_not_contains "${container_aliases_case%.cppp}.cpp" "make_shared" "object programs contain no make_shared"
+pass "pointer-backed containers and objects alias correctly"
 
 progress "primitive generic misuse"
 bad_generic_case="$(stage_case "$TEST_DIR/bad_generic.cppp")"

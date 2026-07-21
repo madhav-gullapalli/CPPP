@@ -226,7 +226,7 @@ TypeInfo typeInfoFor(const Type& type) {
     }
 
     if (isStructType(type)) {
-        return {"shared_ptr<" + type.name + ">", "nullptr"};
+        return {type.name + "*", "nullptr"};
     }
 
     const auto primitive = primitiveTypes().find(cpppTypeName(type));

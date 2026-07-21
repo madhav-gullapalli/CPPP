@@ -50,7 +50,7 @@ std::string cppTypeForExpressionType(const Type& type) {
             }
             return "";
         case PrimitiveType::Struct:
-            return "shared_ptr<" + type.name + ">";
+            return type.name + "*";
         case PrimitiveType::Unknown:
             return "";
     }
@@ -1339,7 +1339,7 @@ private:
         }
         const Type constructedType = declaredTypeForName(expr.callee);
         if (isStructType(constructedType) && !expr.receiver) {
-            std::string generated = "make_shared<" + constructedType.name + ">(";
+            std::string generated = "new " + constructedType.name + "(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) {
                     generated += ", ";
