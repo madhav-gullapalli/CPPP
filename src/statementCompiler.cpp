@@ -306,6 +306,18 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             context.queueTopLevelLine("        return output << '}';", lineNumber);
             context.queueTopLevelLine("    }", lineNumber);
             context.queueTopLevelLine("};", lineNumber);
+            if (!context.currentStructIsClass) {
+                for (const std::string& fieldName : fieldOrder) {
+                    requireCopyHelpersForType(fields.at(fieldName));
+                }
+                std::string copier = "template <> struct CPPPDeepCopier<" + context.currentStructName + "> { static " + context.currentStructName + " run(const " + context.currentStructName + "& value) { return " + context.currentStructName + "(";
+                for (size_t index = 0; index < fieldOrder.size(); ++index) {
+                    if (index > 0) copier += ", ";
+                    copier += "CPPPCopy(value." + fieldOrder[index] + ")";
+                }
+                copier += "); } };";
+                context.queueTopLevelLine(copier, lineNumber);
+            }
             context.inStruct = false;
             context.currentStructIsClass = false;
             context.currentStructName.clear();

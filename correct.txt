@@ -2952,7 +2952,7 @@ copy inline struct output
     print(first, second);
 
   Output:
-    {value: 3, items: [9, 5]} {value: 8, items: [9, 5]}
+    {value: 3, items: [4, 5]} {value: 8, items: [9, 5]}
 
 LinkedList class synthesis output
   Class methods can compose recursive Node values into a linked list with
