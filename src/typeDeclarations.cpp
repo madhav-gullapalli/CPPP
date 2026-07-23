@@ -225,8 +225,12 @@ TypeInfo typeInfoFor(const Type& type) {
         return {"CPPPPair<" + firstInfo.cppType + ", " + secondInfo.cppType + ">", "{" + firstInfo.defaultValue + ", " + secondInfo.defaultValue + "}"};
     }
 
-    if (isStructType(type)) {
+    if (isClassType(type)) {
         return {"cppp_smart_pointer<" + type.name + ">", "nullptr"};
+    }
+
+    if (isInlineStructType(type)) {
+        return {type.name, type.name + "()"};
     }
 
     const auto primitive = primitiveTypes().find(cpppTypeName(type));

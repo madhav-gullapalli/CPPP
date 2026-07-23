@@ -13,7 +13,7 @@
 namespace {
 // isReferenceParameterType returns whether the supplied input satisfies the relevant condition.
 bool isReferenceParameterType(const Type& type) {
-    return isStringType(type) || isCollectionType(type) || isPairType(type) || isStructType(type);
+    return isStringType(type) || isCollectionType(type) || isClassType(type);
 }
 
 // isDeepEligibleType returns whether the supplied input satisfies the relevant condition.

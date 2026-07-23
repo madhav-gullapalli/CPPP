@@ -1,0 +1,9 @@
+class Box {
+    int value;
+}
+
+struct Bad {
+    Bad next;
+    Box owner;
+    List<Bad> children;
+}

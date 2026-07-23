@@ -50,6 +50,8 @@ std::string cppTypeForExpressionType(const Type& type) {
             }
             return "";
         case PrimitiveType::Struct:
+            return type.name;
+        case PrimitiveType::Class:
             return "cppp_smart_pointer<" + type.name + ">";
         case PrimitiveType::Unknown:
             return "";
@@ -329,13 +331,13 @@ private:
             return false;
         }
         if (!isStructType(expr.base->inferredType)) {
-            report(expr.sourceColumn, "field access requires a struct value");
+            report(expr.sourceColumn, "field access requires a class or struct value");
             return false;
         }
         const std::map<std::string, Type>* fields = declaredStructFieldsForName(expr.base->inferredType.name);
         const auto field = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.field);
         if (fields == nullptr || field == fields->end()) {
-            report(expr.sourceColumn, "struct " + expr.base->inferredType.name + " has no field '" + expr.field + "'");
+            report(expr.sourceColumn, std::string(isClassType(expr.base->inferredType) ? "class " : "struct ") + expr.base->inferredType.name + " has no field '" + expr.field + "'");
             return false;
         }
         expr.inferredType = field->second;
@@ -455,8 +457,8 @@ private:
             const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
             if (leftNull || rightNull) {
                 const Type& structSide = leftNull ? rightType : leftType;
-                if ((expr.op != "==" && expr.op != "!=") || !isStructType(structSide)) {
-                    report(expr.sourceColumn, "NULL can only be compared with a struct using == or !=");
+                if ((expr.op != "==" && expr.op != "!=") || !isClassType(structSide)) {
+                    report(expr.sourceColumn, "NULL can only be compared with a class using == or !=");
                     return false;
                 }
                 expr.inferredType = PrimitiveType::Bool;
@@ -547,7 +549,7 @@ private:
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             if (method == nullptr) {
-                report(expr.sourceColumn, "struct " + expr.receiver->inferredType.name + " has no method '" + expr.callee + "'");
+                report(expr.sourceColumn, std::string(isClassType(expr.receiver->inferredType) ? "class " : "struct ") + expr.receiver->inferredType.name + " has no method '" + expr.callee + "'");
                 return false;
             }
             if (expr.arguments.size() != method->parameters.size()) {
@@ -805,7 +807,7 @@ private:
             for (const std::string& fieldName : *fieldOrder) {
                 const auto field = definition->find(fieldName);
                 const auto* literal = dynamic_cast<LiteralExpr*>(expr.arguments[index].get());
-                const bool nullForStruct = literal != nullptr && literal->kind == LiteralExpr::Kind::Null && isStructType(field->second);
+                const bool nullForStruct = literal != nullptr && literal->kind == LiteralExpr::Kind::Null && isClassType(field->second);
                 if (!nullForStruct && !expr.arguments[index]->explicitCast && !isImplicitlyConvertible(expr.arguments[index]->inferredType, field->second)) {
                     report(expr.arguments[index]->sourceColumn, "cannot use " + cpppTypeName(expr.arguments[index]->inferredType) + " for field '" + field->first + "' of " + expr.callee);
                     return false;
@@ -1286,17 +1288,17 @@ private:
         const auto* rightLiteral = dynamic_cast<const LiteralExpr*>(expr.right.get());
         const bool leftNull = leftLiteral != nullptr && leftLiteral->kind == LiteralExpr::Kind::Null;
         const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
-        if ((expr.op == "==" || expr.op == "!=") && isStructType(expr.left->inferredType) && rightNull) {
+        if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.left->inferredType) && rightNull) {
             const std::string equal = "(" + left + " == nullptr)";
             return expr.op == "==" ? equal : "(!" + equal + ")";
         }
 
-        if ((expr.op == "==" || expr.op == "!=") && isStructType(expr.right->inferredType) && leftNull) {
+        if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.right->inferredType) && leftNull) {
             const std::string equal = "(" + right + " == nullptr)";
             return expr.op == "==" ? equal : "(!" + equal + ")";
         }
 
-        if ((expr.op == "==" || expr.op == "!=") && isStructType(expr.left->inferredType)) {
+        if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.left->inferredType)) {
             const std::string equal = "((" + left + " && " + right + ") ? (*" + left + " == *" + right + ") : (!" + left + " && !" + right + "))";
             return expr.op == "==" ? equal : "(!" + equal + ")";
         }
@@ -1319,7 +1321,8 @@ private:
             const std::string receiver = generate(*expr.receiver);
             requireStructMethod(expr.receiver->inferredType.name, expr.callee);
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
-            std::string call = "(" + receiver + ")->" + expr.callee + "(";
+            const bool isClass = isClassType(expr.receiver->inferredType);
+            std::string call = "(" + receiver + ")" + (isClass ? "->" : ".") + expr.callee + "(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) call += ", ";
                 std::string argument = generate(*expr.arguments[i]);
@@ -1330,7 +1333,7 @@ private:
                 call += argument;
             }
             call += ")";
-            if (!emitRuntimeChecks) {
+            if (!isClass || !emitRuntimeChecks) {
                 return call;
             }
             return "([&]() -> decltype(auto) { auto& __cppp_object = " + receiver + "; if (!__cppp_object) { " +
@@ -1339,7 +1342,9 @@ private:
         }
         const Type constructedType = declaredTypeForName(expr.callee);
         if (isStructType(constructedType) && !expr.receiver) {
-            std::string generated = "cppp_smart_pointer<" + constructedType.name + ">::make(";
+            std::string generated = isClassType(constructedType)
+                ? "cppp_smart_pointer<" + constructedType.name + ">::make("
+                : constructedType.name + "(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) {
                     generated += ", ";
@@ -1736,6 +1741,9 @@ private:
 
     std::string generateField(const FieldExpr& expr) const {
         const std::string base = generate(*expr.base);
+        if (!isClassType(expr.base->inferredType)) {
+            return "((" + base + ")." + expr.field + ")";
+        }
         if (!emitRuntimeChecks) {
             return "((" + base + ")->" + expr.field + ")";
         }
@@ -1778,7 +1786,8 @@ std::string generateMutableAccessExpression(
         return "((" + base + ")[" + generatedIndex + "])";
     }
     if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
-        return "((" + ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(*field->base) + ")->" + field->field + ")";
+        const std::string base = ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(*field->base);
+        return "((" + base + ")" + (isClassType(field->base->inferredType) ? "->" : ".") + field->field + ")";
     }
     return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expr);
 }

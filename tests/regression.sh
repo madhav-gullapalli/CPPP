@@ -42,7 +42,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=25
+TOTAL_STEPS=26
 CURRENT_STEP=0
 
 progress() {
@@ -171,12 +171,21 @@ pass "primitive declarations still compile and lower correctly"
 progress "pointer-backed container aliases"
 container_aliases_case="$(stage_case "$TEST_DIR/container_pointer_aliases.cppp")"
 run_program_ok "$container_aliases_case" "$LOG_DIR/container_pointer_aliases.log" "pointer-backed container aliases run"
-assert_contains "$LOG_DIR/container_pointer_aliases.log" "2 1 3 4 {(1,0), (2,0)} 6" "containers and objects alias with value ordering"
+assert_contains "$LOG_DIR/container_pointer_aliases.log" "2 1 3 1 {(1,0), (2,0)} 6" "containers and objects alias while pairs remain inline values"
 assert_contains "${container_aliases_case%.cppp}.cpp" "cppp_smart_pointer<Node> objectFirst = cppp_smart_pointer<Node>::make(5, nullptr);" "struct construction uses CP++ reference-counted handles"
 assert_contains "${container_aliases_case%.cppp}.cpp" "if (block && --block->refcount == 0) delete block;" "composite handles reclaim their final acyclic owner"
 assert_not_contains "${container_aliases_case%.cppp}.cpp" "shared_ptr" "object programs contain no shared_ptr"
 assert_not_contains "${container_aliases_case%.cppp}.cpp" "make_shared" "object programs contain no make_shared"
 pass "reference-counted containers and objects alias correctly"
+
+progress "class and inline struct behavior"
+class_struct_case="$(stage_case "$TEST_DIR/class_struct_split.cppp")"
+run_program_ok "$class_struct_case" "$LOG_DIR/class_struct_split.log" "class and inline struct program runs"
+assert_contains "$LOG_DIR/class_struct_split.log" "2 3 4 5 5" "classes alias while inline structs copy"
+inline_struct_error_case="$(stage_case "$TEST_DIR/inline_struct_custom_field_error.cppp")"
+run_failure "$inline_struct_error_case" "$LOG_DIR/inline_struct_custom_field_error.log" "inline struct custom fields are rejected"
+assert_contains "$LOG_DIR/inline_struct_custom_field_error.log" "struct fields cannot contain custom types" "inline struct custom field diagnostic"
+pass "classes and inline structs have distinct ownership rules"
 
 progress "primitive generic misuse"
 bad_generic_case="$(stage_case "$TEST_DIR/bad_generic.cppp")"

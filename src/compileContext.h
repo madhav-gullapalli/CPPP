@@ -72,6 +72,7 @@ struct CompileContext {
     std::map<std::string, Type> declaredVariables;
     std::map<std::string, FunctionSignature> declaredFunctions;
     std::map<std::string, std::map<std::string, Type>> declaredStructs;
+    std::set<std::string> declaredClassNames;
     std::map<std::string, std::vector<std::string>> declaredStructFieldOrders;
     std::map<std::string, std::map<std::string, FunctionSignature>> declaredStructMethods;
     std::vector<GeneratedLine> generatedTopLevelLines;
@@ -85,6 +86,7 @@ struct CompileContext {
     OutputTarget outputTarget = OutputTarget::Main;
     bool inFunction = false;
     bool inStruct = false;
+    bool currentStructIsClass = false;
     std::string currentStructName;
     std::string currentStructMethodName;
     std::string currentTopLevelFunctionName;

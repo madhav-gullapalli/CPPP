@@ -30,7 +30,8 @@ enum class PrimitiveType {
     Set,
     Map,
     Pair,
-    Struct
+    Struct,
+    Class
 };
 
 // Type implements the Type behavior for the expressions.h module.
@@ -105,6 +106,8 @@ bool isSetType(const Type& type);
 bool isMapType(const Type& type);
 bool isPairType(const Type& type);
 bool isStructType(const Type& type);
+bool isClassType(const Type& type);
+bool isInlineStructType(const Type& type);
 bool isCollectionType(const Type& type);
 // isImplicitlyConvertible returns whether the supplied input satisfies the relevant condition.
 bool isImplicitlyConvertible(const Type& from, const Type& to);
@@ -134,6 +137,7 @@ bool emitInputCallForType(
 void setExpressionRuntimeChecksEnabled(bool enabled);
 void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSignature>* declaredFunctions);
 void setDeclaredStructsForExpressions(const std::map<std::string, std::map<std::string, Type>>* declaredStructs);
+void setDeclaredClassNamesForExpressions(const std::set<std::string>* declaredClassNames);
 void setDeclaredStructFieldOrdersForExpressions(const std::map<std::string, std::vector<std::string>>* fieldOrders);
 void setDeclaredStructMethodsForExpressions(const std::map<std::string, std::map<std::string, FunctionSignature>>* methods);
 const std::map<std::string, Type>* declaredStructFieldsForName(const std::string& name);

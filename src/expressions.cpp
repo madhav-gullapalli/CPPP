@@ -27,6 +27,11 @@ const std::map<std::string, std::map<std::string, Type>>*& declaredStructsForExp
     return structs;
 }
 
+const std::set<std::string>*& declaredClassNamesForExpressions() {
+    static const std::set<std::string>* names = nullptr;
+    return names;
+}
+
 const std::map<std::string, std::vector<std::string>>*& declaredStructFieldOrdersForExpressions() {
     static const std::map<std::string, std::vector<std::string>>* orders = nullptr;
     return orders;
@@ -135,6 +140,7 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Pair:
             return 2;
         case PrimitiveType::Struct:
+        case PrimitiveType::Class:
             return 0;
         case PrimitiveType::Unknown:
             return 0;
@@ -183,6 +189,7 @@ std::string cpppTypeName(const Type& type) {
             }
             return "Pair";
         case PrimitiveType::Struct:
+        case PrimitiveType::Class:
             return type.name;
         case PrimitiveType::Unknown:
             return "unknown";
@@ -219,6 +226,14 @@ bool isPairType(const Type& type) {
 }
 
 bool isStructType(const Type& type) {
+    return (type.primitive == PrimitiveType::Struct || type.primitive == PrimitiveType::Class) && !type.name.empty();
+}
+
+bool isClassType(const Type& type) {
+    return type.primitive == PrimitiveType::Class && !type.name.empty();
+}
+
+bool isInlineStructType(const Type& type) {
     return type.primitive == PrimitiveType::Struct && !type.name.empty();
 }
 
@@ -411,6 +426,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                 case PrimitiveType::Pair:
                     return expression;
                 case PrimitiveType::Struct:
+                    return expression;
+                case PrimitiveType::Class:
                     return "(" + expression + " != nullptr)";
                 case PrimitiveType::Unknown:
                     requireRuntimeHelper("CPPPToBoolFallback");
@@ -464,6 +481,7 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
         case PrimitiveType::Range:
             return expression;
         case PrimitiveType::Struct:
+        case PrimitiveType::Class:
             return expression;
         case PrimitiveType::Unknown:
             return expression;
@@ -529,7 +547,9 @@ Type declaredTypeForName(const std::string& name) {
 
     const auto* structs = declaredStructsForExpressions();
     if (structs && structs->count(name) != 0) {
-        return Type(PrimitiveType::Struct, name);
+        return Type(declaredClassNamesForExpressions() != nullptr && declaredClassNamesForExpressions()->count(name) != 0
+            ? PrimitiveType::Class
+            : PrimitiveType::Struct, name);
     }
 
     return PrimitiveType::Unknown;
@@ -537,6 +557,10 @@ Type declaredTypeForName(const std::string& name) {
 
 void setDeclaredStructsForExpressions(const std::map<std::string, std::map<std::string, Type>>* declaredStructs) {
     declaredStructsForExpressions() = declaredStructs;
+}
+
+void setDeclaredClassNamesForExpressions(const std::set<std::string>* declaredClassNames) {
+    declaredClassNamesForExpressions() = declaredClassNames;
 }
 
 void setDeclaredStructFieldOrdersForExpressions(const std::map<std::string, std::vector<std::string>>* fieldOrders) {
@@ -716,6 +740,7 @@ std::string inputFunctionForType(const Type& type) {
         case PrimitiveType::Pair:
             return emitPairInputExpression(type);
         case PrimitiveType::Struct:
+        case PrimitiveType::Class:
             return "";
     }
 

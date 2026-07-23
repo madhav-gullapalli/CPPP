@@ -971,8 +971,8 @@ pair reassignment
   Output:
     (3,5)
 
-pair assignment aliases output
-  Assigning a Pair aliases the same two element slots.
+pair assignment copies output
+  Pairs are inline values, so assignment copies the two element slots.
 
   Example:
     Pair<int, int> first = (1,2);
@@ -981,7 +981,7 @@ pair assignment aliases output
     print(first, second);
 
   Output:
-    (9,2) (9,2)
+    (1,2) (9,2)
 
 copy Pair output
   copy() creates an independent deep copy of a Pair and its elements.
@@ -2771,20 +2771,20 @@ alphabet from char and range
 Synthesis tests
 ---------------
 
-struct fields, aliases, and recursive links output
-  Structs expose public fields, assignment aliases an existing struct, and may
-  hold a recursive struct link that defaults to NULL.
+class fields, aliases, and recursive links output
+  Classes expose public fields, assignment aliases an existing class, and may
+  hold a recursive class link that defaults to NULL.
 
   Example:
-    struct Point {
+    class Point {
         int x;
         int y;
     }
-    struct Box {
+    class Box {
         Point corner;
         int side;
     }
-    struct Node {
+    class Node {
         int value;
         Node next;
     }
@@ -2806,11 +2806,11 @@ struct fields, aliases, and recursive links output
     {corner: {x: 9, y: 3}, side: 7}
     {value: 1, next: {value: 3, next: NULL}}
 
-struct equality output
-  Struct equality compares every field, including recursively owned fields.
+class equality output
+  Class equality compares every field, including recursively owned fields.
 
   Example:
-    struct Point {
+    class Point {
         int x;
         int y;
     }
@@ -2823,11 +2823,11 @@ struct equality output
   Output:
     1 0 1
 
-struct function parameter output
-  Struct parameters are passed by reference, so a function can update fields.
+class function parameter output
+  Class parameters are passed by reference, so a function can update fields.
 
   Example:
-    struct Point {
+    class Point {
         int x;
         int y;
         int z;
@@ -2845,11 +2845,11 @@ struct function parameter output
   Output:
     {x: -5, y: 2, z: 9}
 
-struct methods output
-  Struct methods use field names directly inside their body.
+class methods output
+  Class methods use field names directly inside their body.
 
   Example:
-    struct Counter {
+    class Counter {
         int x;
         void increment() {
             x++;
@@ -2866,16 +2866,104 @@ struct methods output
   Output:
     4 0
 
-LinkedList struct synthesis output
-  Struct methods can compose recursive Node values into a linked list with
+inline struct fields and copies output
+  Structs are inline values. Assignment copies their primitive fields instead
+  of aliasing the original value.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+    }
+    Point first = Point(2, 3);
+    Point second = first;
+    second.x = 9;
+    print(first, second);
+
+  Output:
+    {x: 2, y: 3} {x: 9, y: 3}
+
+inline struct equality output
+  Struct equality compares each inline field.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+    }
+    Point a = Point(1, 2);
+    Point b = Point(1, 2);
+    Point c = Point(2, 1);
+    print(a == b, a == c);
+
+  Output:
+    1 0
+
+inline struct function parameter output
+  Struct parameters are inline values, so a normal function parameter receives
+  its own field copy.
+
+  Example:
+    struct Point {
+        int x;
+        int y;
+    }
+    void shift(Point point) {
+        point.x += 4;
+        point.y += 1;
+    }
+    Point point = Point(2, 5);
+    shift(point);
+    print(point);
+
+  Output:
+    {x: 2, y: 5}
+
+inline struct methods output
+  Struct methods update the inline receiver directly.
+
+  Example:
+    struct Counter {
+        int x;
+        void increment() {
+            x++;
+        }
+    }
+    Counter counter = Counter(3);
+    counter.increment();
+    print(counter.x);
+
+  Output:
+    4
+
+copy inline struct output
+  copy() accepts an inline struct whose fields contain only built-in CP++
+  types and containers of built-in types.
+
+  Example:
+    struct Box {
+        int value;
+        List<int> items;
+    }
+    Box first = Box(3, [4, 5]);
+    Box second = copy(first);
+    second.value = 8;
+    second.items[0] = 9;
+    print(first, second);
+
+  Output:
+    {value: 3, items: [9, 5]} {value: 8, items: [9, 5]}
+
+LinkedList class synthesis output
+  Class methods can compose recursive Node values into a linked list with
   indexed add, remove, and get operations.
 
   Example:
-    struct Node {
+    class Node {
         int val;
         Node next;
     }
-    struct LinkedList {
+    class LinkedList {
         Node head;
         int size;
         void add(int x, int loc) {
@@ -2919,17 +3007,17 @@ LinkedList struct synthesis output
     10 20 3
     20 30 2
 
-DoublyLinkedList raw recursive links output
-  Shared struct links allow a doubly linked list to maintain both next and
+DoublyLinkedList class recursive links output
+  Shared class links allow a doubly linked list to maintain both next and
   prev links while add, remove, and get update the list consistently.
 
   Example:
-    struct Node {
+    class Node {
         int val;
         Node next;
         Node prev;
     }
-    struct DoublyLinkedList {
+    class DoublyLinkedList {
         Node head;
         Node tail;
         int size;
@@ -3101,11 +3189,11 @@ copy Map output
   Output:
     {1:[2, 3]} {1:[9, 3], 2:[4]}
 
-copy custom struct output
-  copy() recursively duplicates a custom struct and its container fields.
+copy custom class output
+  copy() recursively duplicates a custom class and its container fields.
 
   Example:
-    struct Box {
+    class Box {
         int value;
         List<int> items;
     }
@@ -3118,11 +3206,11 @@ copy custom struct output
   Output:
     {value: 3, items: [4, 5]} {value: 8, items: [9, 5]}
 
-copy recursive struct output
-  copy() follows non-circular recursive struct links and duplicates every node.
+copy recursive class output
+  copy() follows non-circular recursive class links and duplicates every node.
 
   Example:
-    struct Node {
+    class Node {
         int value;
         Node next;
     }

@@ -39,6 +39,14 @@ std::string indentForDepth(int depth) {
     return std::string(static_cast<size_t>((depth + 1) * 4), ' ');
 }
 
+bool containsCustomType(const Type& type) {
+    if (isStructType(type)) return true;
+    for (const Type& subtype : type.subtypes) {
+        if (containsCustomType(subtype)) return true;
+    }
+    return false;
+}
+
 // indentGeneratedStatement implements the indentGeneratedStatement behavior for the statementCompiler.cpp module.
 std::string indentGeneratedStatement(const std::string& generatedStatement, int depth) {
     return indentForDepth(depth) + trim(generatedStatement);
@@ -144,6 +152,7 @@ bool needsRangeRuntimeHelperForType(const Type& type) {
 
 void compileSourceFragments(CompileContext& context, const std::vector<SourceFragment>& sourceFragments) {
     setDeclaredStructsForExpressions(&context.declaredStructs);
+    setDeclaredClassNamesForExpressions(&context.declaredClassNames);
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
     for (const SourceFragment& fragment : sourceFragments) {
@@ -182,9 +191,12 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         if (!context.inStruct && context.blockDepth == 0) {
             const std::vector<Token> structTokens = tokenize(statement);
-            if (structTokens.size() >= 4 && structTokens[0].kind == TokenKind::Identifier && structTokens[0].text == "struct") {
+            if (structTokens.size() >= 4 && structTokens[0].kind == TokenKind::Identifier &&
+                (structTokens[0].text == "struct" || structTokens[0].text == "class")) {
+                const bool isClass = structTokens[0].text == "class";
+                const std::string kind = isClass ? "class" : "struct";
                 if (structTokens[1].kind != TokenKind::Identifier || structTokens[2].text != "{") {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct declarations use syntax struct Name {", context.sourceLines);
+                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, kind + " declarations use syntax " + kind + " Name {", context.sourceLines);
                     ++context.blockDepth;
                     context.pushBlock("suppressed");
                     ++context.suppressedBlockDepth;
@@ -192,7 +204,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 }
                 const std::string structName = structTokens[1].text;
                 if (context.declaredStructs.count(structName) != 0 || declaredTypeForName(structName) != PrimitiveType::Unknown) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + structTokens[1].span.startColumn - 1, "struct '" + structName + "' is already declared", context.sourceLines);
+                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + structTokens[1].span.startColumn - 1, kind + " '" + structName + "' is already declared", context.sourceLines);
                     ++context.blockDepth;
                     context.pushBlock("suppressed");
                     ++context.suppressedBlockDepth;
@@ -201,7 +213,9 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 context.declaredStructs[structName] = {};
                 context.declaredStructFieldOrders[structName] = {};
                 context.declaredStructMethods[structName] = {};
+                if (isClass) context.declaredClassNames.insert(structName);
                 context.inStruct = true;
+                context.currentStructIsClass = isClass;
                 context.currentStructName = structName;
                 context.currentStructFields.clear();
                 ++context.blockDepth;
@@ -213,7 +227,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         if (context.inStruct && !context.inFunction && parsed.kind == StatementParseResult::Kind::CloseBrace) {
             if (!static_cast<const CloseBraceStmt&>(*parsed.statement).trailingText.empty()) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unexpected text after struct closing brace", context.sourceLines);
+                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unexpected text after " + std::string(context.currentStructIsClass ? "class" : "struct") + " closing brace", context.sourceLines);
             }
             if (!context.currentStructFields.empty()) {
                 std::string constructor = "    " + context.currentStructName + "(";
@@ -239,19 +253,23 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             }
             const auto& fields = context.declaredStructs[context.currentStructName];
             const auto& fieldOrder = context.declaredStructFieldOrders[context.currentStructName];
-            context.queueTopLevelLine("    " + context.currentStructName + "(const " + context.currentStructName + "& other) {", lineNumber);
-            for (const std::string& fieldName : fieldOrder) {
-                requireCopyHelpersForType(fields.at(fieldName));
-                context.queueTopLevelLine("        " + fieldName + " = CPPPCopy(other." + fieldName + ");", lineNumber);
+            if (context.currentStructIsClass) {
+                context.queueTopLevelLine("    " + context.currentStructName + "(const " + context.currentStructName + "& other) {", lineNumber);
+                for (const std::string& fieldName : fieldOrder) {
+                    requireCopyHelpersForType(fields.at(fieldName));
+                    context.queueTopLevelLine("        " + fieldName + " = CPPPCopy(other." + fieldName + ");", lineNumber);
+                }
+                context.queueTopLevelLine("    }", lineNumber);
+                context.queueTopLevelLine("    " + context.currentStructName + "& operator=(const " + context.currentStructName + "& other) {", lineNumber);
+                context.queueTopLevelLine("        if (this == &other) return *this;", lineNumber);
+                for (const std::string& fieldName : fieldOrder) {
+                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
+                }
+                context.queueTopLevelLine("        return *this;", lineNumber);
+                context.queueTopLevelLine("    }", lineNumber);
+            } else {
+                context.queueTopLevelLine("    " + context.currentStructName + "() = default;", lineNumber);
             }
-            context.queueTopLevelLine("    }", lineNumber);
-            context.queueTopLevelLine("    " + context.currentStructName + "& operator=(const " + context.currentStructName + "& other) {", lineNumber);
-            context.queueTopLevelLine("        if (this == &other) return *this;", lineNumber);
-            for (const std::string& fieldName : fieldOrder) {
-                context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
-            }
-            context.queueTopLevelLine("        return *this;", lineNumber);
-            context.queueTopLevelLine("    }", lineNumber);
             std::string equal = "    bool operator==(const " + context.currentStructName + "& other) const { return ";
             if (fields.empty()) {
                 equal += "true";
@@ -262,7 +280,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 if (fieldIndex++ > 0) {
                     equal += " && ";
                 }
-                if (isStructType(fieldType)) {
+                if (isClassType(fieldType)) {
                     equal += "((" + fieldName + " && other." + fieldName + ") ? (*" + fieldName + " == *other." + fieldName + ") : (!" + fieldName + " && !other." + fieldName + "))";
                 } else {
                     if (isCollectionType(fieldType) || isPairType(fieldType)) {
@@ -289,6 +307,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             context.queueTopLevelLine("    }", lineNumber);
             context.queueTopLevelLine("};", lineNumber);
             context.inStruct = false;
+            context.currentStructIsClass = false;
             context.currentStructName.clear();
             context.currentStructFields.clear();
             context.outputTarget = OutputTarget::Main;
@@ -351,16 +370,25 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 if (!fieldResult.ok) {
                     continue;
                 }
+                bool fieldsAccepted = true;
                 for (const auto& field : fieldNames) {
                     if (context.declaredStructs[context.currentStructName].count(field.first) != 0) {
                         recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "field '" + field.first + "' is already declared", context.sourceLines);
+                        fieldsAccepted = false;
+                        continue;
+                    }
+                    if (!context.currentStructIsClass && containsCustomType(field.second)) {
+                        recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct fields cannot contain custom types; use a class for recursive or nested custom values", context.sourceLines);
+                        fieldsAccepted = false;
                         continue;
                     }
                     context.declaredStructs[context.currentStructName][field.first] = field.second;
                     context.currentStructFields.push_back(field.first);
                     context.declaredStructFieldOrders[context.currentStructName].push_back(field.first);
                 }
-                context.queueTopLevelLine("    " + trim(fieldResult.generatedStatement), lineNumber);
+                if (fieldsAccepted) {
+                    context.queueTopLevelLine("    " + trim(fieldResult.generatedStatement), lineNumber);
+                }
                 continue;
             }
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct bodies currently require typed fields", context.sourceLines);

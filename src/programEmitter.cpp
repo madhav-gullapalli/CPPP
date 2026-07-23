@@ -72,7 +72,8 @@ std::set<std::string> reachableSubmitOwners(const CompileContext& context) {
         }
         for (const auto& structure : context.declaredStructMethods) {
             for (const auto& method : structure.second) {
-                if (text.find("->" + method.first + "(") != std::string::npos) {
+                if (text.find("->" + method.first + "(") != std::string::npos ||
+                    text.find("." + method.first + "(") != std::string::npos) {
                     calledMethodNames.insert(method.first);
                 }
             }

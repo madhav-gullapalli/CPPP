@@ -1,0 +1,21 @@
+class Node {
+    int value;
+    Node next;
+}
+
+struct Point {
+    int x;
+    int y;
+    void move(int dx, int dy) {
+        x += dx;
+        y += dy;
+    }
+}
+
+Node first = Node(1, NULL);
+Node alias = first;
+alias.value = 2;
+Point point = Point(3, 4);
+Point copy = point;
+copy.move(2, 1);
+print(first.value, point.x, point.y, copy.x, copy.y);

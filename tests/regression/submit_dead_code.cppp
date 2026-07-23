@@ -1,4 +1,4 @@
-struct Used {
+class Used {
     int value;
     int keep() {
         return value;
@@ -7,7 +7,7 @@ struct Used {
         return value + 1;
     }
 }
-struct Unused {
+class Unused {
     int marker;
     int never() {
         return marker;

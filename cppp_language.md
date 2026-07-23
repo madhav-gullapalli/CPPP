@@ -115,13 +115,13 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Recursive list literals and recursive list operations are part of the implemented surface.
 - Complexity: O(1) for the type itself; operations vary
 
-## Structs (Classes)
+## Classes and structs
 
-### Struct declaration
+### Class declaration
 
 - Syntax:
   ```cpp
-  struct Point {
+  class Point {
       int x;
       int y;
       void shift(int amount) {
@@ -130,75 +130,75 @@ Complexities below describe the CP++ operation itself at the language level. Gen
       }
   }
   ```
-- What it does: Declares a public CP++ struct with typed fields and typed methods.
-- Notes: CP++ methods refer to fields directly by name; `self` is not used. Struct fields and methods are public.
+- What it does: Declares a public CP++ class with typed fields and typed methods.
+- Notes: CP++ methods refer to fields directly by name; `self` is not used. Class fields and methods are public.
 - Complexity: Declaration-time cost is proportional to the number of fields and methods.
 
-### Struct construction and default values
+### Class construction and default values
 
 - Syntax: `Point p = Point(2, 3);`, `Point empty;`
-- What it does: Constructs a struct from its fields, or declares a null struct when no constructor value is supplied.
-- Notes: A constructed struct lowers to CP++'s reference-counted pointer handle. A default-initialized struct is `NULL`. Constructor arguments must match field types and declaration order. Acyclic composite values are reclaimed automatically when their final alias is released; cycles remain allocated.
+- What it does: Constructs a class from its fields, or declares a null class when no constructor value is supplied.
+- Notes: A constructed class lowers to CP++'s reference-counted pointer handle. A default-initialized class is `NULL`. Constructor arguments must match field types and declaration order. Acyclic composite values are reclaimed automatically when their final alias is released; cycles remain allocated.
 - Complexity: O(number of fields), excluding recursive container-copy cost.
 
-### Struct fields
+### Class fields
 
 - Syntax: `p.x`, `p.x = 7`
-- What it does: Reads and writes public struct fields.
-- Notes: Struct fields can be primitive values, containers, or other structs. Recursive fields are allowed because struct-valued fields use owned pointer representation.
+- What it does: Reads and writes public class fields.
+- Notes: Class fields can be primitive values, containers, classes, or structs. Recursive fields are allowed because class-valued fields use owned pointer representation.
 - Complexity: O(1) for a direct field access, excluding the value being assigned.
 
-### Struct methods
+### Class methods
 
 - Syntax:
   ```cpp
   p.shift(1);
   ```
-- What it does: Calls a method declared inside the struct.
+- What it does: Calls a method declared inside the class.
 - Notes: Method arguments must match their declared types. Methods may read and update the receiver's fields directly. Calling a method on `NULL` is a runtime error.
 - Complexity: The complexity of the method body.
 
 In `--submit` output, reachability is tracked at function granularity. Unused
-struct methods, entirely unused structs, and unreachable top-level functions
+class methods, entirely unused classes, and unreachable top-level functions
 are omitted; methods and functions reached from retained code remain available.
 
-### Struct aliasing and reassignment
+### Class aliasing and reassignment
 
 - Syntax: `Point alias = original;`, `alias = original;`
-- What it does: Makes both names refer to the same struct value.
+- What it does: Makes both names refer to the same class value.
 - Notes: Mutating fields through either alias is visible through the other. Use `copy(original)` when an independent value is required.
 - Complexity: O(1).
 
-### Recursive structs
+### Recursive classes
 
 - Syntax:
   ```cpp
-  struct Node {
+  class Node {
       int value;
       Node next;
   }
   Node tail = Node(2, NULL);
   Node head = Node(1, tail);
   ```
-- What it does: Allows a struct to contain a field of its own type or another struct type.
-- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Struct links use CP++'s reference-counted pointer handle, so structures can contain back-links and cycles, including doubly linked lists. Acyclic links are reclaimed automatically; cycles are intentionally not collected. Printing, equality, or deep-copying a cycle recursively is not cycle-terminating; operate on its fields or break the cycle first.
+- What it does: Allows a class to contain a field of its own type or another custom type.
+- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Class links use CP++'s reference-counted pointer handle, so structures can contain back-links and cycles, including doubly linked lists. Acyclic links are reclaimed automatically; cycles are intentionally not collected. Printing, equality, or deep-copying a cycle recursively is not cycle-terminating; operate on its fields or break the cycle first.
 - Complexity: Proportional to the traversed recursive structure.
 
-### Struct printing
+### Class printing
 
 - Syntax: `print(point);`
-- What it does: Prints a struct as JSON-like named fields, in declaration order.
-- Notes: Nested structs use nested braces, containers retain their normal formatting, and null struct values print as `NULL`.
+- What it does: Prints a class as JSON-like named fields, in declaration order.
+- Notes: Nested classes use nested braces, containers retain their normal formatting, and null class values print as `NULL`.
 - Complexity: O(size of the printed object).
 
-### Struct equality
+### Class equality
 
 - Syntax: `a == b`, `a != b`, `a == NULL`
-- What it does: Compares all fields recursively, including nested structs and containers.
-- Notes: Two null structs compare equal. Ordering comparisons on structs are not supported. `=` is assignment; use `==` for equality.
+- What it does: Compares all fields recursively, including nested classes and containers.
+- Notes: Two null classes compare equal. Ordering comparisons on classes are not supported. `=` is assignment; use `==` for equality.
 - Complexity: O(size of the compared objects) in the worst case.
 
-### Struct function parameters
+### Class function parameters
 
 - Syntax:
   ```cpp
@@ -208,9 +208,21 @@ are omitted; methods and functions reached from retained code remain available.
       point.y = oldX;
   }
   ```
-- What it does: Passes a struct to a function so the function can inspect and update its fields.
-- Notes: Struct parameters share the same referenced object in generated C++, while CP++ source uses ordinary struct syntax.
+- What it does: Passes a class to a function so the function can inspect and update its fields.
+- Notes: Class parameters share the same referenced object in generated C++, while CP++ source uses ordinary class syntax.
 - Complexity: O(1) to pass the reference; operations inside the function determine total cost.
+
+### Inline struct declaration
+
+- Syntax: `struct Point { int x; int y; }`
+- What it does: Declares an inline value type with public fields and methods.
+- Notes: Struct fields may use primitives, `List`, `Set`, `Map`, and `Pair` of non-custom values. A struct cannot contain a struct, a class, itself, or a collection containing either; use `class` for those layouts. Structs are never `NULL`, do not use reference-counted handles, and ordinary assignment copies their fields.
+
+### Inline struct construction, fields, and methods
+
+- Syntax: `Point p = Point(2, 3);`, `p.x = 7`, `p.shift(1)`
+- What it does: Constructs and operates on an inline struct value.
+- Notes: A default-initialized struct contains default values for its fields. Struct parameters are passed as values, so mutating a normal parameter does not mutate the caller's struct. Struct equality compares fields; `NULL` comparisons are not supported.
 
 ### `range`
 
@@ -237,7 +249,7 @@ are omitted; methods and functions reached from retained code remain available.
 
 - Syntax: `Pair<int, int> point;`
 - What it does: Stores two values, accessible at indexes `0` and `1`.
-- Notes: `Pair` requires exactly two subtypes and can be nested. Pair assignment aliases the same pair; use `copy(pair)` for an independent deep copy.
+- Notes: `Pair` requires exactly two subtypes and can be nested. Pairs are inline values, so ordinary assignment copies the two fields. Use `copy(pair)` when nested composite fields also need independent deep copies.
 - Complexity: O(1)
 
 ### Default values
@@ -467,7 +479,7 @@ are omitted; methods and functions reached from retained code remain available.
 ### Aliasing and `copy()`
 
 - Syntax: `List<int> alias = values;`, `var independent = copy(values);`
-- What it does: Ordinary assignment aliases Lists, strings, Sets, Maps, Pairs, and structs. `copy(value)` returns an independent deep copy.
+- What it does: Ordinary assignment aliases Lists, strings, Sets, Maps, and classes. Pairs and inline structs copy their fields. `copy(value)` returns an independent deep copy.
 - Notes: Primitive assignment still copies the primitive value. Deep copying recursively duplicates nested containers and non-circular struct links. Constructing a new outer List from existing elements can intentionally make a shallow copy: for example, `[words[0], words[1]]` creates a new outer List while retaining aliases to the two strings.
 - Complexity: O(1) for alias assignment; O(size of the reachable non-circular value) for `copy()`.
 

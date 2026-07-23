@@ -1860,13 +1860,13 @@ copy cannot infer an empty list type
 Runtime errors
 --------------
 
-structs
-  A struct groups public fields and typed methods. Struct assignment aliases an
-  existing value, recursive struct fields default to NULL, and copy(value)
+classes
+  A class groups public fields and typed methods. Class assignment aliases an
+  existing value, recursive class fields default to NULL, and copy(value)
   performs an explicit deep copy.
 
   Example:
-    struct Point {
+    class Point {
         int x;
         int y;
         void shift(int amount) {
@@ -1878,12 +1878,12 @@ structs
     point.shift(1);
     print(point);
 
-null struct field access
-  A default-initialized struct variable is NULL. Access a field only after
-  constructing the struct or checking it against NULL.
+null class field access
+  A default-initialized class variable is NULL. Access a field only after
+  constructing the class or checking it against NULL.
 
   Example:
-    struct Point {
+    class Point {
         int x;
     }
     Point point;
@@ -1892,11 +1892,11 @@ null struct field access
   Diagnostic:
     error: runtime error: cannot access a field on null Point
 
-struct constructor field type
+class constructor field type
   A constructor value must match the declared field type.
 
   Example:
-    struct Point {
+    class Point {
         int x;
     }
     Point point = Point("bad");
@@ -1904,37 +1904,37 @@ struct constructor field type
   Diagnostic:
     error: cannot use string for field 'x' of Point
 
-unknown struct field
-  A struct field must be declared in that struct.
+unknown class field
+  A class field must be declared in that class.
 
   Example:
-    struct Point {
+    class Point {
         int x;
     }
     Point point = Point(1);
     print(point.y);
 
   Diagnostic:
-    error: struct Point has no field 'y'
+    error: class Point has no field 'y'
 
-unknown struct method
-  A struct method must be declared in that struct.
+unknown class method
+  A class method must be declared in that class.
 
   Example:
-    struct Point {
+    class Point {
         int x;
     }
     Point point = Point(1);
     point.move();
 
   Diagnostic:
-    error: struct Point has no method 'move'
+    error: class Point has no method 'move'
 
-struct method argument type
+class method argument type
   Method arguments must match the declared parameter types.
 
   Example:
-    struct Counter {
+    class Counter {
         int x;
         void add(int amount) {
             x += amount;
@@ -1946,11 +1946,11 @@ struct method argument type
   Diagnostic:
     error: cannot use string as int for add()
 
-struct field scope
-  Struct fields are only available through a struct value outside a method.
+class field scope
+  Class fields are only available through a class value outside a method.
 
   Example:
-    struct Point {
+    class Point {
         int x;
     }
     print(x);
@@ -1962,7 +1962,7 @@ method local scope
   Variables declared inside a method do not escape that method.
 
   Example:
-    struct Point {
+    class Point {
         int x;
         void set() {
             int local = 1;
@@ -1974,12 +1974,12 @@ method local scope
   Diagnostic:
     error: use of undeclared variable 'local'
 
-null struct method call
-  Calling a method on a NULL struct is a runtime error. Check against NULL or
+null class method call
+  Calling a method on a NULL class is a runtime error. Check against NULL or
   construct the value first.
 
   Example:
-    struct Counter {
+    class Counter {
         int x;
         void increment() {
             x++;
@@ -1991,13 +1991,71 @@ null struct method call
   Diagnostic:
     error: runtime error: cannot call increment() on null Counter
 
+recursive struct field
+  Inline structs cannot contain their own type. Use a class when a value needs
+  a recursive link.
+
+  Example:
+    struct Node {
+        int value;
+        Node next;
+    }
+
+  Diagnostic:
+    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+
+struct containing a struct
+  Inline structs cannot contain another custom struct. Keep the fields inline
+  primitives or containers of primitive values, or use a class.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    struct Box {
+        Point corner;
+    }
+
+  Diagnostic:
+    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+
+struct containing a class
+  Inline structs cannot contain a class field because classes use shared
+  ownership handles.
+
+  Example:
+    class Node {
+        int value;
+    }
+    struct Holder {
+        Node node;
+    }
+
+  Diagnostic:
+    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+
+struct containing a list of structs
+  A collection inside an inline struct cannot contain custom struct or class
+  values.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    struct Grid {
+        List<Point> points;
+    }
+
+  Diagnostic:
+    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+
 submit helper pruning
   In --submit mode, CP++ emits only the generated runtime types and individual
   helper functions that the translated program actually references. A string
   literal, for example, keeps the CP++ char type and string printer but omits
-  unrelated char input, output, and increment/decrement helpers. Struct methods
+  unrelated char input, output, and increment/decrement helpers. Class methods
   are pruned individually, so using one method does not retain its siblings.
-  Entire unused structs and unreachable top-level functions are omitted too.
+  Entire unused classes and unreachable top-level functions are omitted too.
 
   Example:
     int x = input();
