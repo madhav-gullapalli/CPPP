@@ -222,6 +222,7 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
 "#include <queue>\n"
 "#include <set>\n"
 "#include <sstream>\n"
+"#include <stack>\n"
 "#include <stdexcept>\n"
 "#include <string>\n"
 "#include <tuple>\n"
