@@ -2547,6 +2547,46 @@ no previous key in map
   Diagnostic:
     error: runtime error: no previous key in map
 
+hasNext map key type
+  Map.hasNext(...) requires a key compatible with the Map key type.
+
+  Example:
+    Map<int, int> values = {1:2};
+    print(values.hasNext("x"));
+
+  Diagnostic:
+    error: cannot use key of type string with Map<int, int>
+
+hasPrev set value type
+  Set.hasPrev(...) requires a value compatible with the Set element type.
+
+  Example:
+    Set<int> values = {1, 2};
+    print(values.hasPrev("x"));
+
+  Diagnostic:
+    error: cannot use key of type string with Set<int>
+
+hasNext absent map key
+  A Map key must exist before hasNext(...) can test whether it has a successor.
+
+  Example:
+    Map<int, int> values = {1:2};
+    print(values.hasNext(3));
+
+  Diagnostic:
+    error: runtime error: cannot call hasNext() with a key that is not in map
+
+hasPrev absent set value
+  A Set value must exist before hasPrev(...) can test whether it has a predecessor.
+
+  Example:
+    Set<int> values = {1, 2};
+    print(values.hasPrev(3));
+
+  Diagnostic:
+    error: runtime error: cannot call hasPrev() with a value that is not in set
+
 Type inference errors
 ---------------------
 
@@ -2621,3 +2661,255 @@ invalid variables suppress cascaded errors
   Diagnostic:
     error: var cannot be initialized with input(); declare the type explicitly
     error: int requires an integer literal
+Linear data structure errors
+----------------------------
+
+Stack expects 1 subtype
+  Stack requires exactly one element type.
+
+  Example:
+    Stack<> values;
+
+  Diagnostic:
+    error: Stack expects 1 subtype
+
+Queue expects 1 subtype
+  Queue does not accept two element types.
+
+  Example:
+    Queue<int, int> values;
+
+  Diagnostic:
+    error: Queue expects 1 subtype
+
+Deque expects 1 subtype
+  Deque does not accept seven element types.
+
+  Example:
+    Deque<int, int, int, int, int, int, int> values;
+
+  Diagnostic:
+    error: Deque expects 1 subtype
+
+cannot cast Deque to Set
+  Convert a Deque to List first; direct Deque-to-Set conversion is unsupported.
+
+  Example:
+    Deque<int> deque = Deque([1, 2]);
+    Set<int> values = Set(deque);
+
+  Diagnostic:
+    error: cannot cast Deque<int> to Set
+
+cannot convert List string to Stack int
+  List-to-Stack conversion requires compatible element types.
+
+  Example:
+    List<string> words = ["x"];
+    Stack<int> values = Stack(words);
+
+  Diagnostic:
+    error: cannot cast List<string> to Stack<int>
+
+cannot convert List string to Queue float
+  List-to-Queue conversion requires compatible element types.
+
+  Example:
+    List<string> words = ["x"];
+    Queue<float> values = Queue(words);
+
+  Diagnostic:
+    error: cannot cast List<string> to Queue<float>
+
+cannot convert List int to Deque List int
+  Nested destination element types must match the source elements.
+
+  Example:
+    List<int> source = [1];
+    Deque<List<int>> values = Deque(source);
+
+  Diagnostic:
+    error: cannot cast List<int> to Deque<List<int>>
+
+cannot convert Stack int to nested List
+  Stack-to-List conversion requires compatible element types.
+
+  Example:
+    Stack<int> stack = Stack([1]);
+    List<List<int>> values = List(stack);
+
+  Diagnostic:
+    error: cannot cast Stack<int> to List<List<int>>
+
+cannot convert Stack int to List custom struct
+  Custom struct element types cannot be inferred from unrelated Stack elements.
+
+  Example:
+    struct Point {
+        int x;
+    }
+    Stack<int> stack = Stack([1]);
+    List<Point> values = List(stack);
+
+  Diagnostic:
+    error: cannot cast Stack<int> to List<Point>
+
+cannot add string to Stack int
+  Stack.add(...) requires a value compatible with its element type.
+
+  Example:
+    Stack<int> values;
+    values.add("x");
+
+  Diagnostic:
+    error: cannot add string to Stack<int>
+
+cannot add string to Queue int
+  Queue.add(...) requires a value compatible with its element type.
+
+  Example:
+    Queue<int> values;
+    values.add("x");
+
+  Diagnostic:
+    error: cannot add string to Queue<int>
+
+cannot addFront string to Deque int
+  Deque.addFront(...) requires a value compatible with its element type.
+
+  Example:
+    Deque<int> values;
+    values.addFront("x");
+
+  Diagnostic:
+    error: cannot add string to Deque<int>
+
+cannot addBack string to Deque int
+  Deque.addBack(...) requires a value compatible with its element type.
+
+  Example:
+    Deque<int> values;
+    values.addBack("x");
+
+  Diagnostic:
+    error: cannot add string to Deque<int>
+
+Stack top result type
+  Stack.top() returns the Stack element type.
+
+  Example:
+    Stack<int> values = Stack([1]);
+    string value = values.top();
+
+  Diagnostic:
+    error: cannot implicitly convert int to string
+
+Queue top result type
+  Queue.top() returns the Queue element type.
+
+  Example:
+    Queue<float> values = Queue([1.5]);
+    int value = values.top();
+
+  Diagnostic:
+    error: cannot implicitly convert float to int
+
+Deque front result type
+  Deque.front() returns the Deque element type.
+
+  Example:
+    Deque<string> values = Deque(["x"]);
+    int value = values.front();
+
+  Diagnostic:
+    error: cannot implicitly convert string to int
+
+Deque back result type
+  Deque.back() returns the Deque element type.
+
+  Example:
+    Deque<float> values = Deque([1.5]);
+    string value = values.back();
+
+  Diagnostic:
+    error: cannot implicitly convert float to string
+
+Stack pop result type
+  Stack.pop() returns the Stack element type.
+
+  Example:
+    Stack<int> values = Stack([1]);
+    string value = values.pop();
+
+  Diagnostic:
+    error: cannot implicitly convert int to string
+
+Queue pop result type
+  Queue.pop() returns the Queue element type.
+
+  Example:
+    Queue<float> values = Queue([1.5]);
+    int value = values.pop();
+
+  Diagnostic:
+    error: cannot implicitly convert float to int
+
+Deque popFront result type
+  Deque.popFront() returns the Deque element type.
+
+  Example:
+    Deque<string> values = Deque(["x"]);
+    int value = values.popFront();
+
+  Diagnostic:
+    error: cannot implicitly convert string to int
+
+Deque popBack result type
+  Deque.popBack() returns the Deque element type.
+
+  Example:
+    Deque<float> values = Deque([1.5]);
+    string value = values.popBack();
+
+  Diagnostic:
+    error: cannot implicitly convert float to string
+
+cannot pop empty Stack
+  Stack.pop() requires at least one element.
+
+  Example:
+    Stack<int> values;
+    print(values.pop());
+
+  Diagnostic:
+    error: runtime error: cannot pop empty Stack
+
+cannot pop empty Queue
+  Queue.pop() requires at least one element.
+
+  Example:
+    Queue<int> values;
+    print(values.pop());
+
+  Diagnostic:
+    error: runtime error: cannot pop empty Queue
+
+cannot popBack empty Deque
+  Deque.popBack() requires at least one element.
+
+  Example:
+    Deque<int> values;
+    print(values.popBack());
+
+  Diagnostic:
+    error: runtime error: cannot popBack() empty Deque
+
+cannot popFront empty Deque
+  Deque.popFront() requires at least one element.
+
+  Example:
+    Deque<int> values;
+    print(values.popFront());
+
+  Diagnostic:
+    error: runtime error: cannot popFront() empty Deque

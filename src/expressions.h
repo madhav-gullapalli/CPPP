@@ -27,6 +27,9 @@ enum class PrimitiveType {
     Float,
     Range,
     List,
+    Stack,
+    Queue,
+    Deque,
     Set,
     Map,
     Pair,
@@ -101,6 +104,10 @@ std::string cpppTypeName(const Type& type);
 // isStringType returns whether the supplied input satisfies the relevant condition.
 bool isStringType(const Type& type);
 bool isListType(const Type& type);
+bool isStackType(const Type& type);
+bool isQueueType(const Type& type);
+bool isDequeType(const Type& type);
+bool isLinearDataStructureType(const Type& type);
 bool isRangeType(const Type& type);
 bool isSetType(const Type& type);
 bool isMapType(const Type& type);

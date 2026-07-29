@@ -710,6 +710,197 @@ print list output
   Output:
     [1, 2]
 
+Linear data structure declarations
+  Stack, Queue, and Deque are generic heap-backed collections that default to
+  empty and print in List order.
+
+  Example:
+    Stack<int> stack;
+    Queue<int> queue;
+    Deque<int> deque;
+    print(stack, queue, deque);
+
+  Output:
+    [] [] []
+
+Stack operations
+  Stack.add(...) pushes at the top. top() peeks and pop() returns and removes
+  that same element.
+
+  Example:
+    Stack<int> stack = Stack([1, 2]);
+    stack.add(3);
+    print(stack, stack.top(), stack.pop(), stack);
+
+  Output:
+    [1, 2, 3] 3 3 [1, 2]
+
+Queue operations
+  Queue.add(...) enqueues at the back. top() peeks and pop() removes from the
+  front.
+
+  Example:
+    Queue<int> queue = Queue([1, 2]);
+    queue.add(3);
+    print(queue, queue.top(), queue.pop(), queue);
+
+  Output:
+    [1, 2, 3] 1 1 [2, 3]
+
+Deque operations
+  A Deque supports constant-time access, insertion, and removal at both ends.
+
+  Example:
+    Deque<int> deque = Deque([2, 3]);
+    deque.addFront(1);
+    deque.addBack(4);
+    print(deque, deque.front(), deque.back());
+    print(deque.popFront(), deque.popBack(), deque);
+
+  Output:
+    [1, 2, 3, 4] 1 4
+    1 4 [2, 3]
+
+Linear data structure lengths
+  len(...) is O(1) for Stack, Queue, and Deque.
+
+  Example:
+    Stack<int> stack;
+    Queue<int> queue;
+    Deque<int> deque;
+    stack.add(1);
+    queue.add(2);
+    deque.addFront(3);
+    deque.addBack(4);
+    print(stack, queue, deque);
+    print(len(stack), len(queue), len(deque));
+
+  Output:
+    [1] [2] [3, 4]
+    1 1 2
+
+List to linear data structure conversions
+  Stack(...), Queue(...), and Deque(...) convert a compatible List in O(n).
+
+  Example:
+    List<int> values = [1, 2, 3];
+    Stack<int> stack = Stack(values);
+    Queue<int> queue = Queue(values);
+    Deque<int> deque = Deque(values);
+    print(stack, queue, deque);
+
+  Output:
+    [1, 2, 3] [1, 2, 3] [1, 2, 3]
+
+Linear data structure to List conversions
+  List(...) materializes Stack, Queue, or Deque contents in their printed order.
+
+  Example:
+    Stack<int> stack = Stack([1, 2, 3]);
+    Queue<int> queue = Queue([4, 5, 6]);
+    Deque<int> deque = Deque([7, 8, 9]);
+    print(stack, queue, deque);
+    print(List(stack), List(queue), List(deque));
+
+  Output:
+    [1, 2, 3] [4, 5, 6] [7, 8, 9]
+    [1, 2, 3] [4, 5, 6] [7, 8, 9]
+
+Stack of custom classes
+  Linear data structures can contain custom class values.
+
+  Example:
+    class Point {
+        int x;
+        int y;
+    }
+    Stack<Point> points;
+    points.add(Point(1, 2));
+    points.add(Point(3, 4));
+    print(points, points.top());
+
+  Output:
+    [{x: 1, y: 2}, {x: 3, y: 4}] {x: 3, y: 4}
+
+iterative DFS with Stack
+  A Stack can replace recursion in depth-first traversal.
+
+  Example:
+    List<List<int>> graph = [[1, 2], [3], [3], []];
+    List<int> visited = [0, 0, 0, 0];
+    List<int> order;
+    Stack<int> pending;
+    pending.add(0);
+    while (len(pending) > 0) {
+        int node = pending.pop();
+        if (visited[node] == 0) {
+            visited[node] = 1;
+            order.add(node);
+            for (int next in graph[node]) {
+                pending.add(next);
+            }
+        }
+    }
+    print(order, delim = " ");
+    print(pending);
+
+  Output:
+    0 2 3 1
+    []
+
+BFS with Queue
+  A Queue naturally implements breadth-first traversal.
+
+  Example:
+    List<List<int>> graph = [[1, 2], [3], [3], []];
+    List<int> visited = [1, 0, 0, 0];
+    List<int> order;
+    Queue<int> pending;
+    pending.add(0);
+    while (len(pending) > 0) {
+        int node = pending.pop();
+        order.add(node);
+        for (int next in graph[node]) {
+            if (visited[next] == 0) {
+                visited[next] = 1;
+                pending.add(next);
+            }
+        }
+    }
+    print(order, delim = " ");
+    print(pending);
+
+  Output:
+    0 1 2 3
+    []
+
+sliding window maximum with Deque
+  A Deque of indexes supports an O(n) sliding-window maximum.
+
+  Example:
+    List<int> values = [1, 3, -1, -3, 5, 3, 6, 7];
+    List<int> answer;
+    Deque<int> candidates;
+    int width = 3;
+    for (int i in range(len(values))) {
+        while (len(candidates) > 0 && candidates.front() <= i - width) {
+            candidates.popFront();
+        }
+        while (len(candidates) > 0 && values[candidates.back()] <= values[i]) {
+            candidates.popBack();
+        }
+        candidates.addBack(i);
+        if (i >= width - 1) {
+            answer.add(values[candidates.front()]);
+        }
+    }
+    print(candidates);
+    print(answer);
+
+  Output:
+    [7]
+    [3, 3, 5, 5, 6, 7]
+
 Type inference
 --------------
 
@@ -917,6 +1108,20 @@ manual inorder traversal on map keys
 
   Output:
     2 5 5 9
+
+map and set hasNext and hasPrev
+  hasNext(key) and hasPrev(key) report whether a present Map key or Set value
+  has a neighboring item in sorted order.
+
+  Example:
+    Set<int> seen = {2, 5, 9};
+    Map<int, int> counts = {2:7, 5:1, 9:4};
+    print(seen.hasPrev(2), seen.hasNext(2), seen.hasNext(9));
+    print(counts.hasPrev(5), counts.hasNext(5), counts.hasPrev(2));
+
+  Output:
+    0 1 0
+    1 1 0
 
 membership in set and map
   Membership on Set and Map uses ordered lookup on the element or key type.

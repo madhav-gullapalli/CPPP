@@ -34,6 +34,18 @@ std::string cppTypeForExpressionType(const Type& type) {
                 return "CPPPList<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
             }
             return "";
+        case PrimitiveType::Stack:
+            return type.subtypes.size() == 1
+                ? "CPPPStack<" + cppTypeForExpressionType(type.subtypes[0]) + ">"
+                : "";
+        case PrimitiveType::Queue:
+            return type.subtypes.size() == 1
+                ? "CPPPQueue<" + cppTypeForExpressionType(type.subtypes[0]) + ">"
+                : "";
+        case PrimitiveType::Deque:
+            return type.subtypes.size() == 1
+                ? "CPPPDeque<" + cppTypeForExpressionType(type.subtypes[0]) + ">"
+                : "";
         case PrimitiveType::Set:
             if (type.subtypes.size() == 1) {
                 return "CPPPSet<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
@@ -241,6 +253,19 @@ private:
             }
             if (isRangeType(from)) {
                 return Type(PrimitiveType::List, {PrimitiveType::Int});
+            }
+            if (isLinearDataStructureType(from)) {
+                return Type(PrimitiveType::List, {from.subtypes[0]});
+            }
+            return PrimitiveType::Unknown;
+        }
+
+        if ((requested.primitive == PrimitiveType::Stack ||
+             requested.primitive == PrimitiveType::Queue ||
+             requested.primitive == PrimitiveType::Deque) &&
+            requested.subtypes.empty()) {
+            if (isListType(from)) {
+                return Type(requested.primitive, {from.subtypes[0]});
             }
             return PrimitiveType::Unknown;
         }
@@ -546,6 +571,47 @@ private:
             return true;
         }
 
+        if (expr.receiver && isLinearDataStructureType(expr.receiver->inferredType)) {
+            const Type receiverType = expr.receiver->inferredType;
+            const Type elementType = receiverType.subtypes[0];
+            const bool stackOrQueue = isStackType(receiverType) || isQueueType(receiverType);
+            const bool deque = isDequeType(receiverType);
+
+            const bool accessor =
+                (expr.callee == "top" && stackOrQueue) ||
+                ((expr.callee == "front" || expr.callee == "back") && deque);
+            const bool remover =
+                (expr.callee == "pop" && stackOrQueue) ||
+                ((expr.callee == "popFront" || expr.callee == "popBack") && deque);
+            if (accessor || remover) {
+                if (!expr.arguments.empty()) {
+                    report(expr.sourceColumn, expr.callee + "() does not take arguments");
+                    return false;
+                }
+                expr.inferredType = elementType;
+                return true;
+            }
+
+            if ((expr.callee == "addFront" || expr.callee == "addBack") && deque) {
+                if (expr.arguments.size() != 1) {
+                    report(expr.sourceColumn, expr.callee + "() expects exactly one value");
+                    return false;
+                }
+                if (!expr.arguments[0]->explicitCast &&
+                    !isImplicitlyConvertible(expr.arguments[0]->inferredType, elementType)) {
+                    report(expr.arguments[0]->sourceColumn, "cannot add " +
+                        cpppTypeName(expr.arguments[0]->inferredType) + " to " +
+                        cpppTypeName(receiverType));
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Void;
+                return true;
+            }
+
+            report(expr.sourceColumn, cpppTypeName(receiverType) + " has no method '" + expr.callee + "'");
+            return false;
+        }
+
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             if (method == nullptr) {
@@ -648,7 +714,7 @@ private:
             return true;
         }
 
-        if (expr.callee == "prev" || expr.callee == "next") {
+        if (expr.callee == "prev" || expr.callee == "next" || expr.callee == "hasPrev" || expr.callee == "hasNext") {
             if (!expr.receiver || (!isSetType(expr.receiver->inferredType) && !isMapType(expr.receiver->inferredType))) {
                 report(expr.sourceColumn, expr.callee + "() can only be used on Set or Map values");
                 return false;
@@ -665,7 +731,9 @@ private:
                 return false;
             }
 
-            expr.inferredType = keyType;
+            expr.inferredType = (expr.callee == "hasPrev" || expr.callee == "hasNext")
+                ? Type(PrimitiveType::Bool)
+                : keyType;
             return true;
         }
 
@@ -1364,6 +1432,30 @@ private:
             return "CPPPCopy(" + generate(*expr.arguments[0]) + ")";
         }
 
+        if (expr.receiver && isLinearDataStructureType(expr.receiver->inferredType)) {
+            const std::string receiver = generate(*expr.receiver);
+            const Type receiverType = expr.receiver->inferredType;
+            if (expr.callee == "top" || expr.callee == "front" || expr.callee == "back" ||
+                expr.callee == "pop" || expr.callee == "popFront" || expr.callee == "popBack") {
+                std::string method = expr.callee;
+                if (method == "pop") method = "pop_value";
+                if (method == "popFront") method = "pop_front_value";
+                if (method == "popBack") method = "pop_back_value";
+                return "(" + receiver + ")." + method + "(" + std::to_string(lineNumber) + ", " +
+                    std::to_string(expr.sourceColumn) + ")";
+            }
+            if (expr.callee == "addFront" || expr.callee == "addBack") {
+                std::string value = generate(*expr.arguments[0]);
+                const Type elementType = receiverType.subtypes[0];
+                if (expr.arguments[0]->inferredType != elementType) {
+                    value = castExpressionTo(value, expr.arguments[0]->inferredType, elementType);
+                }
+                return "(" + receiver + ")." +
+                    (expr.callee == "addFront" ? "push_front" : "push_back") +
+                    "(" + value + ")";
+            }
+        }
+
         if (expr.callee == "remove") {
             const std::string receiver = generate(*expr.receiver);
             if (isListType(expr.receiver->inferredType) && expr.arguments.empty()) {
@@ -1413,12 +1505,21 @@ private:
             return "(" + receiver + ").at(" + key + ")";
         }
 
-        if (expr.callee == "prev" || expr.callee == "next") {
+        if (expr.callee == "prev" || expr.callee == "next" || expr.callee == "hasPrev" || expr.callee == "hasNext") {
             const std::string receiver = generate(*expr.receiver);
             std::string key = generate(*expr.arguments[0]);
             const Type keyType = expr.receiver->inferredType.subtypes[0];
             if (!isImplicitlyConvertible(expr.arguments[0]->inferredType, keyType) || expr.arguments[0]->inferredType != keyType) {
                 key = castExpressionTo(key, expr.arguments[0]->inferredType, keyType);
+            }
+
+            if (expr.callee == "hasPrev" || expr.callee == "hasNext") {
+                if (isSetType(expr.receiver->inferredType)) {
+                    requireRuntimeHelper(expr.callee == "hasPrev" ? "CPPPSetHasPrev" : "CPPPSetHasNext");
+                    return (expr.callee == "hasPrev" ? "CPPPSetHasPrev(" : "CPPPSetHasNext(") + receiver + ", " + key + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+                }
+                requireRuntimeHelper(expr.callee == "hasPrev" ? "CPPPMapHasPrev" : "CPPPMapHasNext");
+                return (expr.callee == "hasPrev" ? "CPPPMapHasPrev(" : "CPPPMapHasNext(") + receiver + ", " + key + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
 
             if (isSetType(expr.receiver->inferredType)) {
@@ -2185,7 +2286,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
         return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method));
     }
     if (method.text != "remove" && method.text != "find" && method.text != "at" && method.text != "split" &&
-        method.text != "prev" && method.text != "next") {
+        method.text != "prev" && method.text != "next" && method.text != "hasPrev" && method.text != "hasNext") {
         if (match(TokenKind::LeftParen)) {
             const Token& leftParen = previous();
             std::vector<std::unique_ptr<Expr>> arguments;
@@ -2223,7 +2324,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
                 report(leftParen, "remove() expects no arguments or index");
             } else if (method.text == "at") {
                 report(leftParen, "at() expects exactly one key");
-            } else if (method.text == "prev" || method.text == "next") {
+            } else if (method.text == "prev" || method.text == "next" || method.text == "hasPrev" || method.text == "hasNext") {
                 report(leftParen, "unclosed parenthesis in " + method.text);
             } else if (method.text == "split") {
                 report(leftParen, "split() expects exactly one delimiter");
@@ -2244,7 +2345,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
         ok = false;
         return nullptr;
     }
-    if ((method.text == "prev" || method.text == "next") && arguments.size() != 1) {
+    if ((method.text == "prev" || method.text == "next" || method.text == "hasPrev" || method.text == "hasNext") && arguments.size() != 1) {
         report(leftParen, method.text + "() expects exactly one key");
         ok = false;
         return nullptr;

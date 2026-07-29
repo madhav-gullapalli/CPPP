@@ -101,6 +101,9 @@ std::set<std::string> requiredSubmitContainerTypes(
             if (!line.submitOwnerKey.empty() && reachableOwners.count(line.submitOwnerKey) == 0) continue;
             if (line.text.find("CPPPPair<") != std::string::npos) types.insert("CPPPPair");
             if (line.text.find("CPPPList<") != std::string::npos) types.insert("CPPPList");
+            if (line.text.find("CPPPStack<") != std::string::npos) types.insert("CPPPStack");
+            if (line.text.find("CPPPQueue<") != std::string::npos) types.insert("CPPPQueue");
+            if (line.text.find("CPPPDeque<") != std::string::npos) types.insert("CPPPDeque");
             if (line.text.find("CPPPSet<") != std::string::npos) types.insert("CPPPSet");
             if (line.text.find("CPPPMap<") != std::string::npos) types.insert("CPPPMap");
         }

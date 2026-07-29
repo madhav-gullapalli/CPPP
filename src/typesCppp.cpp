@@ -177,6 +177,48 @@ std::vector<std::string> containerSupport(
         "};",
         "",
         "template <typename T>",
+        "class CPPPStack {",
+        "    cppp_smart_pointer<stack<T>> values;",
+        "public:",
+        "    CPPPStack() : values(cppp_smart_pointer<stack<T>>::make()) {}",
+        "    void push(const T& value) { values->push(value); }",
+        "    bool empty() const { return values->empty(); }",
+        "    size_t size() const { return values->size(); }",
+        "    const T& top(int line, int column) const { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take top of empty Stack\"); return values->top(); }",
+        "    T pop_value(int line, int column) { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot pop empty Stack\"); T result = values->top(); values->pop(); return result; }",
+        "    CPPPList<T> to_list() const { stack<T> copy = *values; vector<T> reversed; reversed.reserve(copy.size()); while (!copy.empty()) { reversed.push_back(copy.top()); copy.pop(); } reverse(reversed.begin(), reversed.end()); return CPPPList<T>(std::move(reversed)); }",
+        "};",
+        "",
+        "template <typename T>",
+        "class CPPPQueue {",
+        "    cppp_smart_pointer<queue<T>> values;",
+        "public:",
+        "    CPPPQueue() : values(cppp_smart_pointer<queue<T>>::make()) {}",
+        "    void push(const T& value) { values->push(value); }",
+        "    bool empty() const { return values->empty(); }",
+        "    size_t size() const { return values->size(); }",
+        "    const T& top(int line, int column) const { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take top of empty Queue\"); return values->front(); }",
+        "    T pop_value(int line, int column) { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot pop empty Queue\"); T result = values->front(); values->pop(); return result; }",
+        "    CPPPList<T> to_list() const { queue<T> copy = *values; CPPPList<T> result; result.reserve(copy.size()); while (!copy.empty()) { result.push_back(copy.front()); copy.pop(); } return result; }",
+        "};",
+        "",
+        "template <typename T>",
+        "class CPPPDeque {",
+        "    cppp_smart_pointer<deque<T>> values;",
+        "public:",
+        "    CPPPDeque() : values(cppp_smart_pointer<deque<T>>::make()) {}",
+        "    void push_front(const T& value) { values->push_front(value); }",
+        "    void push_back(const T& value) { values->push_back(value); }",
+        "    bool empty() const { return values->empty(); }",
+        "    size_t size() const { return values->size(); }",
+        "    const T& front(int line, int column) const { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take front of empty Deque\"); return values->front(); }",
+        "    const T& back(int line, int column) const { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take back of empty Deque\"); return values->back(); }",
+        "    T pop_front_value(int line, int column) { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot popFront() empty Deque\"); T result = values->front(); values->pop_front(); return result; }",
+        "    T pop_back_value(int line, int column) { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot popBack() empty Deque\"); T result = values->back(); values->pop_back(); return result; }",
+        "    CPPPList<T> to_list() const { return CPPPList<T>(values->begin(), values->end()); }",
+        "};",
+        "",
+        "template <typename T>",
         "class CPPPSet {",
         "    struct Compare { bool operator()(const T& left, const T& right) const { return left < right; } };",
         "    using storage_type = set<T, Compare>;",
@@ -244,6 +286,9 @@ std::vector<std::string> containerSupport(
         }
         if (line == "class CPPPPair {") groupType = "CPPPPair";
         if (line == "class CPPPList {") groupType = "CPPPList";
+        if (line == "class CPPPStack {") groupType = "CPPPStack";
+        if (line == "class CPPPQueue {") groupType = "CPPPQueue";
+        if (line == "class CPPPDeque {") groupType = "CPPPDeque";
         if (line == "class CPPPSet {") groupType = "CPPPSet";
         if (line == "class CPPPMap {") groupType = "CPPPMap";
         if (line == "};") {
@@ -874,6 +919,66 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPMapToList<"}
         },
         {
+            "CPPPListToStack",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "CPPPStack<Out> CPPPListToStack(const CPPPList<In>& values, Converter convert) { CPPPStack<Out> result; for (const auto& value : values) result.push(convert(value)); return result; }",
+                ""
+            },
+            {},
+            {"CPPPListToStack<"}
+        },
+        {
+            "CPPPListToQueue",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "CPPPQueue<Out> CPPPListToQueue(const CPPPList<In>& values, Converter convert) { CPPPQueue<Out> result; for (const auto& value : values) result.push(convert(value)); return result; }",
+                ""
+            },
+            {},
+            {"CPPPListToQueue<"}
+        },
+        {
+            "CPPPListToDeque",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "CPPPDeque<Out> CPPPListToDeque(const CPPPList<In>& values, Converter convert) { CPPPDeque<Out> result; for (const auto& value : values) result.push_back(convert(value)); return result; }",
+                ""
+            },
+            {},
+            {"CPPPListToDeque<"}
+        },
+        {
+            "CPPPStackToList",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "CPPPList<Out> CPPPStackToList(const CPPPStack<In>& values, Converter convert) { CPPPList<Out> result; CPPPList<In> source = values.to_list(); result.reserve(source.size()); for (const auto& value : source) result.push_back(convert(value)); return result; }",
+                ""
+            },
+            {},
+            {"CPPPStackToList<"}
+        },
+        {
+            "CPPPQueueToList",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "CPPPList<Out> CPPPQueueToList(const CPPPQueue<In>& values, Converter convert) { CPPPList<Out> result; CPPPList<In> source = values.to_list(); result.reserve(source.size()); for (const auto& value : source) result.push_back(convert(value)); return result; }",
+                ""
+            },
+            {},
+            {"CPPPQueueToList<"}
+        },
+        {
+            "CPPPDequeToList",
+            {
+                "template <typename Out, typename In, typename Converter>",
+                "CPPPList<Out> CPPPDequeToList(const CPPPDeque<In>& values, Converter convert) { CPPPList<Out> result; CPPPList<In> source = values.to_list(); result.reserve(source.size()); for (const auto& value : source) result.push_back(convert(value)); return result; }",
+                ""
+            },
+            {},
+            {"CPPPDequeToList<"}
+        },
+        {
             "CPPPPrintValueString",
             {
                 "void CPPPPrintValue(ostream& output, const CPPPList<CPPPChar>& value) {",
@@ -889,6 +994,9 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const cppp_smart_pointer<T>& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
         {"CPPPPrintValuePair", {"template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value) { output << '('; CPPPPrintValue(output, value.first()); output << ','; CPPPPrintValue(output, value.second()); output << ')'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueList", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values) { output << '['; for (size_t i = 0; i < values.size(); ++i) { if (i > 0) output << \", \"; CPPPPrintValue(output, values[i]); } output << ']'; }", ""}, {"CPPPPrintValueBase"}, {}},
+        {"CPPPPrintValueStack", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPStack<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
+        {"CPPPPrintValueQueue", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPQueue<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
+        {"CPPPPrintValueDeque", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPDeque<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
         {"CPPPPrintValueSet", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values) { output << '{'; bool first = true; for (const auto& value : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, value); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueMap", {"template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values) { output << '{'; bool first = true; for (const auto& entry : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, entry.first); output << ':'; CPPPPrintValue(output, entry.second); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValue", {"template <typename T> void CPPPPrintValue(ostream& output, const T& value) { output << value; }", ""}, {"CPPPPrintValueBase"}, {"CPPPPrintValue("}},
@@ -959,7 +1067,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
 // typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.cpp module.
 std::vector<std::string> typeSupportPreamble() {
     std::vector<std::string> preamble = smartPointerSupport();
-    const std::vector<std::string> containers = containerSupport({"CPPPPair", "CPPPList", "CPPPSet", "CPPPMap"}, {"all"});
+    const std::vector<std::string> containers = containerSupport({"CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPSet", "CPPPMap"}, {"all"});
     preamble.insert(preamble.end(), containers.begin(), containers.end());
     for (const RuntimeHelper& helper : runtimeHelpers()) {
         preamble.insert(preamble.end(), helper.code.begin(), helper.code.end());
@@ -1007,6 +1115,12 @@ void requirePrintHelpersForType(const Type& type) {
         requireRuntimeHelper("CPPPPrintValuePair");
     } else if (isListType(type)) {
         requireRuntimeHelper("CPPPPrintValueList");
+    } else if (isStackType(type)) {
+        requireRuntimeHelper("CPPPPrintValueStack");
+    } else if (isQueueType(type)) {
+        requireRuntimeHelper("CPPPPrintValueQueue");
+    } else if (isDequeType(type)) {
+        requireRuntimeHelper("CPPPPrintValueDeque");
     } else if (isSetType(type)) {
         requireRuntimeHelper("CPPPPrintValueSet");
     } else if (isMapType(type)) {
@@ -1075,6 +1189,14 @@ std::vector<std::string> typeSupportPreambleForSubmit(
     std::set<std::string> containerMembers = requiredContainerMembers;
     if (resolvedHelpers.count("CPPPContainerCompare") != 0) containerMembers.insert("compare");
     if (containerTypes.count("CPPPSet") != 0 || containerTypes.count("CPPPMap") != 0) containerMembers.insert("compare");
+    if (containerTypes.count("CPPPStack") != 0 ||
+        containerTypes.count("CPPPQueue") != 0 ||
+        containerTypes.count("CPPPDeque") != 0) {
+        containerMembers.insert("ctor_vector");
+        containerMembers.insert("ctor_iterator");
+        containerMembers.insert("reserve");
+        containerMembers.insert("push_back");
+    }
     if (resolvedHelpers.count("CPPPInputList") != 0 || resolvedHelpers.count("CPPPInputListLine") != 0) {
         containerMembers.insert("ctor_vector");
         containerMembers.insert("ctor_convert");
@@ -1086,6 +1208,9 @@ std::vector<std::string> typeSupportPreambleForSubmit(
             collectContainerMemberUses(line, containerMembers);
             if (line.find("CPPPPair<") != std::string::npos) containerTypes.insert("CPPPPair");
             if (line.find("CPPPList<") != std::string::npos) containerTypes.insert("CPPPList");
+            if (line.find("CPPPStack<") != std::string::npos) containerTypes.insert("CPPPStack");
+            if (line.find("CPPPQueue<") != std::string::npos) containerTypes.insert("CPPPQueue");
+            if (line.find("CPPPDeque<") != std::string::npos) containerTypes.insert("CPPPDeque");
             if (line.find("CPPPSet<") != std::string::npos) containerTypes.insert("CPPPSet");
             if (line.find("CPPPMap<") != std::string::npos) containerTypes.insert("CPPPMap");
         }

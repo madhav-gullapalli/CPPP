@@ -42,7 +42,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=26
+TOTAL_STEPS=27
 CURRENT_STEP=0
 
 progress() {
@@ -231,6 +231,15 @@ assert_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPList {" "submit 
 assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPSet {" "submit prunes the unused Set runtime class"
 assert_not_contains "${submit_dead_code_case%.cppp}.cpp" "class CPPPMap {" "submit prunes the unused Map runtime class"
 pass "submit mode prunes unused functions, structs, methods, and runtime classes"
+
+progress "linear data structure submit pruning"
+list_only_linear_case="$(stage_case "$TEST_DIR/list_only_prunes_linear.cppp")"
+run_submit_ok "$list_only_linear_case" "$LOG_DIR/list_only_prunes_linear.log" "List-only submit builds"
+assert_contains "${list_only_linear_case%.cppp}.cpp" "class CPPPList {" "List-only submit keeps List runtime class"
+assert_not_contains "${list_only_linear_case%.cppp}.cpp" "CPPPStack" "List-only submit prunes Stack runtime support"
+assert_not_contains "${list_only_linear_case%.cppp}.cpp" "CPPPQueue" "List-only submit prunes Queue runtime support"
+assert_not_contains "${list_only_linear_case%.cppp}.cpp" "CPPPDeque" "List-only submit prunes Deque runtime support"
+pass "List-only submit prunes linear data structure support"
 
 progress "list literal truthiness"
 list_truthiness_case="$(stage_case "$TEST_DIR/list_truthiness.cppp")"

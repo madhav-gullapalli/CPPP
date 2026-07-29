@@ -134,6 +134,9 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Range:
             return 0;
         case PrimitiveType::List:
+        case PrimitiveType::Stack:
+        case PrimitiveType::Queue:
+        case PrimitiveType::Deque:
         case PrimitiveType::Set:
             return 1;
         case PrimitiveType::Map:
@@ -173,6 +176,12 @@ std::string cpppTypeName(const Type& type) {
                 return "List<" + cpppTypeName(type.subtypes[0]) + ">";
             }
             return "List";
+        case PrimitiveType::Stack:
+            return type.subtypes.size() == 1 ? "Stack<" + cpppTypeName(type.subtypes[0]) + ">" : "Stack";
+        case PrimitiveType::Queue:
+            return type.subtypes.size() == 1 ? "Queue<" + cpppTypeName(type.subtypes[0]) + ">" : "Queue";
+        case PrimitiveType::Deque:
+            return type.subtypes.size() == 1 ? "Deque<" + cpppTypeName(type.subtypes[0]) + ">" : "Deque";
         case PrimitiveType::Set:
             if (type.subtypes.size() == 1) {
                 return "Set<" + cpppTypeName(type.subtypes[0]) + ">";
@@ -209,6 +218,22 @@ bool isListType(const Type& type) {
     return type.primitive == PrimitiveType::List && type.subtypes.size() == 1;
 }
 
+bool isStackType(const Type& type) {
+    return type.primitive == PrimitiveType::Stack && type.subtypes.size() == 1;
+}
+
+bool isQueueType(const Type& type) {
+    return type.primitive == PrimitiveType::Queue && type.subtypes.size() == 1;
+}
+
+bool isDequeType(const Type& type) {
+    return type.primitive == PrimitiveType::Deque && type.subtypes.size() == 1;
+}
+
+bool isLinearDataStructureType(const Type& type) {
+    return isStackType(type) || isQueueType(type) || isDequeType(type);
+}
+
 bool isRangeType(const Type& type) {
     return type == PrimitiveType::Range;
 }
@@ -238,7 +263,7 @@ bool isInlineStructType(const Type& type) {
 }
 
 bool isCollectionType(const Type& type) {
-    return isListType(type) || isSetType(type) || isMapType(type);
+    return isListType(type) || isLinearDataStructureType(type) || isSetType(type) || isMapType(type);
 }
 
 namespace {
@@ -342,6 +367,14 @@ bool canExplicitlyCastType(const Type& from, const Type& to) {
         return canCollectionCastElementType(from.subtypes[0], to.subtypes[0]);
     }
 
+    if (isLinearDataStructureType(to) && isListType(from)) {
+        return canCollectionCastElementType(from.subtypes[0], to.subtypes[0]);
+    }
+
+    if (isListType(to) && isLinearDataStructureType(from)) {
+        return canCollectionCastElementType(from.subtypes[0], to.subtypes[0]);
+    }
+
     if (isSetType(to) && isRangeType(from)) {
         return to.subtypes[0] == PrimitiveType::Int;
     }
@@ -420,6 +453,9 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                 case PrimitiveType::Range:
                     return "(!(" + expression + ").empty())";
                 case PrimitiveType::List:
+                case PrimitiveType::Stack:
+                case PrimitiveType::Queue:
+                case PrimitiveType::Deque:
                 case PrimitiveType::Set:
                 case PrimitiveType::Map:
                     return "(!(" + expression + ").empty())";
@@ -457,6 +493,42 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                 return "CPPPMapToList<" + cppTypeForType(to.subtypes[0].subtypes[0]) + ", " + cppTypeForType(to.subtypes[0].subtypes[1]) + ">(" + expression + ", " +
                     castLambdaExpression(from.subtypes[0], to.subtypes[0].subtypes[0]) + ", " +
                     castLambdaExpression(from.subtypes[1], to.subtypes[0].subtypes[1]) + ")";
+            }
+            if (isStackType(from)) {
+                requireRuntimeHelper("CPPPStackToList");
+                return "CPPPStackToList<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            if (isQueueType(from)) {
+                requireRuntimeHelper("CPPPQueueToList");
+                return "CPPPQueueToList<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            if (isDequeType(from)) {
+                requireRuntimeHelper("CPPPDequeToList");
+                return "CPPPDequeToList<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            return expression;
+        case PrimitiveType::Stack:
+            if (isListType(from)) {
+                requireRuntimeHelper("CPPPListToStack");
+                return "CPPPListToStack<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            return expression;
+        case PrimitiveType::Queue:
+            if (isListType(from)) {
+                requireRuntimeHelper("CPPPListToQueue");
+                return "CPPPListToQueue<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
+            }
+            return expression;
+        case PrimitiveType::Deque:
+            if (isListType(from)) {
+                requireRuntimeHelper("CPPPListToDeque");
+                return "CPPPListToDeque<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
+                    castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
             }
             return expression;
         case PrimitiveType::Set:
@@ -519,6 +591,15 @@ Type declaredTypeForName(const std::string& name) {
     }
     if (name == "List") {
         return PrimitiveType::List;
+    }
+    if (name == "Stack") {
+        return PrimitiveType::Stack;
+    }
+    if (name == "Queue") {
+        return PrimitiveType::Queue;
+    }
+    if (name == "Deque") {
+        return PrimitiveType::Deque;
     }
     if (name == "Set") {
         return PrimitiveType::Set;
@@ -733,6 +814,9 @@ std::string inputFunctionForType(const Type& type) {
         case PrimitiveType::Range:
             return "";
         case PrimitiveType::List:
+        case PrimitiveType::Stack:
+        case PrimitiveType::Queue:
+        case PrimitiveType::Deque:
         case PrimitiveType::Set:
         case PrimitiveType::Map:
         case PrimitiveType::Unknown:

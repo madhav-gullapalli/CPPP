@@ -701,6 +701,40 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             {"CPPPSetNext("}
         },
         {
+            "CPPPSetHasPrev",
+            {
+                "template <typename T, typename U>",
+                "bool CPPPSetHasPrev(const CPPPSet<T>& values, const U& key, int line, int column) {",
+                "    T lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot call hasPrev() with a value that is not in set\");",
+                "    }",
+                "    return iterator != values.begin();",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetHasPrev("}
+        },
+        {
+            "CPPPSetHasNext",
+            {
+                "template <typename T, typename U>",
+                "bool CPPPSetHasNext(const CPPPSet<T>& values, const U& key, int line, int column) {",
+                "    T lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot call hasNext() with a value that is not in set\");",
+                "    }",
+                "    return ++iterator != values.end();",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPSetHasNext("}
+        },
+        {
             "CPPPMapRemove",
             {
                 "template <typename K, typename V, typename U>",
@@ -800,6 +834,40 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
             },
             {},
             {"CPPPMapNext("}
+        },
+        {
+            "CPPPMapHasPrev",
+            {
+                "template <typename K, typename V, typename U>",
+                "bool CPPPMapHasPrev(const CPPPMap<K, V>& values, const U& key, int line, int column) {",
+                "    K lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot call hasPrev() with a key that is not in map\");",
+                "    }",
+                "    return iterator != values.begin();",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapHasPrev("}
+        },
+        {
+            "CPPPMapHasNext",
+            {
+                "template <typename K, typename V, typename U>",
+                "bool CPPPMapHasNext(const CPPPMap<K, V>& values, const U& key, int line, int column) {",
+                "    K lookupKey = key;",
+                "    auto iterator = values.find(lookupKey);",
+                "    if (iterator == values.end()) {",
+                "        throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot call hasNext() with a key that is not in map\");",
+                "    }",
+                "    return ++iterator != values.end();",
+                "}",
+                ""
+            },
+            {},
+            {"CPPPMapHasNext("}
         }
     };
 }
@@ -877,10 +945,12 @@ ListEmitResult emitListStatement(
     const bool isSort = actionName == "sort";
     const bool isReverse = actionName == "reverse";
     const bool receiverIsList = isListType(receiver.type);
+    const bool receiverIsStack = isStackType(receiver.type);
+    const bool receiverIsQueue = isQueueType(receiver.type);
     const bool receiverIsSet = isSetType(receiver.type);
     const bool receiverIsMap = isMapType(receiver.type);
 
-    if (!receiverIsList && !receiverIsSet && !receiverIsMap) {
+    if (!receiverIsList && !receiverIsStack && !receiverIsQueue && !receiverIsSet && !receiverIsMap) {
         recordSourceError(inputFile, lineNumber, tokens[methodIndex].span.startColumn, actionName + "() can only be used on collection values", sourceLines);
         return {true, false, "", {}};
     }
@@ -1014,12 +1084,18 @@ ListEmitResult emitListStatement(
         }
 
         if (arguments.size() == 1) {
+            std::string operation;
+            if (receiverIsList) {
+                operation = "push_back";
+            } else if (receiverIsStack || receiverIsQueue) {
+                operation = "push";
+            } else {
+                operation = "insert";
+            }
             return {
                 true,
                 true,
-                receiverIsList
-                    ? "    (" + receiver.generatedExpression + ").push_back(" + emittedValue + ");"
-                    : "    (" + receiver.generatedExpression + ").insert(" + emittedValue + ");",
+                "    (" + receiver.generatedExpression + ")." + operation + "(" + emittedValue + ");",
                 {{
                     lineNumber,
                     receiver.sourceColumn,
@@ -1030,7 +1106,7 @@ ListEmitResult emitListStatement(
         }
 
         if (!receiverIsList) {
-            recordSourceError(inputFile, lineNumber, argumentsStartColumn, "Set.add() takes exactly one value", sourceLines);
+            recordSourceError(inputFile, lineNumber, argumentsStartColumn, cpppTypeName(receiver.type) + ".add() takes exactly one value", sourceLines);
             return {true, false, "", {}};
         }
 

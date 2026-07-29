@@ -199,6 +199,27 @@ TypeInfo typeInfoFor(const Type& type) {
         return {"CPPPList<" + subtypeInfo.cppType + ">", "{}"};
     }
 
+    if (isStackType(type)) {
+        const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        return subtypeInfo.cppType.empty()
+            ? TypeInfo{"", ""}
+            : TypeInfo{"CPPPStack<" + subtypeInfo.cppType + ">", "{}"};
+    }
+
+    if (isQueueType(type)) {
+        const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        return subtypeInfo.cppType.empty()
+            ? TypeInfo{"", ""}
+            : TypeInfo{"CPPPQueue<" + subtypeInfo.cppType + ">", "{}"};
+    }
+
+    if (isDequeType(type)) {
+        const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        return subtypeInfo.cppType.empty()
+            ? TypeInfo{"", ""}
+            : TypeInfo{"CPPPDeque<" + subtypeInfo.cppType + ">", "{}"};
+    }
+
     if (isSetType(type)) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
         if (subtypeInfo.cppType.empty()) {
@@ -761,11 +782,35 @@ bool finishExpressionAssignment(
     if (expression.explicitCast &&
         expression.type != targetType &&
         !canExplicitlyCastType(expression.type, targetType)) {
+        Type diagnosticSourceType = expression.type;
+        const size_t leftParen = assignedValue.find('(');
+        const size_t rightParen = assignedValue.rfind(')');
+        if (leftParen != std::string::npos && rightParen == assignedValue.size() - 1 &&
+            leftParen + 1 < rightParen) {
+            const std::string rawOperand = assignedValue.substr(leftParen + 1, rightParen - leftParen - 1);
+            const size_t operandTrim = rawOperand.find_first_not_of(" \t\r\n");
+            if (operandTrim != std::string::npos) {
+                const std::string operand = trim(rawOperand);
+                const ExpressionEmitResult sourceExpression = emitExpression(
+                    inputFile,
+                    lineNumber,
+                    operand,
+                    assignedValueColumn + static_cast<int>(leftParen + 1 + operandTrim),
+                    sourceLines,
+                    declaredVariables
+                );
+                if (sourceExpression.ok &&
+                    (isLinearDataStructureType(sourceExpression.type) ||
+                     isLinearDataStructureType(targetType))) {
+                    diagnosticSourceType = sourceExpression.type;
+                }
+            }
+        }
         recordSourceError(
             inputFile,
             lineNumber,
             assignedValueColumn,
-            "cannot cast " + cpppTypeName(expression.type) + " to " + cpppTypeName(targetType),
+            "cannot cast " + cpppTypeName(diagnosticSourceType) + " to " + cpppTypeName(targetType),
             sourceLines
         );
         return false;
@@ -1405,10 +1450,13 @@ TypeEmitResult emitTypeDeclaration(
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
-        } else if (isSetType(targetType) || isMapType(targetType) || isPairType(targetType)) {
+        } else if (isSetType(targetType) || isMapType(targetType) || isPairType(targetType) ||
+                   isLinearDataStructureType(targetType)) {
             const bool isSet = isSetType(targetType);
             const bool isMap = isMapType(targetType);
-            const std::string typeLabel = isSet ? "Set" : (isMap ? "Map" : "Pair");
+            const bool isLinear = isLinearDataStructureType(targetType);
+            const std::string typeLabel = isSet ? "Set" : (isMap ? "Map" :
+                (isLinear ? cpppTypeName(Type(targetType.primitive)) : "Pair"));
             const std::string literalHint = isSet
                 ? "{1, 2}"
                 : (isMap ? "{1:'a'}" : "(1,2)");
