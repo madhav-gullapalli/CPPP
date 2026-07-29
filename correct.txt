@@ -779,6 +779,27 @@ Linear data structure lengths
     [1] [2] [3, 4]
     1 1 2
 
+copy linear data structures
+  Ordinary assignment aliases Stack, Queue, and Deque storage. copy(...) makes
+  independent storage and recursively copies nested elements.
+
+  Example:
+    Stack<int> stack;
+    var alias = stack;
+    var independent = copy(stack);
+    stack.add(67);
+    print(stack, alias, independent);
+
+    List<int> item = [1];
+    Queue<List<int>> queue = Queue([item]);
+    var queueCopy = copy(queue);
+    item.add(2);
+    print(queue, queueCopy);
+
+  Output:
+    [67] [67] []
+    [[1, 2]] [[1]]
+
 List to linear data structure conversions
   Stack(...), Queue(...), and Deque(...) convert a compatible List in O(n).
 

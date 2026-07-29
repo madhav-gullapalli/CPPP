@@ -1015,6 +1015,9 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {"CPPPCopyBase", {"template <typename T> T CPPPCopy(const T& value);", "template <typename T> struct CPPPDeepCopier { static T run(const T& value) { return value; } };", ""}, {}, {}},
         {"CPPPCopyPair", {"template <typename A, typename B> struct CPPPDeepCopier<CPPPPair<A,B>> { static CPPPPair<A,B> run(const CPPPPair<A,B>& value) { return {CPPPCopy(value.first()), CPPPCopy(value.second())}; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyList", {"template <typename T> struct CPPPDeepCopier<CPPPList<T>> { static CPPPList<T> run(const CPPPList<T>& value) { CPPPList<T> result; result.reserve(value.size()); for (const auto& item : value) result.push_back(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopyStack", {"template <typename T> struct CPPPDeepCopier<CPPPStack<T>> { static CPPPStack<T> run(const CPPPStack<T>& value) { CPPPStack<T> result; CPPPList<T> items = value.to_list(); for (const auto& item : items) result.push(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopyQueue", {"template <typename T> struct CPPPDeepCopier<CPPPQueue<T>> { static CPPPQueue<T> run(const CPPPQueue<T>& value) { CPPPQueue<T> result; CPPPList<T> items = value.to_list(); for (const auto& item : items) result.push(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopyDeque", {"template <typename T> struct CPPPDeepCopier<CPPPDeque<T>> { static CPPPDeque<T> run(const CPPPDeque<T>& value) { CPPPDeque<T> result; CPPPList<T> items = value.to_list(); for (const auto& item : items) result.push_back(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopySet", {"template <typename T> struct CPPPDeepCopier<CPPPSet<T>> { static CPPPSet<T> run(const CPPPSet<T>& value) { CPPPSet<T> result; for (const auto& item : value) result.insert(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyMap", {"template <typename K, typename V> struct CPPPDeepCopier<CPPPMap<K,V>> { static CPPPMap<K,V> run(const CPPPMap<K,V>& value) { CPPPMap<K,V> result; for (const auto& item : value) result[CPPPCopy(item.first)] = CPPPCopy(item.second); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyStruct", {"template <typename T> struct CPPPDeepCopier<cppp_smart_pointer<T>> { static cppp_smart_pointer<T> run(const cppp_smart_pointer<T>& value) { return value ? cppp_smart_pointer<T>::make(*value) : nullptr; } };", ""}, {"CPPPCopyBase"}, {}},
@@ -1097,6 +1100,12 @@ void requireCopyHelpersForType(const Type& type) {
         requireRuntimeHelper("CPPPCopyPair");
     } else if (isListType(type)) {
         requireRuntimeHelper("CPPPCopyList");
+    } else if (isStackType(type)) {
+        requireRuntimeHelper("CPPPCopyStack");
+    } else if (isQueueType(type)) {
+        requireRuntimeHelper("CPPPCopyQueue");
+    } else if (isDequeType(type)) {
+        requireRuntimeHelper("CPPPCopyDeque");
     } else if (isSetType(type)) {
         requireRuntimeHelper("CPPPCopySet");
     } else if (isMapType(type)) {

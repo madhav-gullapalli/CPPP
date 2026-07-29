@@ -289,7 +289,7 @@ List element is the top; for Queue, the first List element is the top/front.
 ### Aliasing and `copy()`
 
 - Syntax: `List<int> alias = values;`, `var independent = copy(values);`
-- What it does: Ordinary assignment aliases Lists, strings, Sets, Maps, and classes. Pairs and inline structs copy their fields. `copy(value)` returns an independent deep copy.
+- What it does: Ordinary assignment aliases Lists, strings, Stacks, Queues, Deques, Sets, Maps, and classes. Pairs and inline structs copy their fields. `copy(value)` returns an independent deep copy.
 - Notes: Primitive assignment still copies the primitive value. Deep copying recursively duplicates nested containers and non-circular struct links. Constructing a new outer List from existing elements can intentionally make a shallow copy: for example, `[words[0], words[1]]` creates a new outer List while retaining aliases to the two strings.
 - Complexity: O(1) for alias assignment; O(size of the reachable non-circular value) for `copy()`.
 
