@@ -10,6 +10,7 @@
 
 #include "tokenizer.h"
 
+#include <algorithm>
 #include <cctype>
 #include <map>
 
@@ -746,6 +747,46 @@ bool isVoidTypeToken(const std::vector<Token>& tokens, size_t startIndex) {
         tokens[startIndex].text == "void";
 }
 
+void recordConversionDiagnostic(
+    const std::string& inputFile,
+    int lineNumber,
+    int expressionColumn,
+    const std::string& expressionText,
+    const std::string& message,
+    Type sourceType,
+    Type targetType,
+    const std::map<int, std::string>& sourceLines
+) {
+    Diagnostic diagnostic;
+    diagnostic.message = message;
+    diagnostic.labels.push_back({
+        sourceSpanForColumns(
+            inputFile,
+            sourceLines,
+            lineNumber,
+            expressionColumn,
+            expressionColumn + std::max(1, static_cast<int>(expressionText.size())) - 1
+        ),
+        "",
+        true
+    });
+    if (sourceType != PrimitiveType::Unknown &&
+        canExplicitlyCastType(sourceType, targetType)) {
+        const std::string replacement =
+            cpppTypeName(targetType) + "(" + expressionText + ")";
+        diagnostic.suggestions.push_back({
+            diagnostic.labels.front().span,
+            replacement,
+            "use `" + replacement + "` to explicitly convert " +
+                cpppTypeName(sourceType) +
+                " to " +
+                cpppTypeName(targetType),
+            SuggestionApplicability::MaybeIncorrect
+        });
+    }
+    recordDiagnostic(std::move(diagnostic));
+}
+
 bool finishExpressionAssignment(
     const std::string& inputFile,
     int lineNumber,
@@ -769,11 +810,14 @@ bool finishExpressionAssignment(
     }
 
     if (!expression.explicitCast && !isImplicitlyConvertible(expression.type, targetType)) {
-        recordSourceError(
+        recordConversionDiagnostic(
             inputFile,
             lineNumber,
             assignedValueColumn,
+            assignedValue,
             "cannot implicitly convert " + cpppTypeName(expression.type) + " to " + cpppTypeName(targetType),
+            expression.type,
+            targetType,
             sourceLines
         );
         return false;
@@ -1546,11 +1590,24 @@ TypeEmitResult emitTypeDeclaration(
                 }
             } else {
                 if (!isIntegerLiteral(assignedValue)) {
-                    recordSourceError(
+                    Type sourceType = PrimitiveType::Unknown;
+                    if (!valueTokens.empty()) {
+                        if (valueTokens[0].kind == TokenKind::String) {
+                            sourceType = declaredTypeForName("string");
+                        } else if (valueTokens[0].kind == TokenKind::Float) {
+                            sourceType = PrimitiveType::Float;
+                        } else if (valueTokens[0].kind == TokenKind::Char) {
+                            sourceType = PrimitiveType::Char;
+                        }
+                    }
+                    recordConversionDiagnostic(
                         inputFile,
                         lineNumber,
                         assignedValueColumn,
+                        assignedValue,
                         "int requires an integer literal",
+                        sourceType,
+                        targetType,
                         sourceLines
                     );
                     rememberInvalidVariables(declaredVariables, variables);

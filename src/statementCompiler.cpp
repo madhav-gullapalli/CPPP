@@ -1291,12 +1291,13 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         const bool hasSemicolon = statement.back() == ';';
         if (!hasSemicolon) {
-            const int column = static_cast<int>(codeText.find_last_not_of(" \t\r\n")) + 1;
+            const int insertionColumn =
+                statementStartColumn + static_cast<int>(statement.size());
             const SourceSpan insertion = sourceInsertionSpan(
                 context.options.inputFile,
                 context.sourceLines,
                 lineNumber,
-                column + 1
+                insertionColumn
             );
             Diagnostic diagnostic;
             diagnostic.message = "missing semicolon";

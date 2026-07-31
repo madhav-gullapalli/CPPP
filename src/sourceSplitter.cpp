@@ -8,6 +8,7 @@
 
 #include "sourceSplitter.h"
 
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -225,6 +226,31 @@ int unmatchedParenthesisDepth(const std::string& text) {
     return parenDepth;
 }
 
+bool looksLikeCompleteBareCall(const std::string& text) {
+    const std::string trimmed = trim(text);
+    if (trimmed.empty() || trimmed.back() != ')') {
+        return false;
+    }
+
+    size_t index = 0;
+    if (!std::isalpha(static_cast<unsigned char>(trimmed[index])) &&
+        trimmed[index] != '_') {
+        return false;
+    }
+    while (index < trimmed.size() &&
+           (std::isalnum(static_cast<unsigned char>(trimmed[index])) ||
+            trimmed[index] == '_')) {
+        ++index;
+    }
+    while (index < trimmed.size() &&
+           std::isspace(static_cast<unsigned char>(trimmed[index]))) {
+        ++index;
+    }
+    return index < trimmed.size() &&
+        trimmed[index] == '(' &&
+        unmatchedParenthesisDepth(trimmed) == 0;
+}
+
 // mergeContinuationFragments implements the mergeContinuationFragments behavior for the sourceSplitter.cpp module.
 std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceFragment>& fragments) {
     std::vector<SourceFragment> merged;
@@ -293,7 +319,8 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
         }
 
         if (hasUnterminatedQuotedLiteral(codePart) ||
-            (fragmentTerminatesStatement(codePart) && unmatchedParenthesisDepth(pending.text) == 0)) {
+            (fragmentTerminatesStatement(codePart) && unmatchedParenthesisDepth(pending.text) == 0) ||
+            looksLikeCompleteBareCall(pending.text)) {
             flushPending();
         }
     }

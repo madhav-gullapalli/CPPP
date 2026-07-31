@@ -150,7 +150,8 @@ private:
         SourceSpan span,
         const std::string& message,
         const std::string& misspelled,
-        const std::vector<std::string>& candidates
+        const std::vector<std::string>& candidates,
+        const std::string& fallbackHelp = ""
     ) const {
         Diagnostic diagnostic;
         diagnostic.message = message;
@@ -172,6 +173,8 @@ private:
                 "did you mean '" + closest + "'?",
                 SuggestionApplicability::MaybeIncorrect
             });
+        } else if (!fallbackHelp.empty()) {
+            diagnostic.helps.push_back(fallbackHelp);
         }
         recordDiagnostic(std::move(diagnostic));
     }
@@ -412,7 +415,8 @@ private:
                 expr.sourceSpan,
                 "use of undeclared variable '" + expr.name + "'",
                 expr.name,
-                candidates
+                candidates,
+                "declare '" + expr.name + "' in this scope before using it"
             );
             return false;
         }
@@ -2310,7 +2314,14 @@ void ExpressionParser::reportUnexpectedTrailingToken(const Token& token) const {
             absoluteEndColumn(token)
         );
     diagnostic.labels.push_back({span, "", true});
-    if (current + 1 < tokens.size() &&
+    if (token.kind == TokenKind::Equals) {
+        diagnostic.suggestions.push_back({
+            span,
+            "==",
+            "use `==` to compare values",
+            SuggestionApplicability::MachineApplicable
+        });
+    } else if (current + 1 < tokens.size() &&
         tokens[current + 1].kind == TokenKind::EndOfFile) {
         diagnostic.suggestions.push_back({
             span,

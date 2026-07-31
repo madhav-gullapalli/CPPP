@@ -28,6 +28,24 @@ missing semicolon
       |
       = help: add `;` to terminate the statement
 
+missing semicolon after a bare call
+  A balanced call on one line is a complete statement candidate. If its
+  semicolon is missing, CP++ diagnoses that line instead of merging the call
+  with the next statement.
+
+  Example:
+    moveDisks()
+    print(1);
+
+  Diagnostic:
+    error: missing semicolon
+     --> example.cppp:1:12
+      |
+    1 | moveDisks()
+      |            ^ statement ends here
+      |
+      = help: add `;` to terminate the statement
+
 unsupported statement
   The statement is not recognized by the current compiler frontend. When its
   leading name is close to a statement or callable that is valid in this
@@ -44,6 +62,24 @@ unsupported statement
       | ^~~~~
       |
       = help: did you mean 'print'?
+
+assignment used instead of comparison
+  Assignment is not an expression in CP++. Use == when a condition needs to
+  compare two values.
+
+  Example:
+    int n = 1;
+    if (n = 0) {
+    }
+
+  Diagnostic:
+    error: unexpected token in expression
+     --> example.cppp:2:7
+      |
+    2 | if (n = 0) {
+      |       ^
+      |
+      = help: use `==` to compare values
 
 Primitive type errors
 ---------------------
@@ -132,17 +168,19 @@ expected variable name after ','
 
 int requires an integer literal
   CP++ int declarations accept integer literals and arithmetic expressions.
-  Non-arithmetic literal values are rejected.
+  A string requires an explicit int(...) conversion.
 
   Example:
-    int x = 1.5;
+    int x = "3";
 
   Diagnostic:
     error: int requires an integer literal
      --> example.cppp:1:9
       |
-    1 | int x = 1.5;
+    1 | int x = "3";
       |         ^~~
+      |
+      = help: use `int("3")` to explicitly convert string to int
 
 integer literal overflows CP++ int
   CP++ int is a 64-bit signed integer. Literal values outside that range
@@ -971,6 +1009,8 @@ cannot implicitly convert string to char
       |
     1 | char c = "B";
       |          ^~~
+      |
+      = help: use `char("B")` to explicitly convert string to char
 
 unterminated char literal
   A char literal starts with a single quote but does not close.
@@ -1102,6 +1142,8 @@ use of undeclared variable '<name>'
       |
     1 | print(wrote);
       |       ^~~~~
+      |
+      = help: declare 'wrote' in this scope before using it
 
 expected ',' before flush
   Deprecated. Use end = flush instead of passing flush as a print argument.
@@ -2667,6 +2709,8 @@ class field scope
       |
     4 | print(x);
       |       ^
+      |
+      = help: declare 'x' in this scope before using it
 
 method local scope
   Variables declared inside a method do not escape that method.
@@ -2687,6 +2731,8 @@ method local scope
       |
     8 | print(local);
       |       ^~~~~
+      |
+      = help: declare 'local' in this scope before using it
 
 null class method call
   Calling a method on a NULL class is a runtime error. Check against NULL or
@@ -3612,6 +3658,9 @@ invalid variables suppress cascaded errors
       |
     6 | int y = "ass";
       |         ^~~~~
+      |
+      = help: use `int("ass")` to explicitly convert string to int
+
 Linear data structure errors
 ----------------------------
 
@@ -3809,7 +3858,9 @@ Stack top result type
      --> example.cppp:2:16
       |
     2 | string value = values.top();
-      |                ^~~~~~
+      |                ^~~~~~~~~~~~
+      |
+      = help: use `string(values.top())` to explicitly convert int to string
 
 Queue top result type
   Queue.top() returns the Queue element type.
@@ -3823,7 +3874,9 @@ Queue top result type
      --> example.cppp:2:13
       |
     2 | int value = values.top();
-      |             ^~~~~~
+      |             ^~~~~~~~~~~~
+      |
+      = help: use `int(values.top())` to explicitly convert float to int
 
 Deque front result type
   Deque.front() returns the Deque element type.
@@ -3837,7 +3890,9 @@ Deque front result type
      --> example.cppp:2:13
       |
     2 | int value = values.front();
-      |             ^~~~~~
+      |             ^~~~~~~~~~~~~~
+      |
+      = help: use `int(values.front())` to explicitly convert string to int
 
 Deque back result type
   Deque.back() returns the Deque element type.
@@ -3851,7 +3906,9 @@ Deque back result type
      --> example.cppp:2:16
       |
     2 | string value = values.back();
-      |                ^~~~~~
+      |                ^~~~~~~~~~~~~
+      |
+      = help: use `string(values.back())` to explicitly convert float to string
 
 Stack pop result type
   Stack.pop() returns the Stack element type.
@@ -3865,7 +3922,9 @@ Stack pop result type
      --> example.cppp:2:16
       |
     2 | string value = values.pop();
-      |                ^~~~~~
+      |                ^~~~~~~~~~~~
+      |
+      = help: use `string(values.pop())` to explicitly convert int to string
 
 Queue pop result type
   Queue.pop() returns the Queue element type.
@@ -3879,7 +3938,9 @@ Queue pop result type
      --> example.cppp:2:13
       |
     2 | int value = values.pop();
-      |             ^~~~~~
+      |             ^~~~~~~~~~~~
+      |
+      = help: use `int(values.pop())` to explicitly convert float to int
 
 Deque popFront result type
   Deque.popFront() returns the Deque element type.
@@ -3893,7 +3954,9 @@ Deque popFront result type
      --> example.cppp:2:13
       |
     2 | int value = values.popFront();
-      |             ^~~~~~
+      |             ^~~~~~~~~~~~~~~~~
+      |
+      = help: use `int(values.popFront())` to explicitly convert string to int
 
 Deque popBack result type
   Deque.popBack() returns the Deque element type.
@@ -3907,7 +3970,9 @@ Deque popBack result type
      --> example.cppp:2:16
       |
     2 | string value = values.popBack();
-      |                ^~~~~~
+      |                ^~~~~~~~~~~~~~~~
+      |
+      = help: use `string(values.popBack())` to explicitly convert float to string
 
 cannot pop empty Stack
   Stack.pop() requires at least one element.
