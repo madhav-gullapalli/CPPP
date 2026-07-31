@@ -10,6 +10,7 @@
 
 #include "typesCppp.h"
 
+#include <algorithm>
 #include <climits>
 #include <memory>
 
@@ -142,6 +143,71 @@ private:
 
     void report(int column, const std::string& message) const {
         recordSourceError(inputFile, lineNumber, column, message, sourceLines);
+    }
+
+    void reportNameSuggestion(
+        int column,
+        SourceSpan span,
+        const std::string& message,
+        const std::string& misspelled,
+        const std::vector<std::string>& candidates
+    ) const {
+        Diagnostic diagnostic;
+        diagnostic.message = message;
+        diagnostic.labels.push_back({
+            span.valid()
+                ? span
+                : sourceTokenSpan(inputFile, sourceLines, lineNumber, column),
+            "",
+            true
+        });
+        const std::string closest = closestDiagnosticCandidate(
+            misspelled,
+            candidates
+        );
+        if (!closest.empty()) {
+            diagnostic.suggestions.push_back({
+                diagnostic.labels.front().span,
+                closest,
+                "did you mean '" + closest + "'?",
+                SuggestionApplicability::MaybeIncorrect
+            });
+        }
+        recordDiagnostic(std::move(diagnostic));
+    }
+
+    std::vector<std::string> methodCandidates(Type receiverType) const {
+        if (isStructType(receiverType)) {
+            return declaredStructMethodNamesForType(receiverType);
+        }
+        if (isStackType(receiverType) || isQueueType(receiverType)) {
+            return {"add", "top", "pop"};
+        }
+        if (isDequeType(receiverType)) {
+            return {"addFront", "addBack", "front", "back", "popFront", "popBack"};
+        }
+        if (isMapType(receiverType)) {
+            return {"add", "remove", "at", "prev", "next", "hasPrev", "hasNext"};
+        }
+        if (isSetType(receiverType)) {
+            return {"add", "remove", "prev", "next", "hasPrev", "hasNext"};
+        }
+        if (isListType(receiverType)) {
+            return {"add", "remove", "sort", "reverse", "find", "split"};
+        }
+        return {};
+    }
+
+    std::vector<std::string> callableCandidates() const {
+        std::vector<std::string> candidates = {
+            "len", "copy", "range", "min", "max", "sum", "abs", "input"
+        };
+        for (const auto& function : declaredFunctions) {
+            candidates.push_back(function.first);
+        }
+        const std::vector<std::string> typeNames = declaredCustomTypeNames();
+        candidates.insert(candidates.end(), typeNames.begin(), typeNames.end());
+        return candidates;
     }
 
 // isValueType returns whether the supplied input satisfies the relevant condition.
@@ -336,7 +402,18 @@ private:
     bool analyzeVariable(VariableExpr& expr) {
         const auto variable = declaredVariables.find(expr.name);
         if (variable == declaredVariables.end()) {
-            report(expr.sourceColumn, "use of undeclared variable '" + expr.name + "'");
+            std::vector<std::string> candidates;
+            candidates.reserve(declaredVariables.size());
+            for (const auto& declared : declaredVariables) {
+                candidates.push_back(declared.first);
+            }
+            reportNameSuggestion(
+                expr.sourceColumn,
+                expr.sourceSpan,
+                "use of undeclared variable '" + expr.name + "'",
+                expr.name,
+                candidates
+            );
             return false;
         }
 
@@ -362,7 +439,49 @@ private:
         const std::map<std::string, Type>* fields = declaredStructFieldsForName(expr.base->inferredType.name);
         const auto field = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.field);
         if (fields == nullptr || field == fields->end()) {
-            report(expr.sourceColumn, std::string(isClassType(expr.base->inferredType) ? "class " : "struct ") + expr.base->inferredType.name + " has no field '" + expr.field + "'");
+            Diagnostic diagnostic;
+            diagnostic.message =
+                std::string(isClassType(expr.base->inferredType) ? "class " : "struct ") +
+                expr.base->inferredType.name +
+                " has no field '" +
+                expr.field +
+                "'";
+            diagnostic.labels.push_back({
+                expr.sourceSpan.valid()
+                    ? expr.sourceSpan
+                    : sourceTokenSpan(inputFile, sourceLines, lineNumber, expr.sourceColumn),
+                "unknown field '" + expr.field + "'",
+                true
+            });
+            if (fields != nullptr && !fields->empty()) {
+                std::vector<std::string> fieldNames;
+                fieldNames.reserve(fields->size());
+                std::string available = fields->size() == 1
+                    ? "available field: "
+                    : "available fields: ";
+                size_t fieldIndex = 0;
+                for (const auto& declaredField : *fields) {
+                    fieldNames.push_back(declaredField.first);
+                    if (fieldIndex++ > 0) {
+                        available += ", ";
+                    }
+                    available += "'" + declaredField.first + "'";
+                }
+                diagnostic.helps.push_back(std::move(available));
+                const std::string closest = closestDiagnosticCandidate(
+                    expr.field,
+                    fieldNames
+                );
+                if (!closest.empty()) {
+                    diagnostic.suggestions.push_back({
+                        diagnostic.labels.front().span,
+                        closest,
+                        "did you mean '" + closest + "'?",
+                        SuggestionApplicability::MaybeIncorrect
+                    });
+                }
+            }
+            recordDiagnostic(std::move(diagnostic));
             return false;
         }
         expr.inferredType = field->second;
@@ -608,14 +727,30 @@ private:
                 return true;
             }
 
-            report(expr.sourceColumn, cpppTypeName(receiverType) + " has no method '" + expr.callee + "'");
+            reportNameSuggestion(
+                expr.sourceColumn,
+                expr.sourceSpan,
+                cpppTypeName(receiverType) + " has no method '" + expr.callee + "'",
+                expr.callee,
+                methodCandidates(receiverType)
+            );
             return false;
         }
 
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             if (method == nullptr) {
-                report(expr.sourceColumn, std::string(isClassType(expr.receiver->inferredType) ? "class " : "struct ") + expr.receiver->inferredType.name + " has no method '" + expr.callee + "'");
+                reportNameSuggestion(
+                    expr.sourceColumn,
+                    expr.sourceSpan,
+                    std::string(isClassType(expr.receiver->inferredType) ? "class " : "struct ") +
+                        expr.receiver->inferredType.name +
+                        " has no method '" +
+                        expr.callee +
+                        "'",
+                    expr.callee,
+                    methodCandidates(expr.receiver->inferredType)
+                );
                 return false;
             }
             if (expr.arguments.size() != method->parameters.size()) {
@@ -862,6 +997,24 @@ private:
             return true;
         }
 
+        if (expr.receiver) {
+            const std::vector<std::string> candidates =
+                methodCandidates(expr.receiver->inferredType);
+            if (std::find(candidates.begin(), candidates.end(), expr.callee) == candidates.end()) {
+                reportNameSuggestion(
+                    expr.sourceColumn,
+                    expr.sourceSpan,
+                    cpppTypeName(expr.receiver->inferredType) +
+                        " has no method '" +
+                        expr.callee +
+                        "'",
+                    expr.callee,
+                    candidates
+                );
+                return false;
+            }
+        }
+
         const Type constructedType = declaredTypeForName(expr.callee);
         if (!expr.receiver && isStructType(constructedType)) {
             const std::map<std::string, Type>* definition = declaredStructFieldsForName(expr.callee);
@@ -941,7 +1094,13 @@ private:
             return true;
         }
 
-        report(expr.sourceColumn, "unexpected token in expression");
+        reportNameSuggestion(
+            expr.sourceColumn,
+            expr.sourceSpan,
+            "unexpected token in expression",
+            expr.callee,
+            callableCandidates()
+        );
         return false;
     }
 
@@ -1912,7 +2071,18 @@ ExpressionParser::ExpressionParser(
     declaredVariables(declaredVariables),
     declaredFunctions(declaredFunctions),
     emitRuntimeChecks(emitRuntimeChecks),
-    tokens(tokenize(expressionText)) {}
+    tokens(tokenize(
+        expressionText,
+        sourceSpanForColumns(
+            inputFile,
+            sourceLines,
+            lineNumber,
+            expressionColumn,
+            expressionText.empty()
+                ? expressionColumn - 1
+                : expressionColumn + static_cast<int>(expressionText.size()) - 1
+        )
+    )) {}
 
 ExpressionEmitResult ExpressionParser::parse() {
     for (const Token& token : tokens) {
@@ -1944,7 +2114,8 @@ ExpressionEmitResult ExpressionParser::parse() {
             lineNumber,
             expression->sourceColumn,
             0,
-            0
+            0,
+            expression->sourceSpan
         }}
     };
 }
@@ -2037,7 +2208,7 @@ std::unique_ptr<Expr> ExpressionParser::parseAst(bool& ok) {
         return nullptr;
     }
     if (!atEnd()) {
-        report(peek(), "unexpected token in expression");
+        reportUnexpectedTrailingToken(peek());
         ok = false;
         return nullptr;
     }
@@ -2083,8 +2254,72 @@ int ExpressionParser::absoluteColumn(const Token& token) const {
     return expressionColumn + token.span.startColumn - 1;
 }
 
+int ExpressionParser::absoluteEndColumn(const Token& token) const {
+    return expressionColumn + token.span.endColumn - 1;
+}
+
 void ExpressionParser::report(const Token& token, const std::string& message) const {
-    recordSourceError(inputFile, lineNumber, absoluteColumn(token), message, sourceLines);
+    const SourceSpan tokenSpan = token.sourceSpan.valid()
+        ? token.sourceSpan
+        : sourceSpanForColumns(
+            inputFile,
+            sourceLines,
+            lineNumber,
+            absoluteColumn(token),
+            absoluteEndColumn(token)
+        );
+    Diagnostic diagnostic;
+    diagnostic.message = message;
+    diagnostic.labels.push_back({tokenSpan, "", true});
+    if ((message == "unterminated string literal" || message == "unterminated char literal") &&
+        !token.text.empty()) {
+        const char quote = token.kind == TokenKind::Char ? '\'' : '"';
+        const SourceSpan insertion = sourceInsertionSpan(
+            inputFile,
+            sourceLines,
+            lineNumber,
+            absoluteEndColumn(token) + 1
+        );
+        diagnostic.suggestions.push_back({
+            insertion,
+            std::string(1, quote),
+            std::string("add a closing `") + quote + "`",
+            SuggestionApplicability::MachineApplicable
+        });
+    }
+    addAutomaticSyntaxSuggestion(
+        diagnostic,
+        inputFile,
+        lineNumber,
+        absoluteColumn(token),
+        sourceLines
+    );
+    recordDiagnostic(std::move(diagnostic));
+}
+
+void ExpressionParser::reportUnexpectedTrailingToken(const Token& token) const {
+    Diagnostic diagnostic;
+    diagnostic.message = "unexpected token in expression";
+    const SourceSpan span = token.sourceSpan.valid()
+        ? token.sourceSpan
+        : sourceSpanForColumns(
+            inputFile,
+            sourceLines,
+            lineNumber,
+            absoluteColumn(token),
+            absoluteEndColumn(token)
+        );
+    diagnostic.labels.push_back({span, "", true});
+    if (current + 1 < tokens.size() &&
+        tokens[current + 1].kind == TokenKind::EndOfFile) {
+        diagnostic.suggestions.push_back({
+            span,
+            "",
+            "remove unexpected '" + token.text + "'",
+            SuggestionApplicability::MachineApplicable
+        });
+    }
+    recordDiagnostic(std::move(diagnostic));
 }
 
 bool ExpressionParser::reportInputUsageError(const Token& inputToken) const {
@@ -2120,7 +2355,7 @@ std::unique_ptr<Expr> ExpressionParser::parseLogicalOr(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseLogicalAnd(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2131,7 +2366,7 @@ std::unique_ptr<Expr> ExpressionParser::parseLogicalAnd(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseBitwiseOr(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2142,7 +2377,7 @@ std::unique_ptr<Expr> ExpressionParser::parseBitwiseOr(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseBitwiseXor(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2153,7 +2388,7 @@ std::unique_ptr<Expr> ExpressionParser::parseBitwiseXor(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseBitwiseAnd(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2164,7 +2399,7 @@ std::unique_ptr<Expr> ExpressionParser::parseBitwiseAnd(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseEquality(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2175,7 +2410,7 @@ std::unique_ptr<Expr> ExpressionParser::parseEquality(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseComparison(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2186,7 +2421,7 @@ std::unique_ptr<Expr> ExpressionParser::parseComparison(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseShift(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2197,7 +2432,7 @@ std::unique_ptr<Expr> ExpressionParser::parseShift(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseAdditive(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2208,7 +2443,7 @@ std::unique_ptr<Expr> ExpressionParser::parseAdditive(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseMultiplicative(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2219,7 +2454,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMultiplicative(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseUnary(ok);
         if (!ok) return nullptr;
-        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op));
+        expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
@@ -2229,7 +2464,7 @@ std::unique_ptr<Expr> ExpressionParser::parseUnary(bool& ok) {
         ++current;
         std::unique_ptr<Expr> right = parseUnary(ok);
         if (!ok) return nullptr;
-        return std::make_unique<UnaryExpr>(op.text, std::move(right), absoluteColumn(op));
+        return std::make_unique<UnaryExpr>(op.text, std::move(right), absoluteColumn(op), false, op.sourceSpan);
     }
     return parsePostfix(ok);
 }
@@ -2250,7 +2485,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
                     ok = false;
                     return nullptr;
                 }
-                expression = std::make_unique<SliceExpr>(std::move(expression), std::move(start), std::move(end), absoluteColumn(leftBracket));
+                expression = std::make_unique<SliceExpr>(std::move(expression), std::move(start), std::move(end), absoluteColumn(leftBracket), leftBracket.sourceSpan);
                 continue;
             }
             if (!match(TokenKind::RightBracket)) {
@@ -2258,7 +2493,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
                 ok = false;
                 return nullptr;
             }
-            expression = std::make_unique<IndexExpr>(std::move(expression), std::move(start), absoluteColumn(leftBracket));
+            expression = std::make_unique<IndexExpr>(std::move(expression), std::move(start), absoluteColumn(leftBracket), leftBracket.sourceSpan);
             continue;
         }
         if (check(TokenKind::Operator, ".")) {
@@ -2268,7 +2503,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
 
         const Token op = peek();
         ++current;
-        expression = std::make_unique<UnaryExpr>(op.text, std::move(expression), absoluteColumn(op), true);
+        expression = std::make_unique<UnaryExpr>(op.text, std::move(expression), absoluteColumn(op), true, op.sourceSpan);
     }
     return expression;
 }
@@ -2283,7 +2518,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
     }
     const Token& method = previous();
     if (!check(TokenKind::LeftParen)) {
-        return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method));
+        return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method), method.sourceSpan);
     }
     if (method.text != "remove" && method.text != "find" && method.text != "at" && method.text != "split" &&
         method.text != "prev" && method.text != "next" && method.text != "hasPrev" && method.text != "hasNext") {
@@ -2299,7 +2534,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
                     return nullptr;
                 }
             }
-            return std::make_unique<CallExpr>(method.text, std::move(expression), std::move(arguments), absoluteColumn(method));
+            return std::make_unique<CallExpr>(method.text, std::move(expression), std::move(arguments), absoluteColumn(method), method.sourceSpan);
         }
         report(method, "unknown method '" + method.text + "'");
         ok = false;
@@ -2360,7 +2595,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
         ok = false;
         return nullptr;
     }
-    return std::make_unique<CallExpr>(method.text, std::move(expression), std::move(arguments), absoluteColumn(method));
+    return std::make_unique<CallExpr>(method.text, std::move(expression), std::move(arguments), absoluteColumn(method), method.sourceSpan);
 }
 
 std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
@@ -2519,7 +2754,7 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
             }
             elements.push_back(std::move(element));
         }
-        return std::make_unique<SetLiteralExpr>(std::move(elements), absoluteColumn(leftBrace));
+        return std::make_unique<SetLiteralExpr>(std::move(elements), absoluteColumn(leftBrace), leftBrace.sourceSpan);
     }
 
     std::vector<MapLiteralEntry> mapEntries;
@@ -2540,7 +2775,7 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
         }
         mapEntries.push_back({std::move(key), std::move(value)});
     }
-    return std::make_unique<MapLiteralExpr>(std::move(mapEntries), absoluteColumn(leftBrace));
+    return std::make_unique<MapLiteralExpr>(std::move(mapEntries), absoluteColumn(leftBrace), leftBrace.sourceSpan);
 }
 
 std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
@@ -2562,7 +2797,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             ok = false;
             return nullptr;
         }
-        return std::make_unique<CastExpr>(declaredTypeForName(typeToken.text), std::move(operand), absoluteColumn(typeToken));
+        return std::make_unique<CastExpr>(declaredTypeForName(typeToken.text), std::move(operand), absoluteColumn(typeToken), typeToken.sourceSpan);
     }
 
     if (match(TokenKind::LeftParen)) {
@@ -2582,7 +2817,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
                 ok = false;
                 return nullptr;
             }
-            return std::make_unique<PairLiteralExpr>(std::move(expression), std::move(second), absoluteColumn(leftParen));
+            return std::make_unique<PairLiteralExpr>(std::move(expression), std::move(second), absoluteColumn(leftParen), leftParen.sourceSpan);
         }
 
         if (!match(TokenKind::RightParen)) {
@@ -2596,10 +2831,10 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
     if (match(TokenKind::Identifier)) {
         const Token& identifier = previous();
         if (identifier.text == "true" || identifier.text == "false") {
-            return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Bool, identifier.text, absoluteColumn(identifier));
+            return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Bool, identifier.text, absoluteColumn(identifier), identifier.sourceSpan);
         }
         if (identifier.text == "NULL") {
-            return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Null, identifier.text, absoluteColumn(identifier));
+            return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Null, identifier.text, absoluteColumn(identifier), identifier.sourceSpan);
         }
         if (identifier.text == "len") {
             if (!match(TokenKind::LeftParen)) {
@@ -2616,7 +2851,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
                 ok = false;
                 return nullptr;
             }
-            return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier));
+            return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier), identifier.sourceSpan);
         }
         if (identifier.text == "split") {
             report(identifier, "split must be called as list.split(delimiter)");
@@ -2657,7 +2892,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
                     return nullptr;
                 }
             }
-            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier));
+            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier), identifier.sourceSpan);
         }
         if (identifier.text == "input") {
             reportInputUsageError(identifier);
@@ -2680,26 +2915,26 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
                     return nullptr;
                 }
             }
-            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier));
+            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier), identifier.sourceSpan);
         }
-        return std::make_unique<VariableExpr>(identifier.text, absoluteColumn(identifier));
+        return std::make_unique<VariableExpr>(identifier.text, absoluteColumn(identifier), identifier.sourceSpan);
     }
 
     if (match(TokenKind::Integer)) {
         const Token& literal = previous();
-        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Int, literal.text, absoluteColumn(literal));
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Int, literal.text, absoluteColumn(literal), literal.sourceSpan);
     }
     if (match(TokenKind::Float)) {
         const Token& literal = previous();
-        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Float, literal.text, absoluteColumn(literal));
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Float, literal.text, absoluteColumn(literal), literal.sourceSpan);
     }
     if (match(TokenKind::String)) {
         const Token& literal = previous();
-        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::String, literal.text, absoluteColumn(literal));
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::String, literal.text, absoluteColumn(literal), literal.sourceSpan);
     }
     if (match(TokenKind::Char)) {
         const Token& literal = previous();
-        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Char, literal.text, absoluteColumn(literal));
+        return std::make_unique<LiteralExpr>(LiteralExpr::Kind::Char, literal.text, absoluteColumn(literal), literal.sourceSpan);
     }
     if (match(TokenKind::LeftBracket)) {
         const Token& leftBracket = previous();
@@ -2726,7 +2961,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             ok = false;
             return nullptr;
         }
-        return std::make_unique<ListLiteralExpr>(std::move(elements), absoluteColumn(leftBracket));
+        return std::make_unique<ListLiteralExpr>(std::move(elements), absoluteColumn(leftBracket), leftBracket.sourceSpan);
     }
     if (check(TokenKind::Unknown, "{")) {
         return parseBraceLiteral(ok);

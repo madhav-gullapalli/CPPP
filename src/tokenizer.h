@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "errors.h"
+
 #include <string>
 #include <vector>
 
@@ -31,8 +33,9 @@ enum class TokenKind {
     EndOfFile
 };
 
-// SourceSpan implements the SourceSpan behavior for the tokenizer.h module.
-struct SourceSpan {
+// TokenSpan is the token's range relative to the string passed to tokenize().
+// Diagnostic SourceSpan values use canonical offsets in the original file.
+struct TokenSpan {
     int startLine;
     int startColumn;
     int endLine;
@@ -43,10 +46,12 @@ struct SourceSpan {
 struct Token {
     TokenKind kind;
     std::string text;
-    SourceSpan span;
+    TokenSpan span;
+    SourceSpan sourceSpan;
 };
 
 // tokenize tokenizes the input source into the stream consumed by later passes.
 std::vector<Token> tokenize(const std::string& source);
+std::vector<Token> tokenize(const std::string& source, SourceSpan sourceSpan);
 // tokenKindName implements the tokenKindName behavior for the tokenizer.h module.
 std::string tokenKindName(TokenKind kind);

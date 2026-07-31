@@ -190,7 +190,10 @@ int runCompilerDriver(int argc, char* argv[]) {
     // This is the shared state object for every later compiler stage.
     CompileContext context(options);
     setDeclaredFunctionsForExpressions(&context.declaredFunctions);
-    compileSourceFragments(context, splitSourceFragments(input, context.sourceLines));
+    compileSourceFragments(
+        context,
+        splitSourceFragments(input, context.sourceLines, options.inputFile)
+    );
 
     if (context.blockDepth > 0) {
         recordSourceError(options.inputFile, context.sourceLines.empty() ? 1 : context.sourceLines.rbegin()->first, 1, "unclosed block", context.sourceLines);
@@ -237,11 +240,25 @@ int runCompilerDriver(int argc, char* argv[]) {
         std::cout << (options.shouldSubmit ? "Built submit target " : "Built ") << options.executableFile << '\n' << std::flush;
 
         if (options.shouldRun) {
-            const std::string runCommand = commandPathFor(options.executableFile);
+            const std::string runLogFile = options.outputFile + ".run.log";
+            const std::string runCommand =
+                quotePath(commandPathFor(options.executableFile)) +
+                " > " + quotePath(runLogFile) + " 2>&1";
             const int runResult = std::system(runCommand.c_str());
             clearRequiredRuntimeHelpers();
             if (runResult != 0) {
+                printRuntimeErrors(
+                    options.inputFile,
+                    runLogFile,
+                    context.sourceLines,
+                    context.cppToCpppLine
+                );
                 return 1;
+            }
+
+            std::ifstream runOutput(runLogFile, std::ios::binary);
+            if (runOutput) {
+                std::cout << runOutput.rdbuf();
             }
         }
     }

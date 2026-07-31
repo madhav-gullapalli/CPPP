@@ -56,7 +56,9 @@ private:
     bool isUnterminatedQuotedToken(const Token& token) const;
 // absoluteColumn implements the absoluteColumn behavior for the expressionParser.h module.
     int absoluteColumn(const Token& token) const;
+    int absoluteEndColumn(const Token& token) const;
     void report(const Token& token, const std::string& message) const;
+    void reportUnexpectedTrailingToken(const Token& token) const;
 // reportInputUsageError implements the reportInputUsageError behavior for the expressionParser.h module.
     bool reportInputUsageError(const Token& inputToken) const;
 

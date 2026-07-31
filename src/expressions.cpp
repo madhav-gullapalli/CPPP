@@ -682,6 +682,35 @@ const FunctionSignature* declaredStructMethodForType(const Type& type, const std
     return method == methods->second.end() ? nullptr : &method->second;
 }
 
+std::vector<std::string> declaredCustomTypeNames() {
+    std::vector<std::string> names;
+    const auto* structs = declaredStructsForExpressions();
+    if (structs == nullptr) {
+        return names;
+    }
+    names.reserve(structs->size());
+    for (const auto& structure : *structs) {
+        names.push_back(structure.first);
+    }
+    return names;
+}
+
+std::vector<std::string> declaredStructMethodNamesForType(const Type& type) {
+    std::vector<std::string> names;
+    if (!isStructType(type) || declaredStructMethodsForExpressions() == nullptr) {
+        return names;
+    }
+    const auto methods = declaredStructMethodsForExpressions()->find(type.name);
+    if (methods == declaredStructMethodsForExpressions()->end()) {
+        return names;
+    }
+    names.reserve(methods->second.size());
+    for (const auto& method : methods->second) {
+        names.push_back(method.first);
+    }
+    return names;
+}
+
 // cppTypeForInput implements the cppTypeForInput behavior for the expressions.cpp module.
 std::string cppTypeForInput(const Type& type) {
     if (type == PrimitiveType::Bool) {

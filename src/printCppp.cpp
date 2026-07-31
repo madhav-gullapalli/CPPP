@@ -258,16 +258,14 @@ bool parseCallArgumentAst(
 bool parseCallArguments(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& sourceLine,
     const std::string& statementBody,
+    int statementStartColumn,
     const std::string& functionName,
     const std::string& unclosedMessage,
     const std::map<int, std::string>& sourceLines,
     std::string& argumentsText,
     int& argumentsStartColumn
 ) {
-    const size_t statementColumn = sourceLine.find(statementBody);
-    const int statementStartColumn = static_cast<int>(statementColumn == std::string::npos ? 1 : statementColumn + 1);
     const std::vector<Token> statementTokens = tokenize(statementBody);
     if (statementTokens.size() < 2 ||
         statementTokens[0].kind != TokenKind::Identifier ||
@@ -325,19 +323,50 @@ bool printedTypeNeedsStringHelper(const Type& type) {
 PrintEmitResult emitPrintStatement(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& sourceLine,
     const std::string& statementBody,
+    int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables
 ) {
+    const auto reportUnterminatedString = [&](const Token& token, int baseColumn) {
+        const int startColumn = baseColumn + token.span.startColumn - 1;
+        const int endColumn = baseColumn + token.span.endColumn - 1;
+        Diagnostic diagnostic;
+        diagnostic.message = "unterminated string literal in print";
+        diagnostic.labels.push_back({
+            sourceSpanForColumns(
+                inputFile,
+                sourceLines,
+                lineNumber,
+                startColumn,
+                endColumn
+            ),
+            "",
+            true
+        });
+        const SourceSpan insertion = sourceInsertionSpan(
+            inputFile,
+            sourceLines,
+            lineNumber,
+            endColumn + 1
+        );
+        diagnostic.suggestions.push_back({
+            insertion,
+            "\"",
+            "add a closing `\"`",
+            SuggestionApplicability::MachineApplicable
+        });
+        recordDiagnostic(std::move(diagnostic));
+    };
+
     const std::vector<Token> statementTokens = tokenize(statementBody);
     if (statementTokens.size() >= 2 &&
         statementTokens[0].kind == TokenKind::Identifier &&
         statementTokens[0].text == "print" &&
         statementTokens[1].kind == TokenKind::LeftParen) {
-        for (const Token& token : statementTokens) {
+    for (const Token& token : statementTokens) {
             if (token.kind == TokenKind::String && isUnterminatedQuotedToken(token)) {
-                recordSourceError(inputFile, lineNumber, token.span.startColumn, "unterminated string literal in print", sourceLines);
+                reportUnterminatedString(token, statementStartColumn);
                 return {false, "", {}};
             }
         }
@@ -345,14 +374,14 @@ PrintEmitResult emitPrintStatement(
 
     std::string printArguments;
     int argumentsStartColumn = 1;
-    if (!parseCallArguments(inputFile, lineNumber, sourceLine, statementBody, "print", "unclosed parenthesis in print", sourceLines, printArguments, argumentsStartColumn)) {
+    if (!parseCallArguments(inputFile, lineNumber, statementBody, statementStartColumn, "print", "unclosed parenthesis in print", sourceLines, printArguments, argumentsStartColumn)) {
         return {false, "", {}};
     }
 
     const std::vector<Token> tokens = tokenize(printArguments);
     for (const Token& token : tokens) {
         if (isUnterminatedQuotedToken(token)) {
-            recordSourceError(inputFile, lineNumber, argumentsStartColumn + token.span.startColumn - 1, "unterminated string literal in print", sourceLines);
+            reportUnterminatedString(token, argumentsStartColumn);
             return {false, "", {}};
         }
     }
@@ -597,9 +626,13 @@ PrintEmitResult emitDescribeStatement(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables
 ) {
+    const size_t statementColumn = sourceLine.find(statementBody);
+    const int statementStartColumn = static_cast<int>(
+        statementColumn == std::string::npos ? 1 : statementColumn + 1
+    );
     std::string describeArgument;
     int argumentStartColumn = 1;
-    if (!parseCallArguments(inputFile, lineNumber, sourceLine, statementBody, "describe", "unclosed parenthesis in describe", sourceLines, describeArgument, argumentStartColumn)) {
+    if (!parseCallArguments(inputFile, lineNumber, statementBody, statementStartColumn, "describe", "unclosed parenthesis in describe", sourceLines, describeArgument, argumentStartColumn)) {
         return {false, "", {}};
     }
 

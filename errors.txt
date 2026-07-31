@@ -4,6 +4,12 @@ CP++ Error Documentation
 This file documents the native CP++ diagnostics currently produced before
 falling back to generated C++ compiler errors.
 
+Diagnostics begin with a short headline, followed by a `--> file:line:column`
+location and a numbered source frame. The first `^` marks the beginning of the
+primary span and following `~` characters cover the rest of the affected token
+or expression. Labels explain the highlighted code, while notes and potential
+fixes appear below the frame as `= note:` and `= help:`.
+
 General syntax
 --------------
 
@@ -15,18 +21,29 @@ missing semicolon
 
   Diagnostic:
     error: missing semicolon
+     --> example.cppp:1:15
+      |
+    1 | print("hello")
+      |               ^ statement ends here
+      |
+      = help: add `;` to terminate the statement
 
 unsupported statement
-  The statement is not recognized by the current compiler frontend.
-  At the moment, supported statements are primitive declarations,
-  assignment statements, print(...) calls, if/else blocks, while loops,
-  for loops, and rep loops.
+  The statement is not recognized by the current compiler frontend. When its
+  leading name is close to a statement or callable that is valid in this
+  context, CP++ suggests the nearest unambiguous spelling.
 
   Example:
-    printBinary();
+    pritn(1);
 
   Diagnostic:
     error: unsupported statement
+     --> example.cppp:1:1
+      |
+    1 | pritn(1);
+      | ^~~~~
+      |
+      = help: did you mean 'print'?
 
 Primitive type errors
 ---------------------
@@ -54,6 +71,10 @@ expected variable name after <type>
 
   Diagnostic:
     error: expected variable name after int
+     --> example.cppp:1:5
+      |
+    1 | int = 5;
+      |     ^
 
 variable '<name>' is already declared
   A variable name cannot be declared twice in the same current scope.
@@ -64,6 +85,10 @@ variable '<name>' is already declared
 
   Diagnostic:
     error: variable 'x' is already declared
+     --> example.cppp:2:5
+      |
+    2 | int x;
+      |     ^
 
 expected value after '='
   A declaration assignment has an equals sign but no value.
@@ -73,6 +98,10 @@ expected value after '='
 
   Diagnostic:
     error: expected value after '='
+     --> example.cppp:1:8
+      |
+    1 | int x =;
+      |        ^
 
 expected ';' or '=' after variable name
   Extra tokens appeared after a variable name in a declaration.
@@ -82,6 +111,10 @@ expected ';' or '=' after variable name
 
   Diagnostic:
     error: expected ';' or '=' after variable name
+     --> example.cppp:1:7
+      |
+    1 | int x y;
+      |       ^
 
 expected variable name after ','
   A comma-separated declaration list must include a variable name after
@@ -92,6 +125,10 @@ expected variable name after ','
 
   Diagnostic:
     error: expected variable name after ','
+     --> example.cppp:1:7
+      |
+    1 | int a,;
+      |       ^
 
 int requires an integer literal
   CP++ int declarations accept integer literals and arithmetic expressions.
@@ -102,6 +139,10 @@ int requires an integer literal
 
   Diagnostic:
     error: int requires an integer literal
+     --> example.cppp:1:9
+      |
+    1 | int x = 1.5;
+      |         ^~~
 
 integer literal overflows CP++ int
   CP++ int is a 64-bit signed integer. Literal values outside that range
@@ -112,6 +153,10 @@ integer literal overflows CP++ int
 
   Diagnostic:
     error: integer literal overflows CP++ int
+     --> example.cppp:1:9
+      |
+    1 | int n = 100000000000000000000000000000000;
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 removed bigint and bigfloat types
   bigint and bigfloat have been removed from CP++. Use int or float instead.
@@ -121,6 +166,10 @@ removed bigint and bigfloat types
 
   Diagnostic:
     error: bigint has been removed from CP++; use int or float instead
+     --> example.cppp:1:1
+      |
+    1 | bigint x = 123;
+      | ^~~~~~
 
 primitive expects 0 subtypes
   Generic syntax is not supported on current primitive CP++ types. The internal
@@ -132,6 +181,10 @@ primitive expects 0 subtypes
 
   Diagnostic:
     error: int expects 0 subtypes
+     --> example.cppp:1:4
+      |
+    1 | int<int> x;
+      |    ^
 
 string type
   string is a built-in CP++ type that lowers to List<char>. It carries the
@@ -152,6 +205,10 @@ string expects 0 subtypes
 
   Diagnostic:
     error: string expects 0 subtypes
+     --> example.cppp:1:7
+      |
+    1 | string<int> s;
+      |       ^
 
 List expects 1 subtype
   List is a generic type constructor and must include exactly one element type.
@@ -164,6 +221,38 @@ List expects 1 subtype
 
   Diagnostic:
     error: List expects 1 subtype like List<int>
+     --> example.cppp:1:1
+      |
+    1 | List a;
+      | ^~~~
+
+    error: List expects 1 subtype like List<int>
+     --> example.cppp:2:1
+      |
+    2 | List<> b;
+      | ^~~~
+
+    error: List expects 1 subtype
+     --> example.cppp:3:9
+      |
+    3 | List<int, int> c;
+      |         ^
+
+context-aware generic type suggestion
+  A generic declaration beginning with an unknown name is compared with
+  built-in and declared types, including generic constructors.
+
+  Example:
+    Lst<int> x;
+
+  Diagnostic:
+    error: unsupported statement
+     --> example.cppp:1:1
+      |
+    1 | Lst<int> x;
+      | ^~~
+      |
+      = help: did you mean 'List'?
 
 List literals
   A List declaration can be initialized with square-bracket list literal
@@ -213,6 +302,10 @@ empty list literal needs a declared List type
 
   Diagnostic:
     error: empty list literal needs a declared List type
+     --> example.cppp:1:5
+      |
+    1 | if ([]) {
+      |     ^
 
 cannot implicitly convert <from> to <to> in list literal
   Each list literal element must match the destination List element type, using
@@ -223,6 +316,10 @@ cannot implicitly convert <from> to <to> in list literal
 
   Diagnostic:
     error: cannot implicitly convert float to int in list literal
+     --> example.cppp:1:24
+      |
+    1 | List<int> values = [1, 2.5];
+      |                        ^~~
 
 expected expression after ',' in list literal
   A comma inside a list literal must be followed by another element.
@@ -232,6 +329,10 @@ expected expression after ',' in list literal
 
   Diagnostic:
     error: expected expression after ',' in list literal
+     --> example.cppp:1:22
+      |
+    1 | List<int> values = [1,];
+      |                      ^
 
 unclosed bracket in list literal
   A list literal opened with '[' but did not close with ']'.
@@ -241,6 +342,12 @@ unclosed bracket in list literal
 
   Diagnostic:
     error: unclosed bracket in list literal
+     --> example.cppp:1:20
+      |
+    1 | List<int> values = [1, 2;
+      |                    ^
+      |
+      = help: add `]` to close the delimiter
 
 List values must use a list literal like [1, 2] or another List expression
   A List declaration cannot be initialized from a non-List scalar value.
@@ -250,6 +357,10 @@ List values must use a list literal like [1, 2] or another List expression
 
   Diagnostic:
     error: List values must use a list literal like [1, 2] or another List expression
+     --> example.cppp:1:20
+      |
+    1 | List<int> values = 3;
+      |                    ^
 
 List add
   Lists support add(value) to append at the end and add(value, index) to
@@ -271,6 +382,10 @@ cannot add <from> to List<...>
 
   Diagnostic:
     error: cannot add float to List<int>
+     --> example.cppp:3:12
+      |
+    3 | values.add(bad);
+      |            ^~~
 
 List remove
   Lists support remove() to pop the last element, and remove(index) to remove
@@ -290,6 +405,10 @@ remove() expects no arguments or index
 
   Diagnostic:
     error: remove() expects no arguments or index
+     --> example.cppp:2:15
+      |
+    2 | values.remove(true, 0);
+      |               ^~~~
 
 List sort and reverse
   Lists support sort() to sort in place and reverse() to reverse in place.
@@ -310,6 +429,10 @@ sort() does not take arguments
 
   Diagnostic:
     error: sort() does not take arguments
+     --> example.cppp:2:13
+      |
+    2 | values.sort(0);
+      |             ^
 
 reverse() does not take arguments
   reverse() only reverses the whole List in place and does not accept
@@ -321,6 +444,10 @@ reverse() does not take arguments
 
   Diagnostic:
     error: reverse() does not take arguments
+     --> example.cppp:2:16
+      |
+    2 | values.reverse(0);
+      |                ^
 
 list index must be int
   The second add(...) argument and the remove(index) argument must be int
@@ -332,6 +459,10 @@ list index must be int
 
   Diagnostic:
     error: list index must be int
+     --> example.cppp:2:15
+      |
+    2 | values.add(1, 1.5);
+      |               ^~~
 
 list indexed variables
   A List element accessed with list[index] behaves like a normal mutable
@@ -382,6 +513,10 @@ slicing requires a List value
 
   Diagnostic:
     error: slicing requires a List value
+     --> example.cppp:2:8
+      |
+    2 | print(x[0:1]);
+      |        ^
 
 slice start must be int
   The start bound in list[start:end] must be an int expression.
@@ -392,6 +527,10 @@ slice start must be int
 
   Diagnostic:
     error: slice start must be int
+     --> example.cppp:2:14
+      |
+    2 | print(values[true:false]);
+      |              ^~~~
 
 slice end must be int
   The end bound in list[start:end] must be an int expression.
@@ -402,6 +541,10 @@ slice end must be int
 
   Diagnostic:
     error: slice end must be int
+     --> example.cppp:2:16
+      |
+    2 | print(values[0:true]);
+      |                ^~~~
 
 unclosed bracket in list slice
   A list slice opened with '[' but did not close with ']'.
@@ -411,6 +554,12 @@ unclosed bracket in list slice
 
   Diagnostic:
     error: unclosed bracket in list slice
+     --> example.cppp:1:13
+      |
+    1 | print(values[1:3);
+      |             ^
+      |
+      = help: add `]` to close the delimiter
 
 List assignment
   List elements can be assigned with square-bracket indexing. This updates the
@@ -429,6 +578,10 @@ index assignment requires a List value
 
   Diagnostic:
     error: indexing requires a List value
+     --> example.cppp:2:2
+      |
+    2 | x[0] = 1;
+      |  ^
 
 list index must be int in indexed assignment and updates
   Indexed assignments and updates use the same int index rule as indexed
@@ -441,6 +594,10 @@ list index must be int in indexed assignment and updates
 
   Diagnostic:
     error: list index must be int
+     --> example.cppp:2:7
+      |
+    2 | values[true] += 1;
+      |       ^
 
 List addition
   CP++ supports `A + B` for List values of the same type. This returns a brand
@@ -474,6 +631,10 @@ cannot append <from> to <to>
 
   Diagnostic:
     error: cannot append List<float> to List<int>
+     --> example.cppp:3:6
+      |
+    3 | a += b;
+      |      ^
 
 List printing
   print(...) can print List values directly. A printed List uses the same
@@ -570,6 +731,10 @@ indexing requires a List value
 
   Diagnostic:
     error: indexing requires a List value
+     --> example.cppp:2:8
+      |
+    2 | print(x[0]);
+      |        ^
 
 unclosed bracket in list index
   A list indexing expression opened with '[' but did not close with ']'.
@@ -579,6 +744,12 @@ unclosed bracket in list index
 
   Diagnostic:
     error: unclosed bracket in list index
+     --> example.cppp:1:13
+      |
+    1 | print(values[0);
+      |             ^
+      |
+      = help: add `]` to close the delimiter
 
 len() expects a List, Set, or Map value
   len(...) only accepts ordered collection expressions.
@@ -589,6 +760,10 @@ len() expects a List, Set, or Map value
 
   Diagnostic:
     error: len() expects a List, Set, or Map value
+     --> example.cppp:2:7
+      |
+    2 | print(len(x));
+      |       ^~~
 
 min() expects a List, Set, or Map value
   min(...) accepts one ordered collection expression, or multiple standalone
@@ -600,6 +775,10 @@ min() expects a List, Set, or Map value
 
   Diagnostic:
     error: min() expects a List, Set, or Map value, or a list of multiple values of the same type
+     --> example.cppp:2:7
+      |
+    2 | print(min(x));
+      |       ^~~
 
 max() expects a List, Set, or Map value
   max(...) accepts one ordered collection expression, or multiple standalone
@@ -611,6 +790,10 @@ max() expects a List, Set, or Map value
 
   Diagnostic:
     error: max() expects a List, Set, or Map value, or a list of multiple values of the same type
+     --> example.cppp:2:7
+      |
+    2 | print(max(x));
+      |       ^~~
 
 sum() expects a List of numeric values
   sum(...) accepts List<bool>, List<char>, List<int>, and List<float>. Nested
@@ -622,6 +805,10 @@ sum() expects a List of numeric values
 
   Diagnostic:
     error: sum() expects a List of numeric values
+     --> example.cppp:2:7
+      |
+    2 | print(sum(grid));
+      |       ^~~
 
 right side of 'in' must be a List
   The membership operator only works with a List on the right side.
@@ -632,6 +819,10 @@ right side of 'in' must be a List
 
   Diagnostic:
     error: right side of 'in' must be a List
+     --> example.cppp:2:9
+      |
+    2 | print(1 in x);
+      |         ^~
 
 cannot check membership of <from> in <List<...>>
   The left side of `in` must be implicitly comparable to the List element
@@ -644,6 +835,10 @@ cannot check membership of <from> in <List<...>>
 
   Diagnostic:
     error: cannot check membership of float in List<int>
+     --> example.cppp:3:14
+      |
+    3 | print(needle in values);
+      |              ^~
 
 cannot find <from> in <List<...>>
   find(...) accepts either one element compatible with the List element type,
@@ -655,6 +850,10 @@ cannot find <from> in <List<...>>
 
   Diagnostic:
     error: cannot find float in List<int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.find(1.5));
+      |              ^~~~
 
 for-in expects a List value
   A foreach loop must iterate over a List expression.
@@ -667,6 +866,10 @@ for-in expects a List value
 
   Diagnostic:
     error: for-in expects a List value
+     --> example.cppp:2:19
+      |
+    2 | for (int value in x) {
+      |                   ^
 
 invalid list index
   In --run mode, list[index] and list[index] = value report a runtime error
@@ -682,6 +885,10 @@ invalid list index
 
   Diagnostic:
     error: runtime error: invalid list index
+     --> example.cppp:3:13
+      |
+    3 | print(values[3]);
+      |             ^
 
 cannot remove from empty list
   In --run mode, remove() reports a runtime error when the List is empty.
@@ -692,6 +899,10 @@ cannot remove from empty list
 
   Diagnostic:
     error: runtime error: cannot remove from empty list
+     --> example.cppp:2:8
+      |
+    2 | values.remove();
+      |        ^~~~~~
 
 cannot take min of empty list
   In --run mode, min(list) reports a runtime error when the List is empty.
@@ -702,6 +913,10 @@ cannot take min of empty list
 
   Diagnostic:
     error: runtime error: cannot take min of empty list
+     --> example.cppp:2:7
+      |
+    2 | print(min(values));
+      |       ^~~
 
 cannot take max of empty list
   In --run mode, max(list) reports a runtime error when the List is empty.
@@ -712,6 +927,10 @@ cannot take max of empty list
 
   Diagnostic:
     error: runtime error: cannot take max of empty list
+     --> example.cppp:2:7
+      |
+    2 | print(max(values));
+      |       ^~~
 
 cannot take min/max of single non-list item
   If min/max has one argument it must be a single List, Set, or Map.
@@ -721,6 +940,10 @@ cannot take min/max of single non-list item
 
   Diagnostic:
     error: max() expects a List, Set, or Map value, or a list of multiple values of the same type
+     --> example.cppp:1:7
+      |
+    1 | print(max(7));
+      |       ^~~
 
 cannot take min/max of a seqwuence of mixed type
   Types must not be mixed in a sequence passed to max or min.
@@ -730,6 +953,10 @@ cannot take min/max of a seqwuence of mixed type
 
   Diagnostic:
     error: min() expects all items in sequence to be of same type
+     --> example.cppp:1:7
+      |
+    1 | print(min(1,2,2.2));
+      |       ^~~
 
 cannot implicitly convert string to char
   Double-quoted strings are still string values, even when they contain only
@@ -740,6 +967,10 @@ cannot implicitly convert string to char
 
   Diagnostic:
     error: cannot implicitly convert string to char
+     --> example.cppp:1:10
+      |
+    1 | char c = "B";
+      |          ^~~
 
 unterminated char literal
   A char literal starts with a single quote but does not close.
@@ -749,6 +980,12 @@ unterminated char literal
 
   Diagnostic:
     error: unterminated char literal
+     --> example.cppp:1:10
+      |
+    1 | char c = 'B;
+      |          ^~~
+      |
+      = help: add a closing `'`
 
 unexpected characters after char literal
   Extra characters appeared after a valid char literal.
@@ -758,6 +995,10 @@ unexpected characters after char literal
 
   Diagnostic:
     error: unexpected characters after char literal
+     --> example.cppp:1:10
+      |
+    1 | char c = 'B's;
+      |          ^~~
 
 char literal contains too many characters
   A char literal contains more than one character.
@@ -767,6 +1008,10 @@ char literal contains too many characters
 
   Diagnostic:
     error: char literal contains too many characters
+     --> example.cppp:1:10
+      |
+    1 | char c = 'AB';
+      |          ^~~~
 
 Print errors
 ------------
@@ -779,6 +1024,12 @@ unclosed parenthesis in print
 
   Diagnostic:
     error: unclosed parenthesis in print
+     --> example.cppp:1:6
+      |
+    1 | print(x;
+      |      ^
+      |
+      = help: add `)` to close the delimiter
 
 empty print argument
   A print call has an empty argument.
@@ -788,6 +1039,10 @@ empty print argument
 
   Diagnostic:
     error: empty print argument
+     --> example.cppp:1:7
+      |
+    1 | print(x, );
+      |       ^
 
 unterminated string literal in print
   A print argument starts a string literal but does not close it.
@@ -797,6 +1052,30 @@ unterminated string literal in print
 
   Diagnostic:
     error: unterminated string literal in print
+     --> example.cppp:1:7
+      |
+    1 | print("hello);
+      |       ^~~~~~~~
+      |
+      = help: add a closing `"`
+
+unterminated string literal inside a block
+  An unclosed string is reported as the root error without hiding the block's
+  closing brace or producing a secondary unclosed-block error.
+
+  Example:
+    rep(67) {
+        print("1);
+    }
+
+  Diagnostic:
+    error: unterminated string literal in print
+     --> example.cppp:2:11
+      |
+    2 |     print("1);
+      |           ^~~~
+      |
+      = help: add a closing `"`
 
 expected ',' between print arguments
   Print arguments must be separated with commas.
@@ -806,6 +1085,10 @@ expected ',' between print arguments
 
   Diagnostic:
     error: expected ',' between print arguments
+     --> example.cppp:1:7
+      |
+    1 | print(wrote char);
+      |       ^~~~~
 
 use of undeclared variable '<name>'
   A bare identifier passed to print must refer to a declared variable.
@@ -815,6 +1098,10 @@ use of undeclared variable '<name>'
 
   Diagnostic:
     error: use of undeclared variable 'wrote'
+     --> example.cppp:1:7
+      |
+    1 | print(wrote);
+      |       ^~~~~
 
 expected ',' before flush
   Deprecated. Use end = flush instead of passing flush as a print argument.
@@ -824,6 +1111,10 @@ expected ',' before flush
 
   Diagnostic:
     error: use end = flush instead of flush argument
+     --> example.cppp:1:16
+      |
+    1 | print("answer" flush);
+      |                ^~~~~
 
 print options must come after all printed values
   The end and delim options may appear in either order, but both must come
@@ -834,6 +1125,10 @@ print options must come after all printed values
 
   Diagnostic:
     error: print options must come after all printed values
+     --> example.cppp:1:23
+      |
+    1 | print("x", end = " ", 1);
+      |                       ^
 
 print end must be a string, char, or flush
   print end accepts a string, a char, or flush. end = flush emits a newline
@@ -844,6 +1139,10 @@ print end must be a string, char, or flush
 
   Diagnostic:
     error: print end must be a string, char, or flush
+     --> example.cppp:1:18
+      |
+    1 | print("x", end = 1);
+      |                  ^
 
 print delim must be a string or char
   print delim accepts only a string or char separator. Unlike end, delim does
@@ -854,6 +1153,10 @@ print delim must be a string or char
 
   Diagnostic:
     error: print delim must be a string or char
+     --> example.cppp:1:26
+      |
+    1 | print([1, 2, 3], delim = flush);
+      |                          ^~~~~
 
 print delim requires a List value
   The delim option only applies to top-level List printing. Nested list items
@@ -864,6 +1167,10 @@ print delim requires a List value
 
   Diagnostic:
     error: print delim requires a List value
+     --> example.cppp:1:7
+      |
+    1 | print(123, delim = " ");
+      |       ^~~
 
 print requires at least one value
   print must receive at least one printable value before any end option.
@@ -873,6 +1180,10 @@ print requires at least one value
 
   Diagnostic:
     error: print requires at least one value
+     --> example.cppp:1:7
+      |
+    1 | print(end = " ");
+      |       ^~~
 
 print end option
   print ends with a newline by default. The end option changes the ending.
@@ -924,18 +1235,30 @@ describe requires a value
 
   Diagnostic:
     error: describe requires a value
+     --> example.cppp:1:10
+      |
+    1 | describe();
+      |          ^
 
 Expression and assignment errors
 --------------------------------
 
 use of undeclared variable '<name>'
   Arithmetic expressions and assignments must reference declared variables.
+  CP++ compares a near miss only with variables visible in the current scope.
 
   Example:
-    int x = missing + 1;
+    int count = 1;
+    print(coutn);
 
   Diagnostic:
-    error: use of undeclared variable 'missing'
+    error: use of undeclared variable 'coutn'
+     --> example.cppp:2:7
+      |
+    2 | print(coutn);
+      |       ^~~~~
+      |
+      = help: did you mean 'count'?
 
 expected expression
   An arithmetic operator or assignment has no expression where one is required.
@@ -945,6 +1268,10 @@ expected expression
 
   Diagnostic:
     error: expected expression
+     --> example.cppp:1:12
+      |
+    1 | int x = 1 +;
+      |            ^
 
 unexpected token in expression
   Extra tokens appeared after a complete expression.
@@ -954,6 +1281,12 @@ unexpected token in expression
 
   Diagnostic:
     error: unexpected token in expression
+     --> example.cppp:1:11
+      |
+    1 | int x = 1 2;
+      |           ^
+      |
+      = help: remove unexpected '2'
 
 unclosed parenthesis in expression
   An expression starts a parenthesized group but does not close it.
@@ -963,6 +1296,12 @@ unclosed parenthesis in expression
 
   Diagnostic:
     error: unclosed parenthesis in expression
+     --> example.cppp:1:9
+      |
+    1 | int x = (1 + 2;
+      |         ^
+      |
+      = help: add `)` to close the delimiter
 
 expected expression after assignment
   An assignment operator has no value after it.
@@ -972,6 +1311,10 @@ expected expression after assignment
 
   Diagnostic:
     error: expected expression after assignment
+     --> example.cppp:1:5
+      |
+    1 | x +=;
+      |     ^
 
 multi-declaration requires the same number of values as variables
   A comma-separated declaration with comma-separated initializers must provide
@@ -982,6 +1325,10 @@ multi-declaration requires the same number of values as variables
 
   Diagnostic:
     error: multi-declaration requires the same number of values as variables
+     --> example.cppp:1:11
+      |
+    1 | int a,b = 1,2,3;
+      |           ^
 
 multi-assignment requires the same number of values as targets
   A comma-separated assignment must provide exactly one value for each target,
@@ -993,6 +1340,10 @@ multi-assignment requires the same number of values as targets
 
   Diagnostic:
     error: multi-assignment requires the same number of values as targets
+     --> example.cppp:2:7
+      |
+    2 | a,b = 1,2,3;
+      |       ^
 
 cannot implicitly convert <from> to <to>
   CP++ still rejects unrelated assignments when there is no implicit
@@ -1004,6 +1355,10 @@ cannot implicitly convert <from> to <to>
 
   Diagnostic:
     error: cannot implicitly convert int to List<int>
+     --> example.cppp:2:20
+      |
+    2 | List<int> values = x;
+      |                    ^
 
 cannot cast int to Set
   Set(x) only accepts List values and infers its element type from that List.
@@ -1013,6 +1368,10 @@ cannot cast int to Set
 
   Diagnostic:
     error: cannot cast int to Set
+     --> example.cppp:1:7
+      |
+    1 | print(Set(7));
+      |       ^~~
 
 cannot cast List<int> to Map
   Map(x) only accepts a List of Pair values.
@@ -1023,6 +1382,10 @@ cannot cast List<int> to Map
 
   Diagnostic:
     error: cannot cast List<int> to Map
+     --> example.cppp:2:7
+      |
+    2 | print(Map(values));
+      |       ^~~
 
 cannot cast List<int> to List
   List(x) only accepts Set or Map values.
@@ -1033,6 +1396,10 @@ cannot cast List<int> to List
 
   Diagnostic:
     error: cannot cast List<int> to List
+     --> example.cppp:2:7
+      |
+    2 | print(List(values));
+      |       ^~~~
 
 cannot cast List<int> to int
   Explicit casts do not let containers masquerade as primitive values.
@@ -1042,6 +1409,10 @@ cannot cast List<int> to int
 
   Diagnostic:
     error: cannot cast List<int> to int
+     --> example.cppp:1:7
+      |
+    1 | print(int([1, 2]));
+      |       ^~~
 
 cannot cast Set<int> to char
   Container values cannot be cast directly to primitive scalars.
@@ -1051,6 +1422,10 @@ cannot cast Set<int> to char
 
   Diagnostic:
     error: cannot cast Set<int> to char
+     --> example.cppp:1:7
+      |
+    1 | print(char({1, 2}));
+      |       ^~~~
 
 cannot cast Map<int, int> to float
   Container values must stay containers unless a specific conversion is
@@ -1061,6 +1436,10 @@ cannot cast Map<int, int> to float
 
   Diagnostic:
     error: cannot cast Map<int, int> to float
+     --> example.cppp:1:7
+      |
+    1 | print(float({1:2}));
+      |       ^~~~~
 
 cannot cast List<int> to string
   string(x) only accepts scalar CP++ values, not List, Set, or Map values.
@@ -1070,6 +1449,10 @@ cannot cast List<int> to string
 
   Diagnostic:
     error: cannot cast List<int> to string
+     --> example.cppp:1:7
+      |
+    1 | print(string([1, 2]));
+      |       ^~~~~~
 
 unclosed parenthesis in range
   range(...) calls must close their argument list.
@@ -1079,6 +1462,12 @@ unclosed parenthesis in range
 
   Diagnostic:
     error: unclosed parenthesis in range
+     --> example.cppp:1:12
+      |
+    1 | print(range(1, 2);
+      |            ^
+      |
+      = help: add `)` to close the delimiter
 
 range() arguments must be int
   range(...) only accepts int arguments unless you cast first on purpose.
@@ -1088,6 +1477,10 @@ range() arguments must be int
 
   Diagnostic:
     error: range() arguments must be int
+     --> example.cppp:1:13
+      |
+    1 | print(range(1.5));
+      |             ^~~
 
 cannot check membership of string in range
   Range membership only works with int values.
@@ -1097,6 +1490,10 @@ cannot check membership of string in range
 
   Diagnostic:
     error: cannot check membership of string in range
+     --> example.cppp:1:11
+      |
+    1 | print("x" in range(5));
+      |           ^~
 
 cannot cast List<int> to List<bool>
   List(range) always produces a List<int>, so assigning it to another element
@@ -1107,6 +1504,10 @@ cannot cast List<int> to List<bool>
 
   Diagnostic:
     error: cannot cast List<int> to List<bool>
+     --> example.cppp:1:20
+      |
+    1 | List<bool> flags = List(range(3));
+      |                    ^~~~
 
 cannot cast Set<int> to Set<char>
   Set(range) always produces a Set<int>, so assigning it to another element
@@ -1117,6 +1518,10 @@ cannot cast Set<int> to Set<char>
 
   Diagnostic:
     error: cannot cast Set<int> to Set<char>
+     --> example.cppp:1:18
+      |
+    1 | Set<char> seen = Set(range(3));
+      |                  ^~~
 
 invalid int string
   int(str) requires str to be a valid base-10 integer representation.
@@ -1126,6 +1531,10 @@ invalid int string
 
   Diagnostic:
     error: runtime error: invalid int string
+     --> example.cppp:1:7
+      |
+    1 | print(int("hello"));
+      |       ^~~
 
 invalid char string
   char(str) requires str to contain exactly one character.
@@ -1135,6 +1544,10 @@ invalid char string
 
   Diagnostic:
     error: runtime error: invalid char string
+     --> example.cppp:1:7
+      |
+    1 | print(char("no"));
+      |       ^~~~
 
 invalid bool string
   bool(str) only accepts `0`, `1`, `true`, or `false`.
@@ -1144,6 +1557,10 @@ invalid bool string
 
   Diagnostic:
     error: runtime error: invalid bool string
+     --> example.cppp:1:7
+      |
+    1 | print(bool("maybe"));
+      |       ^~~~
 
 invalid float string
   float(str) requires a complete decimal representation with digits on both
@@ -1154,6 +1571,10 @@ invalid float string
 
   Diagnostic:
     error: runtime error: invalid float string
+     --> example.cppp:1:7
+      |
+    1 | print(float("hello"));
+      |       ^~~~~
 
 invalid float string with trailing dot
   A trailing decimal point like `3.` is not a valid CP++ float string cast.
@@ -1163,6 +1584,10 @@ invalid float string with trailing dot
 
   Diagnostic:
     error: runtime error: invalid float string
+     --> example.cppp:1:7
+      |
+    1 | print(float("3."));
+      |       ^~~~~
 
 Functions
 ---------
@@ -1178,6 +1603,26 @@ user-defined functions
     }
     print(square(5));
 
+context-aware function suggestion
+  A misspelled call is compared with functions declared at that point in the
+  program. CP++ suggests a replacement only when one candidate is both close
+  enough and strictly better than the others.
+
+  Example:
+    int doubleValue(int value) {
+        return value * 2;
+    }
+    print(dubleValue(3));
+
+  Diagnostic:
+    error: unexpected token in expression
+     --> example.cppp:4:7
+      |
+    4 | print(dubleValue(3));
+      |       ^~~~~~~~~~
+      |
+      = help: did you mean 'doubleValue'?
+
 expected parameter after ','
   A function declaration parameter list cannot end with a trailing comma.
 
@@ -1188,6 +1633,10 @@ expected parameter after ','
 
   Diagnostic:
     error: expected parameter after ','
+     --> example.cppp:1:14
+      |
+    1 | int add(int x,){
+      |              ^
 
 unclosed parenthesis in function declaration
   A function header opened `(` but did not close its parameter list.
@@ -1199,6 +1648,18 @@ unclosed parenthesis in function declaration
 
   Diagnostic:
     error: unclosed parenthesis in function declaration
+     --> example.cppp:1:5
+      |
+    1 | int add(int x, int y{
+      |     ^~~
+      |
+      = help: add `)` to close the delimiter
+
+    error: unclosed block
+     --> example.cppp:3:1
+      |
+    3 | }
+      | ^
 
 unclosed parenthesis in function call
   A function call opened `(` but did not close it.
@@ -1208,6 +1669,12 @@ unclosed parenthesis in function call
 
   Diagnostic:
     error: unclosed parenthesis in function call
+     --> example.cppp:1:10
+      |
+    1 | print(add(1, 2);
+      |          ^
+      |
+      = help: add `)` to close the delimiter
 
 <name> expected parameters of <types> type got <types>
   Function calls are checked against the declared parameter types at compile
@@ -1221,6 +1688,10 @@ unclosed parenthesis in function call
 
   Diagnostic:
     error: solve expected parameters of int and char type got string and int
+     --> example.cppp:4:7
+      |
+    4 | print(solve("hi", 7));
+      |       ^~~~~
 
 <name> expected <n> parameters of <types> type got <m>
   Function calls with the wrong arity report both the expected count and the
@@ -1234,6 +1705,10 @@ unclosed parenthesis in function call
 
   Diagnostic:
     error: add expected 2 parameters of int and int type got 1
+     --> example.cppp:4:7
+      |
+    4 | print(add(1));
+      |       ^~~
 
 return can only be used inside a function
   `return` is only valid inside a user-defined function body.
@@ -1243,6 +1718,10 @@ return can only be used inside a function
 
   Diagnostic:
     error: return can only be used inside a function
+     --> example.cppp:1:1
+      |
+    1 | return 1;
+      | ^~~~~~
 
 non-void function must return a value of type <type>
   A function with a non-void return type cannot use bare `return;`.
@@ -1254,6 +1733,10 @@ non-void function must return a value of type <type>
 
   Diagnostic:
     error: non-void function must return a value of type int
+     --> example.cppp:2:5
+      |
+    2 |     return;
+      |     ^~~~~~
 
 void function cannot return a value
   A `void` function may use `return;` but not `return expr;`.
@@ -1265,6 +1748,10 @@ void function cannot return a value
 
   Diagnostic:
     error: void function cannot return a value
+     --> example.cppp:2:12
+      |
+    2 |     return 1;
+      |            ^
 
 invalid function return type
   A returned expression must be implicitly convertible to the declared return
@@ -1277,6 +1764,10 @@ invalid function return type
 
   Diagnostic:
     error: cannot implicitly convert string to int
+     --> example.cppp:2:12
+      |
+    2 |     return "hi";
+      |            ^~~~
 
 deep must precede a collection
   The `deep` modifier is only valid before a container parameter type such as
@@ -1289,6 +1780,10 @@ deep must precede a collection
 
   Diagnostic:
     error: deep must precede a collection
+     --> example.cppp:1:8
+      |
+    1 | void f(deep int x){
+      |        ^~~~
 
 Operator support
 ----------------
@@ -1361,6 +1856,10 @@ cannot use '<operator>' with <left> and <right>
 
   Diagnostic:
     error: cannot use '&' with float and int
+     --> example.cppp:2:13
+      |
+    2 | int bad = f & 3;
+      |             ^
 
 cannot use '++' with <type>
   Increment and decrement operators require a mutable numeric or char
@@ -1372,6 +1871,10 @@ cannot use '++' with <type>
 
   Diagnostic:
     error: cannot use '++' with bool
+     --> example.cppp:2:3
+      |
+    2 | ok++;
+      |   ^~
 
 expected variable before '++'
   Postfix increment and decrement must be applied to a mutable variable.
@@ -1381,6 +1884,10 @@ expected variable before '++'
 
   Diagnostic:
     error: expected variable before '++'
+     --> example.cppp:1:2
+      |
+    1 | 1++;
+      |  ^~
 
 expected variable after '++'
   Prefix increment and decrement must be followed by a mutable variable.
@@ -1390,6 +1897,10 @@ expected variable after '++'
 
   Diagnostic:
     error: expected variable after '++'
+     --> example.cppp:1:1
+      |
+    1 | ++1;
+      | ^~
 
 cannot compare <left> and <right>
   The two operand types cannot be compared by CP++.
@@ -1401,6 +1912,10 @@ cannot compare <left> and <right>
 
   Diagnostic:
     error: cannot compare List<int> and List<float>
+     --> example.cppp:3:14
+      |
+    3 | bool bad = a < b;
+      |              ^
 
 Control flow
 ------------
@@ -1496,6 +2011,10 @@ structured control-flow syntax errors
 
   Diagnostic:
     error: expected '(' after if
+     --> example.cppp:1:3
+      |
+    1 | if true {
+      |   ^
 
 expected condition
   An if or else if block has an empty condition.
@@ -1507,6 +2026,10 @@ expected condition
 
   Diagnostic:
     error: expected condition
+     --> example.cppp:1:5
+      |
+    1 | if () {
+      |     ^
 
 missing '{' after if
   if headers must end with an opening brace.
@@ -1517,6 +2040,16 @@ missing '{' after if
 
   Diagnostic:
     error: missing '{' after if
+     --> example.cppp:1:3
+      |
+    1 | if (true)
+      |   ^
+
+    error: unclosed block
+     --> example.cppp:2:1
+      |
+    2 |     print(1);
+      | ^
 
 missing '{' after while
   while headers must end with an opening brace.
@@ -1527,6 +2060,16 @@ missing '{' after while
 
   Diagnostic:
     error: missing '{' after while
+     --> example.cppp:1:6
+      |
+    1 | while (true)
+      |      ^
+
+    error: unclosed block
+     --> example.cppp:2:1
+      |
+    2 |     print(1);
+      | ^
 
 missing '{' after rep
   rep headers must end with an opening brace.
@@ -1537,6 +2080,16 @@ missing '{' after rep
 
   Diagnostic:
     error: missing '{' after rep
+     --> example.cppp:1:4
+      |
+    1 | rep(3)
+      |    ^
+
+    error: unclosed block
+     --> example.cppp:2:1
+      |
+    2 |     print(1);
+      | ^
 
 missing '{' after for loop
   for and for-in headers must end with an opening brace.
@@ -1547,6 +2100,16 @@ missing '{' after for loop
 
   Diagnostic:
     error: missing '{' after for loop
+     --> example.cppp:1:4
+      |
+    1 | for (int i = 0; i < 3; i++)
+      |    ^
+
+    error: unclosed block
+     --> example.cppp:2:1
+      |
+    2 |     print(i);
+      | ^
 
 for loop variable scope
   A variable declared in a classic for-loop initializer belongs to that loop's
@@ -1570,6 +2133,10 @@ for loop must use syntax for (init; condition; step)
 
   Diagnostic:
     error: for loop must use syntax for (init; condition; step)
+     --> example.cppp:1:6
+      |
+    1 | for (int i = 0 i < 3; i++) {
+      |      ^~~
 
 expected 'in' after loop variable
   A foreach loop must use `for (T x in list)`.
@@ -1581,6 +2148,10 @@ expected 'in' after loop variable
 
   Diagnostic:
     error: expected 'in' after loop variable
+     --> example.cppp:1:12
+      |
+    1 | for (int x not in values) {
+      |            ^~~
 
 expected rep count
   rep requires a count expression inside parentheses.
@@ -1592,6 +2163,10 @@ expected rep count
 
   Diagnostic:
     error: expected rep count
+     --> example.cppp:1:5
+      |
+    1 | rep() {
+      |     ^
 
 rep count must be numeric
   rep count must be a numeric or char/bool value.
@@ -1603,6 +2178,10 @@ rep count must be numeric
 
   Diagnostic:
     error: rep count must be numeric
+     --> example.cppp:1:5
+      |
+    1 | rep("bad") {
+      |     ^~~~~
 
 else without matching if
   An else or else if block must immediately follow a completed if or else if
@@ -1615,6 +2194,10 @@ else without matching if
 
   Diagnostic:
     error: else without matching if
+     --> example.cppp:1:1
+      |
+    1 | else {
+      | ^~~~
 
 nobreak without matching loop
   A `nobreak` block must immediately follow a completed `for`, foreach,
@@ -1627,6 +2210,10 @@ nobreak without matching loop
 
   Diagnostic:
     error: nobreak without matching loop
+     --> example.cppp:1:1
+      |
+    1 | nobreak {
+      | ^~~~~~~
 
 break can only be used inside a loop
   `break;` is only valid when the current statement is inside a `for`,
@@ -1637,6 +2224,10 @@ break can only be used inside a loop
 
   Diagnostic:
     error: break can only be used inside a loop
+     --> example.cppp:1:1
+      |
+    1 | break;
+      | ^~~~~
 
 continue can only be used inside a loop
   `continue;` is only valid when the current statement is inside a `for`,
@@ -1647,6 +2238,10 @@ continue can only be used inside a loop
 
   Diagnostic:
     error: continue can only be used inside a loop
+     --> example.cppp:1:1
+      |
+    1 | continue;
+      | ^~~~~~~~
 
 unmatched closing brace
   A closing brace appeared without a matching open if, else if, or else block.
@@ -1656,6 +2251,10 @@ unmatched closing brace
 
   Diagnostic:
     error: unmatched closing brace
+     --> example.cppp:1:1
+      |
+    1 | }
+      | ^
 
 unclosed block
   An if, else if, or else block was opened but not closed before the end of
@@ -1667,6 +2266,10 @@ unclosed block
 
   Diagnostic:
     error: unclosed block
+     --> example.cppp:2:1
+      |
+    2 |     print(1);
+      | ^
 
 Input
 -----
@@ -1692,6 +2295,10 @@ input must be called as input()
 
   Diagnostic:
     error: input must be called as input()
+     --> example.cppp:1:9
+      |
+    1 | int x = input;
+      |         ^~~~~
 
 input() does not take arguments
   input() is target-typed by the destination variable, so it does not accept
@@ -1702,6 +2309,10 @@ input() does not take arguments
 
   Diagnostic:
     error: input() does not take arguments
+     --> example.cppp:1:13
+      |
+    1 | print(input(123));
+      |             ^~~
 
 unclosed parenthesis in input
   An input call starts with input( but does not close the call.
@@ -1711,6 +2322,12 @@ unclosed parenthesis in input
 
   Diagnostic:
     error: unclosed parenthesis in input
+     --> example.cppp:1:14
+      |
+    1 | int x = input(;
+      |              ^
+      |
+      = help: add `)` to close the delimiter
 
 input() can only be used as the entire value in an assignment or declaration
   input() cannot currently be embedded inside an expression because its type
@@ -1721,6 +2338,10 @@ input() can only be used as the entire value in an assignment or declaration
 
   Diagnostic:
     error: input() can only be used as the entire value in an assignment or declaration
+     --> example.cppp:1:9
+      |
+    1 | int x = input() + 3;
+      |         ^~~~~
 
 list input
   List targets can read directly from input by giving one size per List
@@ -1753,6 +2374,10 @@ input(count) is only supported for List targets
 
   Diagnostic:
     error: input(count) is only supported for List targets
+     --> example.cppp:1:15
+      |
+    1 | int x = input(3);
+      |               ^
 
 List line input
   A one-dimensional List target can use input() with no sizes. CP++ reads one
@@ -1769,6 +2394,10 @@ List input() without sizes only supports one-dimensional Lists; use input(n) or 
 
   Diagnostic:
     error: List input() without sizes only supports one-dimensional Lists; use input(n) or one size per List dimension
+     --> example.cppp:1:26
+      |
+    1 | List<List<int>> values = input();
+      |                          ^~~~~
 
 string input needs exactly 1 size argument
   string input with an explicit size accepts exactly one size expression.
@@ -1778,6 +2407,10 @@ string input needs exactly 1 size argument
 
   Diagnostic:
     error: string input needs exactly 1 size argument
+     --> example.cppp:1:18
+      |
+    1 | string s = input(2, 3);
+      |                  ^
 
 List input needs exactly <n> size arguments
   The number of input sizes must match the number of nested List dimensions,
@@ -1789,6 +2422,10 @@ List input needs exactly <n> size arguments
 
   Diagnostic:
     error: List input needs exactly 0 or 1 size argument
+     --> example.cppp:1:26
+      |
+    1 | List<int> values = input(1, 2);
+      |                          ^
 
 input() size must be int
   Each List input size must be an int value or something CP++ can implicitly
@@ -1800,6 +2437,10 @@ input() size must be int
 
   Diagnostic:
     error: input() size must be int
+     --> example.cppp:2:26
+      |
+    2 | List<int> values = input(n);
+      |                          ^
 
 split method
   list.split(delimiter) breaks a List into a List of sublists. The delimiter
@@ -1822,6 +2463,10 @@ split must be called as a method
 
   Diagnostic:
     error: split must be called as list.split(delimiter)
+     --> example.cppp:1:7
+      |
+    1 | print(split(123, 2));
+      |       ^~~~~
 
 split method delimiter must be <element> or <list>
   The split() argument must be either one element of the haystack's
@@ -1833,6 +2478,10 @@ split method delimiter must be <element> or <list>
 
   Diagnostic:
     error: split() delimiter must be int or List<int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.split(2.5));
+      |              ^~~~~
 
 Copy errors
 -----------
@@ -1846,6 +2495,10 @@ invalid expression passed to copy
 
   Diagnostic:
     error: expected expression
+     --> example.cppp:2:28
+      |
+    2 | var result = copy(values + );
+      |                            ^
 
 copy cannot infer an empty list type
   An empty literal has no element type for var or copy() to infer. Declare a
@@ -1856,6 +2509,10 @@ copy cannot infer an empty list type
 
   Diagnostic:
     error: copy() cannot infer the type of an empty list; declare the list type first
+     --> example.cppp:1:19
+      |
+    1 | var values = copy([]);
+      |                   ^
 
 Runtime errors
 --------------
@@ -1878,6 +2535,25 @@ classes
     point.shift(1);
     print(point);
 
+context-aware class name suggestion
+  Declaration-like syntax is compared with built-in types and classes or
+  structs declared at that point. Unrelated names are not suggested.
+
+  Example:
+    class Counter {
+        int value;
+    }
+    Counetr counter;
+
+  Diagnostic:
+    error: unsupported statement
+     --> example.cppp:4:1
+      |
+    4 | Counetr counter;
+      | ^~~~~~~
+      |
+      = help: did you mean 'Counter'?
+
 null class field access
   A default-initialized class variable is NULL. Access a field only after
   constructing the class or checking it against NULL.
@@ -1891,6 +2567,10 @@ null class field access
 
   Diagnostic:
     error: runtime error: cannot access a field on null Point
+     --> example.cppp:5:13
+      |
+    5 | print(point.x);
+      |             ^
 
 class constructor field type
   A constructor value must match the declared field type.
@@ -1903,32 +2583,54 @@ class constructor field type
 
   Diagnostic:
     error: cannot use string for field 'x' of Point
+     --> example.cppp:4:21
+      |
+    4 | Point point = Point("bad");
+      |                     ^~~~~
 
 unknown class field
-  A class field must be declared in that class.
+  A class field must be declared in that class. The diagnostic lists available
+  fields and suggests the closest unambiguous field name.
 
   Example:
     class Point {
-        int x;
+        int value;
     }
-    Point point = Point(1);
-    print(point.y);
+    Point p;
+    print(p.vlaue);
 
   Diagnostic:
-    error: class Point has no field 'y'
+    error: class Point has no field 'vlaue'
+     --> example.cppp:5:9
+      |
+    5 | print(p.vlaue);
+      |         ^~~~~ unknown field 'vlaue'
+      |
+      = help: available field: 'value'
+      = help: did you mean 'value'?
 
 unknown class method
-  A class method must be declared in that class.
+  A class method must be declared in that class. Suggestions are restricted to
+  methods declared by the receiver's class.
 
   Example:
     class Point {
         int x;
+        void shift() {
+            x++;
+        }
     }
     Point point = Point(1);
-    point.move();
+    point.shfit();
 
   Diagnostic:
-    error: class Point has no method 'move'
+    error: class Point has no method 'shfit'
+     --> example.cppp:8:7
+      |
+    8 | point.shfit();
+      |       ^~~~~
+      |
+      = help: did you mean 'shift'?
 
 class method argument type
   Method arguments must match the declared parameter types.
@@ -1945,6 +2647,10 @@ class method argument type
 
   Diagnostic:
     error: cannot use string as int for add()
+     --> example.cppp:8:13
+      |
+    8 | counter.add("bad");
+      |             ^~~~~
 
 class field scope
   Class fields are only available through a class value outside a method.
@@ -1957,6 +2663,10 @@ class field scope
 
   Diagnostic:
     error: use of undeclared variable 'x'
+     --> example.cppp:4:7
+      |
+    4 | print(x);
+      |       ^
 
 method local scope
   Variables declared inside a method do not escape that method.
@@ -1973,6 +2683,10 @@ method local scope
 
   Diagnostic:
     error: use of undeclared variable 'local'
+     --> example.cppp:8:7
+      |
+    8 | print(local);
+      |       ^~~~~
 
 null class method call
   Calling a method on a NULL class is a runtime error. Check against NULL or
@@ -1990,6 +2704,10 @@ null class method call
 
   Diagnostic:
     error: runtime error: cannot call increment() on null Counter
+     --> example.cppp:8:9
+      |
+    8 | counter.increment();
+      |         ^~~~~~~~~
 
 recursive struct field
   Inline structs cannot contain their own type. Use a class when a value needs
@@ -2003,6 +2721,10 @@ recursive struct field
 
   Diagnostic:
     error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+     --> example.cppp:3:5
+      |
+    3 |     Node next;
+      |     ^~~~
 
 struct containing a struct
   Inline structs cannot contain another custom struct. Keep the fields inline
@@ -2018,6 +2740,10 @@ struct containing a struct
 
   Diagnostic:
     error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+     --> example.cppp:5:5
+      |
+    5 |     Point corner;
+      |     ^~~~~
 
 struct containing a class
   Inline structs cannot contain a class field because classes use shared
@@ -2033,6 +2759,10 @@ struct containing a class
 
   Diagnostic:
     error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+     --> example.cppp:5:5
+      |
+    5 |     Node node;
+      |     ^~~~
 
 struct containing a list of structs
   A collection inside an inline struct cannot contain custom struct or class
@@ -2048,6 +2778,10 @@ struct containing a list of structs
 
   Diagnostic:
     error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+     --> example.cppp:5:5
+      |
+    5 |     List<Point> points;
+      |     ^~~~
 
 submit helper pruning
   In --submit mode, CP++ emits only the generated runtime types and individual
@@ -2074,6 +2808,10 @@ runtime diagnostic model
 
   Diagnostic:
     error: runtime error: division by zero
+     --> example.cppp:3:12
+      |
+    3 | int x=total/zero;
+      |            ^
 
 division by zero
   In --run mode, integer division by zero is checked and reported as a readable
@@ -2086,6 +2824,10 @@ division by zero
 
   Diagnostic:
     error: runtime error: division by zero
+     --> example.cppp:3:21
+      |
+    3 | int answer=numerator/denominator;
+      |                     ^
 
 modulo by zero
   In --run mode, integer modulo by zero is checked and reported as a readable
@@ -2096,6 +2838,10 @@ modulo by zero
 
   Diagnostic:
     error: runtime error: modulo by zero
+     --> example.cppp:1:11
+      |
+    1 | int x = 4 % 0;
+      |           ^
 
 integer overflow
   In --run mode, integer +, -, *, and the LLONG_MIN / -1 and LLONG_MIN % -1
@@ -2108,6 +2854,10 @@ integer overflow
 
   Diagnostic:
     error: runtime error: integer overflow
+     --> example.cppp:2:7
+      |
+    2 | x = x + 1;
+      |       ^
 
 Whitespace-insensitive parsing
 ------------------------------
@@ -2156,6 +2906,10 @@ empty condition
 
   Diagnostic:
     error: expected condition
+     --> example.cppp:1:4
+      |
+    1 | if()
+      |    ^
 
 Multiple statements per line
 ----------------------------
@@ -2189,6 +2943,10 @@ Set expects 1 subtype like Set<int>
 
   Diagnostic:
     error: Set expects 1 subtype like Set<int>
+     --> example.cppp:1:1
+      |
+    1 | Set values;
+      | ^~~
 
 Set expects 1 subtype
   Set does not accept extra subtype parameters.
@@ -2198,6 +2956,10 @@ Set expects 1 subtype
 
   Diagnostic:
     error: Set expects 1 subtype
+     --> example.cppp:1:8
+      |
+    1 | Set<int, int> values;
+      |        ^
 
 unclosed generic type for Set
   Generic Set syntax must close all angle brackets.
@@ -2207,6 +2969,10 @@ unclosed generic type for Set
 
   Diagnostic:
     error: unclosed generic type for Set
+     --> example.cppp:1:1
+      |
+    1 | Set<List<int> values;
+      | ^~~
 
 cannot add string to Set<int>
   Set.add(value) requires a value compatible with the Set element type.
@@ -2217,6 +2983,10 @@ cannot add string to Set<int>
 
   Diagnostic:
     error: cannot add string to Set<int>
+     --> example.cppp:2:12
+      |
+    2 | values.add("hello");
+      |            ^~~~~~~
 
 cannot remove string from Set<int>
   Set.remove(value) requires a value compatible with the Set element type.
@@ -2227,6 +2997,10 @@ cannot remove string from Set<int>
 
   Diagnostic:
     error: cannot remove string from Set<int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.remove("hello"));
+      |              ^~~~~~
 
 cannot check membership of string in Set<int>
   The left side of `in` must match the Set element type.
@@ -2237,6 +3011,10 @@ cannot check membership of string in Set<int>
 
   Diagnostic:
     error: cannot check membership of string in Set<int>
+     --> example.cppp:2:15
+      |
+    2 | print("hello" in values);
+      |               ^~
 
 Map expects 2 subtypes like Map<int, int>
   Map is a generic collection type with exactly two subtypes: key and value.
@@ -2246,6 +3024,10 @@ Map expects 2 subtypes like Map<int, int>
 
   Diagnostic:
     error: Map expects 2 subtypes like Map<int, int>
+     --> example.cppp:1:1
+      |
+    1 | Map<int> values;
+      | ^~~
 
 Map expects 2 subtypes
   Map does not accept more than two subtype parameters.
@@ -2255,6 +3037,10 @@ Map expects 2 subtypes
 
   Diagnostic:
     error: Map expects 2 subtypes
+     --> example.cppp:1:13
+      |
+    1 | Map<int, int, int> values;
+      |             ^
 
 add() can only be used on List or Set values
   Map values do not support add(...).
@@ -2265,6 +3051,10 @@ add() can only be used on List or Set values
 
   Diagnostic:
     error: add() can only be used on List or Set values
+     --> example.cppp:2:8
+      |
+    2 | values.add(1);
+      |        ^~~
 
 cannot remove string from Map<int, int>
   Map.remove(key) requires a key compatible with the Map key type.
@@ -2275,6 +3065,10 @@ cannot remove string from Map<int, int>
 
   Diagnostic:
     error: cannot remove string from Map<int, int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.remove("hello"));
+      |              ^~~~~~
 
 cannot use key of type string with Map<int, int>
   Map.at(key) requires a key compatible with the Map key type.
@@ -2285,6 +3079,10 @@ cannot use key of type string with Map<int, int>
 
   Diagnostic:
     error: cannot use key of type string with Map<int, int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.at("hello"));
+      |              ^~
 
 map key type must be int
   Bracket indexing on a Map must use the Map key type.
@@ -2295,6 +3093,10 @@ map key type must be int
 
   Diagnostic:
     error: map key type must be int
+     --> example.cppp:2:7
+      |
+    2 | values["hello"] = 3;
+      |       ^
 
 nested map key type must be int
   Nested Map expressions enforce the key type at every indexing step.
@@ -2305,6 +3107,10 @@ nested map key type must be int
 
   Diagnostic:
     error: map key type must be int
+     --> example.cppp:2:13
+      |
+    2 | print(values["hello"][1]);
+      |             ^
 
 Runtime errors
 --------------
@@ -2319,6 +3125,10 @@ set remove missing key
 
   Diagnostic:
     error: runtime error: key not found in set
+     --> example.cppp:2:14
+      |
+    2 | print(values.remove(3));
+      |              ^~~~~~
 
 map remove missing key
   In --run mode, Map.remove(key) reports a readable CP++ runtime error when
@@ -2330,6 +3140,10 @@ map remove missing key
 
   Diagnostic:
     error: runtime error: key not found in map
+     --> example.cppp:2:14
+      |
+    2 | print(values.remove(3));
+      |              ^~~~~~
 
 map at missing key
   In --run mode, Map.at(key) reports a readable CP++ runtime error when the
@@ -2341,6 +3155,10 @@ map at missing key
 
   Diagnostic:
     error: runtime error: key not found in map
+     --> example.cppp:2:14
+      |
+    2 | print(values.at(3));
+      |              ^~
 
 Set, Map, and Pair literals
 ---------------------------
@@ -2353,6 +3171,12 @@ unclosed brace in set or map literal
 
   Diagnostic:
     error: unclosed brace in set or map literal
+     --> example.cppp:1:19
+      |
+    1 | Set<int> values = {1, 2;
+      |                   ^
+      |
+      = help: add `}` to close the delimiter
 
 cannot implicitly convert string to int in set literal
   Set literals report the first element whose type does not match the rest of
@@ -2363,6 +3187,10 @@ cannot implicitly convert string to int in set literal
 
   Diagnostic:
     error: cannot implicitly convert string to int in set literal
+     --> example.cppp:1:23
+      |
+    1 | Set<int> values = {1, "oops"};
+      |                       ^~~~~~
 
 Set values must use a set literal like {1, 2} or another Set expression
   Set literals use braces, not square brackets.
@@ -2372,6 +3200,10 @@ Set values must use a set literal like {1, 2} or another Set expression
 
   Diagnostic:
     error: Set values must use a set literal like {1, 2} or another Set expression
+     --> example.cppp:1:19
+      |
+    1 | Set<int> values = [1, 2];
+      |                   ^
 
 cannot implicitly convert string to int in map literal key
   Map literals report which key fails the declared key type.
@@ -2381,6 +3213,10 @@ cannot implicitly convert string to int in map literal key
 
   Diagnostic:
     error: cannot implicitly convert string to int in map literal key
+     --> example.cppp:1:30
+      |
+    1 | Map<int, int> values = {1:2, "oops":3};
+      |                              ^~~~~~
 
 cannot implicitly convert int to Set<int> in map literal value
   Map literals also report mismatched value types precisely.
@@ -2390,6 +3226,10 @@ cannot implicitly convert int to Set<int> in map literal value
 
   Diagnostic:
     error: cannot implicitly convert int to Set<int> in map literal value
+     --> example.cppp:1:39
+      |
+    1 | Map<int, Set<int>> values = {1:{2}, 3:4};
+      |                                       ^
 
 Map values must use a map literal like {1:'a'} or another Map expression
   Map literals use braces, not square brackets.
@@ -2399,6 +3239,10 @@ Map values must use a map literal like {1:'a'} or another Map expression
 
   Diagnostic:
     error: Map values must use a map literal like {1:'a'} or another Map expression
+     --> example.cppp:1:24
+      |
+    1 | Map<int, int> values = [1, 2];
+      |                        ^
 
 print delim requires a List value
   Maps print organically, but delimiter-based printing is reserved for List and
@@ -2410,6 +3254,10 @@ print delim requires a List value
 
   Diagnostic:
     error: print delim requires a List value
+     --> example.cppp:2:7
+      |
+    2 | print(values, delim = ",");
+      |       ^~~~~~
 
 Pair expects 2 subtypes like Pair<int, int>
   Pair is an aliasing generic container type with exactly two subtypes. Assign
@@ -2420,6 +3268,10 @@ Pair expects 2 subtypes like Pair<int, int>
 
   Diagnostic:
     error: Pair expects 2 subtypes like Pair<int, int>
+     --> example.cppp:1:1
+      |
+    1 | Pair<int> point;
+      | ^~~~
 
 Pair expects 2 subtypes
   Pair does not accept more than two subtype parameters.
@@ -2429,6 +3281,10 @@ Pair expects 2 subtypes
 
   Diagnostic:
     error: Pair expects 2 subtypes
+     --> example.cppp:1:14
+      |
+    1 | Pair<int, int, int> point;
+      |              ^
 
 unclosed generic type for Pair
   Nested Pair syntax must close all angle brackets.
@@ -2438,6 +3294,10 @@ unclosed generic type for Pair
 
   Diagnostic:
     error: unclosed generic type for Pair
+     --> example.cppp:1:1
+      |
+    1 | Pair<int, Pair<int, int> point;
+      | ^~~~
 
 unsupported type Pair<void, int>
   Pair subtypes must themselves be valid CP++ value types.
@@ -2447,6 +3307,10 @@ unsupported type Pair<void, int>
 
   Diagnostic:
     error: unsupported type Pair<void, int>
+     --> example.cppp:1:1
+      |
+    1 | Pair<void, int> point;
+      | ^~~~
 
 cannot implicitly convert string to int
   Pair elements only swap directly when each side can be assigned to the other.
@@ -2457,6 +3321,10 @@ cannot implicitly convert string to int
 
   Diagnostic:
     error: cannot implicitly convert string to int
+     --> example.cppp:2:22
+      |
+    2 | point[0], point[1] = point[1], point[0];
+      |                      ^~~~~
 
 pair index must be 0 or 1
   Pairs only expose two positions: [0] and [1].
@@ -2467,6 +3335,10 @@ pair index must be 0 or 1
 
   Diagnostic:
     error: pair index must be 0 or 1
+     --> example.cppp:2:12
+      |
+    2 | print(point[2]);
+      |            ^
 
 Ordered collection helpers
 --------------------------
@@ -2481,6 +3353,10 @@ cannot use key of type string with Set<int>
 
   Diagnostic:
     error: cannot use key of type string with Set<int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.prev("x"));
+      |              ^~~~
 
 cannot use key of type string with Map<int, int>
   Map.prev(...) and Map.next(...) require a key compatible with the Map key
@@ -2492,6 +3368,10 @@ cannot use key of type string with Map<int, int>
 
   Diagnostic:
     error: cannot use key of type string with Map<int, int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.next("x"));
+      |              ^~~~
 
 unclosed parenthesis in prev
   Ordered helper calls must close their argument list.
@@ -2502,6 +3382,12 @@ unclosed parenthesis in prev
 
   Diagnostic:
     error: unclosed parenthesis in prev
+     --> example.cppp:2:18
+      |
+    2 | print(values.prev(1);
+      |                  ^
+      |
+      = help: add `)` to close the delimiter
 
 cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
   Map membership checks use the declared key type exactly, including nested
@@ -2513,6 +3399,10 @@ cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
 
   Diagnostic:
     error: cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
+     --> example.cppp:2:15
+      |
+    2 | print((1,{1}) in values);
+      |               ^~
 
 cannot take max of empty set
   In --run mode, max(set) reports a readable runtime error when the Set is
@@ -2524,6 +3414,10 @@ cannot take max of empty set
 
   Diagnostic:
     error: runtime error: cannot take max of empty set
+     --> example.cppp:2:7
+      |
+    2 | print(max(values));
+      |       ^~~
 
 no next value in set
   In both --run and --submit mode, Set.next(x) reports a readable CP++
@@ -2535,6 +3429,10 @@ no next value in set
 
   Diagnostic:
     error: runtime error: no next value in set
+     --> example.cppp:2:14
+      |
+    2 | print(values.next(max(values)));
+      |              ^~~~
 
 no previous key in map
   In both --run and --submit mode, Map.prev(x) reports a readable CP++
@@ -2546,6 +3444,10 @@ no previous key in map
 
   Diagnostic:
     error: runtime error: no previous key in map
+     --> example.cppp:2:14
+      |
+    2 | print(values.prev(1));
+      |              ^~~~
 
 hasNext map key type
   Map.hasNext(...) requires a key compatible with the Map key type.
@@ -2556,6 +3458,10 @@ hasNext map key type
 
   Diagnostic:
     error: cannot use key of type string with Map<int, int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.hasNext("x"));
+      |              ^~~~~~~
 
 hasPrev set value type
   Set.hasPrev(...) requires a value compatible with the Set element type.
@@ -2566,6 +3472,10 @@ hasPrev set value type
 
   Diagnostic:
     error: cannot use key of type string with Set<int>
+     --> example.cppp:2:14
+      |
+    2 | print(values.hasPrev("x"));
+      |              ^~~~~~~
 
 hasNext absent map key
   A Map key must exist before hasNext(...) can test whether it has a successor.
@@ -2576,6 +3486,10 @@ hasNext absent map key
 
   Diagnostic:
     error: runtime error: cannot call hasNext() with a key that is not in map
+     --> example.cppp:2:14
+      |
+    2 | print(values.hasNext(3));
+      |              ^~~~~~~
 
 hasPrev absent set value
   A Set value must exist before hasPrev(...) can test whether it has a predecessor.
@@ -2586,6 +3500,10 @@ hasPrev absent set value
 
   Diagnostic:
     error: runtime error: cannot call hasPrev() with a value that is not in set
+     --> example.cppp:2:14
+      |
+    2 | print(values.hasPrev(3));
+      |              ^~~~~~~
 
 Type inference errors
 ---------------------
@@ -2599,6 +3517,10 @@ var declarations require an initializer so the type can be inferred
 
   Diagnostic:
     error: var declarations require an initializer so the type can be inferred
+     --> example.cppp:1:6
+      |
+    1 | var x;
+      |      ^
 
 var cannot be initialized with input(); declare the type explicitly
   Raw `input()` does not carry enough type information for `var`.
@@ -2608,6 +3530,10 @@ var cannot be initialized with input(); declare the type explicitly
 
   Diagnostic:
     error: var cannot be initialized with input(); declare the type explicitly
+     --> example.cppp:1:9
+      |
+    1 | var x = input();
+      |         ^~~~~
 
 var cannot infer a type from an empty container; declare the type explicitly
   Empty containers like `[]` and `{}` need a declared destination type.
@@ -2617,6 +3543,10 @@ var cannot infer a type from an empty container; declare the type explicitly
 
   Diagnostic:
     error: var cannot infer a type from an empty container; declare the type explicitly
+     --> example.cppp:1:14
+      |
+    1 | var values = [];
+      |              ^
 
 var declarations support exactly one variable
   `var` keeps inference local to one variable at a time.
@@ -2626,6 +3556,10 @@ var declarations support exactly one variable
 
   Diagnostic:
     error: var declarations support exactly one variable
+     --> example.cppp:1:6
+      |
+    1 | var a, b = 1, 2;
+      |      ^
 
 var declarations must use '=' with an initializer
   `var` is only valid for initialized declarations.
@@ -2635,6 +3569,10 @@ var declarations must use '=' with an initializer
 
   Diagnostic:
     error: var declarations must use '=' with an initializer
+     --> example.cppp:1:7
+      |
+    1 | var x 3;
+      |       ^
 
 cannot implicitly convert string to int
   Inferred `var` bindings still keep one concrete type after declaration.
@@ -2645,6 +3583,10 @@ cannot implicitly convert string to int
 
   Diagnostic:
     error: cannot implicitly convert string to int
+     --> example.cppp:2:5
+      |
+    2 | x = "hi";
+      |     ^~~~
 
 invalid variables suppress cascaded errors
   Once a declaration has already failed, later uses of that variable do not
@@ -2660,7 +3602,16 @@ invalid variables suppress cascaded errors
 
   Diagnostic:
     error: var cannot be initialized with input(); declare the type explicitly
+     --> example.cppp:1:9
+      |
+    1 | var x = input();
+      |         ^~~~~
+
     error: int requires an integer literal
+     --> example.cppp:6:9
+      |
+    6 | int y = "ass";
+      |         ^~~~~
 Linear data structure errors
 ----------------------------
 
@@ -2671,7 +3622,11 @@ Stack expects 1 subtype
     Stack<> values;
 
   Diagnostic:
-    error: Stack expects 1 subtype
+    error: Stack expects 1 subtype like Stack<int>
+     --> example.cppp:1:1
+      |
+    1 | Stack<> values;
+      | ^~~~~
 
 Queue expects 1 subtype
   Queue does not accept two element types.
@@ -2681,6 +3636,10 @@ Queue expects 1 subtype
 
   Diagnostic:
     error: Queue expects 1 subtype
+     --> example.cppp:1:10
+      |
+    1 | Queue<int, int> values;
+      |          ^
 
 Deque expects 1 subtype
   Deque does not accept seven element types.
@@ -2690,6 +3649,10 @@ Deque expects 1 subtype
 
   Diagnostic:
     error: Deque expects 1 subtype
+     --> example.cppp:1:10
+      |
+    1 | Deque<int, int, int, int, int, int, int> values;
+      |          ^
 
 cannot cast Deque to Set
   Convert a Deque to List first; direct Deque-to-Set conversion is unsupported.
@@ -2700,6 +3663,10 @@ cannot cast Deque to Set
 
   Diagnostic:
     error: cannot cast Deque<int> to Set
+     --> example.cppp:2:19
+      |
+    2 | Set<int> values = Set(deque);
+      |                   ^~~
 
 cannot convert List string to Stack int
   List-to-Stack conversion requires compatible element types.
@@ -2710,6 +3677,10 @@ cannot convert List string to Stack int
 
   Diagnostic:
     error: cannot cast List<string> to Stack<int>
+     --> example.cppp:2:21
+      |
+    2 | Stack<int> values = Stack(words);
+      |                     ^~~~~
 
 cannot convert List string to Queue float
   List-to-Queue conversion requires compatible element types.
@@ -2720,6 +3691,10 @@ cannot convert List string to Queue float
 
   Diagnostic:
     error: cannot cast List<string> to Queue<float>
+     --> example.cppp:2:23
+      |
+    2 | Queue<float> values = Queue(words);
+      |                       ^~~~~
 
 cannot convert List int to Deque List int
   Nested destination element types must match the source elements.
@@ -2730,6 +3705,10 @@ cannot convert List int to Deque List int
 
   Diagnostic:
     error: cannot cast List<int> to Deque<List<int>>
+     --> example.cppp:2:27
+      |
+    2 | Deque<List<int>> values = Deque(source);
+      |                           ^~~~~
 
 cannot convert Stack int to nested List
   Stack-to-List conversion requires compatible element types.
@@ -2740,6 +3719,10 @@ cannot convert Stack int to nested List
 
   Diagnostic:
     error: cannot cast Stack<int> to List<List<int>>
+     --> example.cppp:2:26
+      |
+    2 | List<List<int>> values = List(stack);
+      |                          ^~~~
 
 cannot convert Stack int to List custom struct
   Custom struct element types cannot be inferred from unrelated Stack elements.
@@ -2753,6 +3736,10 @@ cannot convert Stack int to List custom struct
 
   Diagnostic:
     error: cannot cast Stack<int> to List<Point>
+     --> example.cppp:5:22
+      |
+    5 | List<Point> values = List(stack);
+      |                      ^~~~
 
 cannot add string to Stack int
   Stack.add(...) requires a value compatible with its element type.
@@ -2763,6 +3750,10 @@ cannot add string to Stack int
 
   Diagnostic:
     error: cannot add string to Stack<int>
+     --> example.cppp:2:12
+      |
+    2 | values.add("x");
+      |            ^~~
 
 cannot add string to Queue int
   Queue.add(...) requires a value compatible with its element type.
@@ -2773,6 +3764,10 @@ cannot add string to Queue int
 
   Diagnostic:
     error: cannot add string to Queue<int>
+     --> example.cppp:2:12
+      |
+    2 | values.add("x");
+      |            ^~~
 
 cannot addFront string to Deque int
   Deque.addFront(...) requires a value compatible with its element type.
@@ -2783,6 +3778,10 @@ cannot addFront string to Deque int
 
   Diagnostic:
     error: cannot add string to Deque<int>
+     --> example.cppp:2:17
+      |
+    2 | values.addFront("x");
+      |                 ^~~
 
 cannot addBack string to Deque int
   Deque.addBack(...) requires a value compatible with its element type.
@@ -2793,6 +3792,10 @@ cannot addBack string to Deque int
 
   Diagnostic:
     error: cannot add string to Deque<int>
+     --> example.cppp:2:16
+      |
+    2 | values.addBack("x");
+      |                ^~~
 
 Stack top result type
   Stack.top() returns the Stack element type.
@@ -2803,6 +3806,10 @@ Stack top result type
 
   Diagnostic:
     error: cannot implicitly convert int to string
+     --> example.cppp:2:16
+      |
+    2 | string value = values.top();
+      |                ^~~~~~
 
 Queue top result type
   Queue.top() returns the Queue element type.
@@ -2813,6 +3820,10 @@ Queue top result type
 
   Diagnostic:
     error: cannot implicitly convert float to int
+     --> example.cppp:2:13
+      |
+    2 | int value = values.top();
+      |             ^~~~~~
 
 Deque front result type
   Deque.front() returns the Deque element type.
@@ -2823,6 +3834,10 @@ Deque front result type
 
   Diagnostic:
     error: cannot implicitly convert string to int
+     --> example.cppp:2:13
+      |
+    2 | int value = values.front();
+      |             ^~~~~~
 
 Deque back result type
   Deque.back() returns the Deque element type.
@@ -2833,6 +3848,10 @@ Deque back result type
 
   Diagnostic:
     error: cannot implicitly convert float to string
+     --> example.cppp:2:16
+      |
+    2 | string value = values.back();
+      |                ^~~~~~
 
 Stack pop result type
   Stack.pop() returns the Stack element type.
@@ -2843,6 +3862,10 @@ Stack pop result type
 
   Diagnostic:
     error: cannot implicitly convert int to string
+     --> example.cppp:2:16
+      |
+    2 | string value = values.pop();
+      |                ^~~~~~
 
 Queue pop result type
   Queue.pop() returns the Queue element type.
@@ -2853,6 +3876,10 @@ Queue pop result type
 
   Diagnostic:
     error: cannot implicitly convert float to int
+     --> example.cppp:2:13
+      |
+    2 | int value = values.pop();
+      |             ^~~~~~
 
 Deque popFront result type
   Deque.popFront() returns the Deque element type.
@@ -2863,6 +3890,10 @@ Deque popFront result type
 
   Diagnostic:
     error: cannot implicitly convert string to int
+     --> example.cppp:2:13
+      |
+    2 | int value = values.popFront();
+      |             ^~~~~~
 
 Deque popBack result type
   Deque.popBack() returns the Deque element type.
@@ -2873,6 +3904,10 @@ Deque popBack result type
 
   Diagnostic:
     error: cannot implicitly convert float to string
+     --> example.cppp:2:16
+      |
+    2 | string value = values.popBack();
+      |                ^~~~~~
 
 cannot pop empty Stack
   Stack.pop() requires at least one element.
@@ -2883,6 +3918,10 @@ cannot pop empty Stack
 
   Diagnostic:
     error: runtime error: cannot pop empty Stack
+     --> example.cppp:2:14
+      |
+    2 | print(values.pop());
+      |              ^~~
 
 cannot pop empty Queue
   Queue.pop() requires at least one element.
@@ -2893,6 +3932,10 @@ cannot pop empty Queue
 
   Diagnostic:
     error: runtime error: cannot pop empty Queue
+     --> example.cppp:2:14
+      |
+    2 | print(values.pop());
+      |              ^~~
 
 cannot popBack empty Deque
   Deque.popBack() requires at least one element.
@@ -2903,6 +3946,10 @@ cannot popBack empty Deque
 
   Diagnostic:
     error: runtime error: cannot popBack() empty Deque
+     --> example.cppp:2:14
+      |
+    2 | print(values.popBack());
+      |              ^~~~~~~
 
 cannot popFront empty Deque
   Deque.popFront() requires at least one element.
@@ -2913,3 +3960,7 @@ cannot popFront empty Deque
 
   Diagnostic:
     error: runtime error: cannot popFront() empty Deque
+     --> example.cppp:2:14
+      |
+    2 | print(values.popFront());
+      |              ^~~~~~~~

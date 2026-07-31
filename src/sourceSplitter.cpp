@@ -138,6 +138,13 @@ std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, in
     if (!trim(remainder).empty() || fragments.empty()) {
         fragments.push_back({lineNumber, firstCodeColumn(remainder), remainder});
     }
+    for (SourceFragment& fragment : fragments) {
+        fragment.endLineNumber = lineNumber;
+        const size_t lastCode = fragment.text.find_last_not_of(" \t\r\n");
+        fragment.endColumn = static_cast<int>(
+            lastCode == std::string::npos ? fragment.startColumn : lastCode + 1
+        );
+    }
     return fragments;
 }
 
@@ -150,6 +157,30 @@ bool fragmentTerminatesStatement(const std::string& text) {
 
     const char last = trimmed.back();
     return last == ';' || last == '{' || last == '}';
+}
+
+bool hasUnterminatedQuotedLiteral(const std::string& text) {
+    bool inString = false;
+    bool inChar = false;
+    bool escaped = false;
+    for (char ch : text) {
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if ((inString || inChar) && ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (!inChar && ch == '"') {
+            inString = !inString;
+            continue;
+        }
+        if (!inString && ch == '\'') {
+            inChar = !inChar;
+        }
+    }
+    return inString || inChar;
 }
 
 // unmatchedParenthesisDepth implements the unmatchedParenthesisDepth behavior for the sourceSplitter.cpp module.
@@ -214,7 +245,14 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
             text += pendingComment;
         }
 
-        merged.push_back({pending.lineNumber, pending.startColumn, text});
+        SourceFragment mergedFragment{
+            pending.lineNumber,
+            pending.startColumn,
+            text
+        };
+        mergedFragment.endLineNumber = pending.endLineNumber;
+        mergedFragment.endColumn = pending.endColumn;
+        merged.push_back(std::move(mergedFragment));
         pending = {0, 1, ""};
         pendingComment.clear();
     };
@@ -228,7 +266,9 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
         if (trimmedCode.empty()) {
             if (!commentPart.empty()) {
                 if (trim(pending.text).empty()) {
-                    merged.push_back({fragment.lineNumber, fragment.startColumn, commentPart});
+                    SourceFragment commentFragment = fragment;
+                    commentFragment.text = commentPart;
+                    merged.push_back(std::move(commentFragment));
                 } else {
                     pendingComment = commentPart;
                 }
@@ -240,15 +280,20 @@ std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceF
             pending.lineNumber = fragment.lineNumber;
             pending.startColumn = fragment.startColumn;
             pending.text = trimmedCode;
+            pending.endLineNumber = fragment.endLineNumber;
+            pending.endColumn = fragment.endColumn;
         } else {
             pending.text += " " + trimmedCode;
+            pending.endLineNumber = fragment.endLineNumber;
+            pending.endColumn = fragment.endColumn;
         }
 
         if (!commentPart.empty()) {
             pendingComment = commentPart;
         }
 
-        if (fragmentTerminatesStatement(codePart) && unmatchedParenthesisDepth(pending.text) == 0) {
+        if (hasUnterminatedQuotedLiteral(codePart) ||
+            (fragmentTerminatesStatement(codePart) && unmatchedParenthesisDepth(pending.text) == 0)) {
             flushPending();
         }
     }
@@ -263,6 +308,8 @@ std::vector<SourceFragment> attachDetachedOpeningBraces(const std::vector<Source
     for (const SourceFragment& fragment : fragments) {
         if (trim(fragment.text) == "{" && !attached.empty()) {
             attached.back().text += " {";
+            attached.back().endLineNumber = fragment.endLineNumber;
+            attached.back().endColumn = fragment.endColumn;
             continue;
         }
 
@@ -311,7 +358,11 @@ size_t findLineCommentStart(const std::string& text) {
 }
 
 // splitSourceFragments splits the input into smaller logical pieces.
-std::vector<SourceFragment> splitSourceFragments(std::istream& input, std::map<int, std::string>& sourceLines) {
+std::vector<SourceFragment> splitSourceFragments(
+    std::istream& input,
+    std::map<int, std::string>& sourceLines,
+    const std::string& sourceFile
+) {
     std::vector<SourceFragment> sourceFragments;
     std::string rawLine;
     int rawLineNumber = 0;
@@ -323,5 +374,20 @@ std::vector<SourceFragment> splitSourceFragments(std::istream& input, std::map<i
         }
     }
 
-    return attachDetachedOpeningBraces(mergeContinuationFragments(sourceFragments));
+    std::vector<SourceFragment> fragments =
+        attachDetachedOpeningBraces(mergeContinuationFragments(sourceFragments));
+    for (SourceFragment& fragment : fragments) {
+        const int endLine = fragment.endLineNumber == 0
+            ? fragment.lineNumber
+            : fragment.endLineNumber;
+        fragment.sourceSpan = sourceSpanForRange(
+            sourceFile,
+            sourceLines,
+            fragment.lineNumber,
+            fragment.startColumn,
+            endLine,
+            fragment.endColumn
+        );
+    }
+    return fragments;
 }

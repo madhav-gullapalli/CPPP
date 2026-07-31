@@ -150,6 +150,8 @@ void setDeclaredStructMethodsForExpressions(const std::map<std::string, std::map
 const std::map<std::string, Type>* declaredStructFieldsForName(const std::string& name);
 const std::vector<std::string>* declaredStructFieldOrderForName(const std::string& name);
 const FunctionSignature* declaredStructMethodForType(const Type& type, const std::string& name);
+std::vector<std::string> declaredCustomTypeNames();
+std::vector<std::string> declaredStructMethodNamesForType(const Type& type);
 std::unique_ptr<Expr> parseExpressionAst(
     const std::string& inputFile,
     int lineNumber,

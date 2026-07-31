@@ -9,6 +9,7 @@
 #pragma once
 
 #include "controlFlow.h"
+#include "errors.h"
 
 #include <memory>
 #include <string>
@@ -16,6 +17,7 @@
 // Stmt implements the Stmt behavior for the stmtAst.h module.
 struct Stmt {
     int sourceColumn = 0;
+    SourceSpan sourceSpan;
     virtual ~Stmt() = default;
 };
 

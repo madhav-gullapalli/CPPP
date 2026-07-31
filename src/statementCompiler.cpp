@@ -93,12 +93,15 @@ bool isBuiltinCallName(const std::string& name) {
         name == "max" ||
         name == "sum" ||
         name == "abs" ||
-        name == "split";
+        name == "split" ||
+        name == "copy" ||
+        name == "range";
 }
 
 bool isUnsupportedBareCallStatement(
     const std::vector<Token>& tokens,
-    const std::map<std::string, FunctionSignature>& declaredFunctions
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
+    const std::map<std::string, std::map<std::string, Type>>& declaredStructs
 ) {
     if (tokens.size() < 4 ||
         tokens[0].kind != TokenKind::Identifier ||
@@ -108,7 +111,70 @@ bool isUnsupportedBareCallStatement(
         return false;
     }
 
-    return declaredFunctions.count(tokens[0].text) == 0 && !isBuiltinCallName(tokens[0].text);
+    return declaredFunctions.count(tokens[0].text) == 0 &&
+        declaredStructs.count(tokens[0].text) == 0 &&
+        !isBuiltinCallName(tokens[0].text);
+}
+
+bool recordContextualStatementSuggestion(
+    CompileContext& context,
+    const std::vector<Token>& tokens,
+    bool blockHeaderOnly
+) {
+    if (tokens.empty() ||
+        tokens[0].kind != TokenKind::Identifier ||
+        !tokens[0].sourceSpan.valid()) {
+        return false;
+    }
+
+    std::vector<std::string> candidates;
+    if (blockHeaderOnly) {
+        candidates = {"if", "while", "for", "rep", "class", "struct"};
+    } else if (tokens.size() >= 2 && tokens[1].kind == TokenKind::LeftParen) {
+        candidates = {
+            "print", "describe", "input", "len", "min", "max", "sum",
+            "abs", "copy", "range"
+        };
+        for (const auto& function : context.declaredFunctions) {
+            candidates.push_back(function.first);
+        }
+        for (const auto& structure : context.declaredStructs) {
+            candidates.push_back(structure.first);
+        }
+    } else if (tokens.size() >= 2 &&
+               (tokens[1].kind == TokenKind::Identifier ||
+                (tokens[1].kind == TokenKind::Operator &&
+                 tokens[1].text == "<"))) {
+        candidates = {
+            "bool", "char", "int", "float", "string", "List", "Set",
+            "Map", "Pair", "Stack", "Queue", "Deque", "return"
+        };
+        for (const auto& structure : context.declaredStructs) {
+            candidates.push_back(structure.first);
+        }
+    } else {
+        return false;
+    }
+
+    const std::string closest = closestDiagnosticCandidate(
+        tokens[0].text,
+        candidates
+    );
+    if (closest.empty()) {
+        return false;
+    }
+
+    Diagnostic diagnostic;
+    diagnostic.message = "unsupported statement";
+    diagnostic.labels.push_back({tokens[0].sourceSpan, "", true});
+    diagnostic.suggestions.push_back({
+        tokens[0].sourceSpan,
+        closest,
+        "did you mean '" + closest + "'?",
+        SuggestionApplicability::MaybeIncorrect
+    });
+    recordDiagnostic(std::move(diagnostic));
+    return true;
 }
 
 // containsIncrementOrDecrement implements the containsIncrementOrDecrement behavior for the statementCompiler.cpp module.
@@ -187,7 +253,58 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const int statementStartColumn = fragment.startColumn;
-        const StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
+        const SourceSpan statementSpan = sourceSpanForColumns(
+            context.options.inputFile,
+            context.sourceLines,
+            lineNumber,
+            statementStartColumn,
+            statementStartColumn + static_cast<int>(statement.size()) - 1
+        );
+        const std::vector<Token> lexicalTokens = tokenize(statement, statementSpan);
+        bool hasLexicalError = false;
+        for (const Token& token : lexicalTokens) {
+            if ((token.kind != TokenKind::String && token.kind != TokenKind::Char) ||
+                (token.text.size() >= 2 && token.text.front() == token.text.back())) {
+                continue;
+            }
+
+            const bool printString =
+                token.kind == TokenKind::String &&
+                lexicalTokens.size() >= 2 &&
+                lexicalTokens[0].kind == TokenKind::Identifier &&
+                lexicalTokens[0].text == "print";
+            const char quote = token.kind == TokenKind::Char ? '\'' : '"';
+            Diagnostic diagnostic;
+            diagnostic.message = printString
+                ? "unterminated string literal in print"
+                : (token.kind == TokenKind::Char
+                    ? "unterminated char literal"
+                    : "unterminated string literal");
+            diagnostic.labels.push_back({token.sourceSpan, "", true});
+            const SourceSpan insertion = {
+                token.sourceSpan.source,
+                token.sourceSpan.endOffset,
+                token.sourceSpan.endOffset
+            };
+            diagnostic.suggestions.push_back({
+                insertion,
+                std::string(1, quote),
+                std::string("add a closing `") + quote + "`",
+                SuggestionApplicability::MachineApplicable
+            });
+            recordDiagnostic(std::move(diagnostic));
+            hasLexicalError = true;
+            break;
+        }
+        if (hasLexicalError) {
+            context.canAttachElse = false;
+            continue;
+        }
+
+        StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
+        if (parsed.statement) {
+            parsed.statement->sourceSpan = fragment.sourceSpan;
+        }
 
         if (!context.inStruct && context.blockDepth == 0) {
             const std::vector<Token> structTokens = tokenize(statement);
@@ -1166,10 +1283,31 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         context.canAttachElse = false;
 
+        if (!statement.empty() &&
+            statement.back() == '{' &&
+            recordContextualStatementSuggestion(context, lexicalTokens, true)) {
+            continue;
+        }
+
         const bool hasSemicolon = statement.back() == ';';
         if (!hasSemicolon) {
             const int column = static_cast<int>(codeText.find_last_not_of(" \t\r\n")) + 1;
-            recordSourceError(context.options.inputFile, lineNumber, column, "missing semicolon", context.sourceLines);
+            const SourceSpan insertion = sourceInsertionSpan(
+                context.options.inputFile,
+                context.sourceLines,
+                lineNumber,
+                column + 1
+            );
+            Diagnostic diagnostic;
+            diagnostic.message = "missing semicolon";
+            diagnostic.labels.push_back({insertion, "statement ends here", true});
+            diagnostic.suggestions.push_back({
+                insertion,
+                ";",
+                "add `;` to terminate the statement",
+                SuggestionApplicability::MachineApplicable
+            });
+            recordDiagnostic(std::move(diagnostic));
             continue;
         }
 
@@ -1365,7 +1503,14 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        const PrintEmitResult printResult = emitPrintStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
+        const PrintEmitResult printResult = emitPrintStatement(
+            context.options.inputFile,
+            lineNumber,
+            statementBody,
+            statementStartColumn,
+            context.sourceLines,
+            context.declaredVariables
+        );
         if (isNamedCallStatement(statementTokens, "print")) {
             if (!printResult.ok) {
                 continue;
@@ -1379,7 +1524,14 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             continue;
         }
 
-        if (isUnsupportedBareCallStatement(statementTokens, context.declaredFunctions)) {
+        if (recordContextualStatementSuggestion(context, lexicalTokens, false)) {
+            continue;
+        }
+
+        if (isUnsupportedBareCallStatement(
+                statementTokens,
+                context.declaredFunctions,
+                context.declaredStructs)) {
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unsupported statement", context.sourceLines);
             continue;
         }

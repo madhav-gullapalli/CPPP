@@ -138,35 +138,6 @@ std::set<std::string> requiredSubmitContainerMembers(
     return members;
 }
 
-// cppStringLiteral implements the cppStringLiteral behavior for the programEmitter.cpp module.
-std::string cppStringLiteral(const std::string& text) {
-    std::string escaped = "\"";
-    for (char ch : text) {
-        switch (ch) {
-            case '\\':
-                escaped += "\\\\";
-                break;
-            case '"':
-                escaped += "\\\"";
-                break;
-            case '\n':
-                escaped += "\\n";
-                break;
-            case '\r':
-                escaped += "\\r";
-                break;
-            case '\t':
-                escaped += "\\t";
-                break;
-            default:
-                escaped.push_back(ch);
-                break;
-        }
-    }
-    escaped += "\"";
-    return escaped;
-}
-
 void emitGeneratedLines(
     std::ostream& output,
     CompileContext& context,
@@ -247,16 +218,6 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
     for (const std::string& preambleLine : preambleLines) {
         emitLine(preambleLine);
     }
-    if (options.shouldRun) {
-        emitLine("static const vector<string> __cppp_source_lines = {");
-        emitLine("    \"\",");
-        for (const auto& sourceLine : context.sourceLines) {
-            emitLine("    " + cppStringLiteral(sourceLine.second) + ",");
-        }
-        emitLine("};");
-        emitLine("");
-    }
-
     emitGeneratedLines(output, context, context.generatedTopLevelLines);
     if (!context.generatedTopLevelLines.empty()) {
         emitLine("");
@@ -286,11 +247,7 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
         emitLine("        if (__cppp_first != string::npos && __cppp_second != string::npos) {");
         emitLine("            int __cppp_line = stoi(__cppp_message.substr(0, __cppp_first));");
         emitLine("            int __cppp_column = stoi(__cppp_message.substr(__cppp_first + 1, __cppp_second - __cppp_first - 1));");
-        emitLine("            cout << \"" + options.inputFile + ":\" << __cppp_line << ':' << __cppp_column << \": error: runtime error: \" << __cppp_message.substr(__cppp_second + 1) << '\\n';");
-        emitLine("            if (__cppp_line >= 0 && __cppp_line < static_cast<int>(__cppp_source_lines.size())) {");
-        emitLine("                cout << __cppp_source_lines[static_cast<size_t>(__cppp_line)] << '\\n';");
-        emitLine("                cout << string(static_cast<size_t>(max(0, __cppp_column - 1)), ' ') << '^' << '\\n';");
-        emitLine("            }");
+        emitLine("            cout << \"CP++:\" << __cppp_line << ':' << __cppp_column << \": runtime error: \" << __cppp_message.substr(__cppp_second + 1) << '\\n';");
         emitLine("        } else {");
         emitLine("            cout << \"CP++ runtime error: \" << __cppp_message << '\\n';");
         emitLine("        }");

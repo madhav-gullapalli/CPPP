@@ -38,6 +38,17 @@ struct SourceFragment {
     int lineNumber = 0;
     int startColumn = 1;
     std::string text;
+    int endLineNumber = 0;
+    int endColumn = 1;
+    SourceSpan sourceSpan;
+
+    SourceFragment() = default;
+    SourceFragment(int lineNumber, int startColumn, std::string text) :
+        lineNumber(lineNumber),
+        startColumn(startColumn),
+        text(std::move(text)),
+        endLineNumber(lineNumber),
+        endColumn(startColumn) {}
 };
 
 // One emitted C++ line plus the CP++ source metadata needed for diagnostics.

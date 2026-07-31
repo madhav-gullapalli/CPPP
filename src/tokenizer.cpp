@@ -8,12 +8,14 @@
 
 #include "tokenizer.h"
 
+#include <algorithm>
 #include <cctype>
 
 namespace {
 // Scanner implements the Scanner behavior for the tokenizer.cpp module.
 struct Scanner {
     const std::string& source;
+    SourceSpan sourceSpan;
     size_t index = 0;
     int line = 1;
     int column = 1;
@@ -58,12 +60,39 @@ bool isIdentifierPart(char ch) {
 }
 
 // makeToken creates the requested object or intermediate value.
-Token makeToken(TokenKind kind, const std::string& text, int startLine, int startColumn, int endLine, int endColumn) {
-    return {kind, text, {startLine, startColumn, endLine, endColumn}};
+Token makeToken(
+    const Scanner& scanner,
+    TokenKind kind,
+    const std::string& text,
+    int startLine,
+    int startColumn,
+    int endLine,
+    int endColumn,
+    size_t startOffset,
+    size_t endOffset
+) {
+    SourceSpan canonicalSpan;
+    if (scanner.sourceSpan.valid()) {
+        canonicalSpan = {
+            scanner.sourceSpan.source,
+            scanner.sourceSpan.startOffset + startOffset,
+            std::min(
+                scanner.sourceSpan.startOffset + endOffset,
+                scanner.sourceSpan.endOffset
+            )
+        };
+    }
+    return {
+        kind,
+        text,
+        {startLine, startColumn, endLine, endColumn},
+        canonicalSpan
+    };
 }
 
 // scanIdentifier implements the scanIdentifier behavior for the tokenizer.cpp module.
 Token scanIdentifier(Scanner& scanner) {
+    const size_t startOffset = scanner.index;
     const int startLine = scanner.line;
     const int startColumn = scanner.column;
     std::string text;
@@ -72,11 +101,22 @@ Token scanIdentifier(Scanner& scanner) {
         text += scanner.advance();
     }
 
-    return makeToken(TokenKind::Identifier, text, startLine, startColumn, scanner.line, scanner.column - 1);
+    return makeToken(
+        scanner,
+        TokenKind::Identifier,
+        text,
+        startLine,
+        startColumn,
+        scanner.line,
+        scanner.column - 1,
+        startOffset,
+        scanner.index
+    );
 }
 
 // scanNumber implements the scanNumber behavior for the tokenizer.cpp module.
 Token scanNumber(Scanner& scanner) {
+    const size_t startOffset = scanner.index;
     const int startLine = scanner.line;
     const int startColumn = scanner.column;
     std::string text;
@@ -106,11 +146,22 @@ Token scanNumber(Scanner& scanner) {
         }
     }
 
-    return makeToken(isFloat ? TokenKind::Float : TokenKind::Integer, text, startLine, startColumn, scanner.line, scanner.column - 1);
+    return makeToken(
+        scanner,
+        isFloat ? TokenKind::Float : TokenKind::Integer,
+        text,
+        startLine,
+        startColumn,
+        scanner.line,
+        scanner.column - 1,
+        startOffset,
+        scanner.index
+    );
 }
 
 // scanQuoted implements the scanQuoted behavior for the tokenizer.cpp module.
 Token scanQuoted(Scanner& scanner, TokenKind kind) {
+    const size_t startOffset = scanner.index;
     const int startLine = scanner.line;
     const int startColumn = scanner.column;
     const char quote = scanner.advance();
@@ -133,13 +184,27 @@ Token scanQuoted(Scanner& scanner, TokenKind kind) {
         }
     }
 
-    return makeToken(kind, text, startLine, startColumn, scanner.line, scanner.column - 1);
+    return makeToken(
+        scanner,
+        kind,
+        text,
+        startLine,
+        startColumn,
+        scanner.line,
+        scanner.column - 1,
+        startOffset,
+        scanner.index
+    );
 }
 }
 
 // tokenize tokenizes the input source into the stream consumed by later passes.
 std::vector<Token> tokenize(const std::string& source) {
-    Scanner scanner{source};
+    return tokenize(source, {});
+}
+
+std::vector<Token> tokenize(const std::string& source, SourceSpan sourceSpan) {
+    Scanner scanner{source, sourceSpan};
     std::vector<Token> tokens;
 
     while (!scanner.atEnd()) {
@@ -152,6 +217,7 @@ std::vector<Token> tokenize(const std::string& source) {
 
         const int startLine = scanner.line;
         const int startColumn = scanner.column;
+        const size_t startOffset = scanner.index;
 
         if (isIdentifierStart(ch)) {
             tokens.push_back(scanIdentifier(scanner));
@@ -183,7 +249,17 @@ std::vector<Token> tokenize(const std::string& source) {
             text += scanner.advance();
             text += scanner.advance();
             text += scanner.advance();
-            tokens.push_back(makeToken(TokenKind::Operator, text, startLine, startColumn, scanner.line, scanner.column - 1));
+            tokens.push_back(makeToken(
+                scanner,
+                TokenKind::Operator,
+                text,
+                startLine,
+                startColumn,
+                scanner.line,
+                scanner.column - 1,
+                startOffset,
+                scanner.index
+            ));
             continue;
         }
 
@@ -201,7 +277,17 @@ std::vector<Token> tokenize(const std::string& source) {
             std::string text;
             text += scanner.advance();
             text += scanner.advance();
-            tokens.push_back(makeToken(TokenKind::Operator, text, startLine, startColumn, scanner.line, scanner.column - 1));
+            tokens.push_back(makeToken(
+                scanner,
+                TokenKind::Operator,
+                text,
+                startLine,
+                startColumn,
+                scanner.line,
+                scanner.column - 1,
+                startOffset,
+                scanner.index
+            ));
             continue;
         }
 
@@ -249,10 +335,30 @@ std::vector<Token> tokenize(const std::string& source) {
                 break;
         }
 
-        tokens.push_back(makeToken(kind, std::string(1, consumed), startLine, startColumn, scanner.line, scanner.column - 1));
+        tokens.push_back(makeToken(
+            scanner,
+            kind,
+            std::string(1, consumed),
+            startLine,
+            startColumn,
+            scanner.line,
+            scanner.column - 1,
+            startOffset,
+            scanner.index
+        ));
     }
 
-    tokens.push_back(makeToken(TokenKind::EndOfFile, "", scanner.line, scanner.column, scanner.line, scanner.column));
+    tokens.push_back(makeToken(
+        scanner,
+        TokenKind::EndOfFile,
+        "",
+        scanner.line,
+        scanner.column,
+        scanner.line,
+        scanner.column,
+        scanner.index,
+        scanner.index
+    ));
     return tokens;
 }
 

@@ -22,4 +22,8 @@ size_t findLineCommentStart(const std::string& text);
 
 // Splits the raw source file into logical statement fragments and records the
 // original line text for later source-mapped diagnostics.
-std::vector<SourceFragment> splitSourceFragments(std::istream& input, std::map<int, std::string>& sourceLines);
+std::vector<SourceFragment> splitSourceFragments(
+    std::istream& input,
+    std::map<int, std::string>& sourceLines,
+    const std::string& sourceFile
+);
