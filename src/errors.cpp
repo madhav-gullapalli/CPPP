@@ -758,7 +758,10 @@ std::string closestDiagnosticCandidate(
     std::string best;
     bool tied = false;
     for (const std::string& candidate : candidates) {
-        if (candidate.empty() || candidate == input) {
+        if (candidate == input) {
+            return "";
+        }
+        if (candidate.empty()) {
             continue;
         }
         const size_t distance = levenshteinDistance(input, candidate);
