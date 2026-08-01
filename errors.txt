@@ -4074,3 +4074,93 @@ cannot popFront empty Deque
       |
     2 | print(values.popFront());
       |              ^~~~~~~~
+
+List size initializer needs a size
+  List size initialization requires at least one integer size.
+
+  Example:
+    List<int> values();
+
+  Diagnostic:
+    error: List size initializer requires at least one size
+     --> example.cppp:1:17
+      |
+    1 | List<int> values();
+      |                 ^~
+      |
+      = help: provide an int size, such as `(5)`, or remove the parentheses for an empty List
+
+List size initializer cannot exceed nesting depth
+  A sized declaration can only provide dimensions represented by List or string.
+
+  Example:
+    List<int> values(1, 2);
+
+  Diagnostic:
+    error: List size initializer has more sizes than its List/string depth
+     --> example.cppp:1:21
+      |
+    1 | List<int> values(1, 2);
+      |                     ^
+      |
+      = help: nested sizes can only descend through another List or string element type
+
+List Set size initializer cannot size Set elements
+  A List of Sets may size its outer List, but not the Set elements.
+
+  Example:
+    List<Set<int>> values(1, 3);
+
+  Diagnostic:
+    error: List size initializer has more sizes than its List/string depth
+     --> example.cppp:1:26
+      |
+    1 | List<Set<int>> values(1, 3);
+      |                          ^
+      |
+      = help: nested sizes can only descend through another List or string element type
+
+Queue does not support List size initialization
+  Only List and string declarations accept parenthesized sizes.
+
+  Example:
+    Queue<int> values(5);
+
+  Diagnostic:
+    error: size initialization is only supported for List and string declarations
+     --> example.cppp:1:18
+      |
+    1 | Queue<int> values(5);
+      |                  ^~~
+      |
+      = help: declare this container empty, then add its values explicitly
+
+List size initializer requires int sizes
+  Every List size must be an int expression.
+
+  Example:
+    List<int> values(1.3);
+
+  Diagnostic:
+    error: List size initializer requires int sizes, got float
+     --> example.cppp:1:18
+      |
+    1 | List<int> values(1.3);
+      |                  ^~~
+      |
+      = help: use an int expression for every List dimension
+
+List size initializer parenthesis mismatch
+  Extra tokens after a List size initializer are rejected.
+
+  Example:
+    List<List<int>> values(2, 3));
+
+  Diagnostic:
+    error: unexpected token after List size initializer
+     --> example.cppp:1:29
+      |
+    1 | List<List<int>> values(2, 3));
+      |                             ^
+      |
+      = help: end the declaration after the closing ')'

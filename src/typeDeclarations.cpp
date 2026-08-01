@@ -935,6 +935,192 @@ void rememberInvalidVariables(
         rememberInvalidVariable(declaredVariables, variable.name);
     }
 }
+
+void recordListSizeDiagnostic(
+    const std::string& inputFile,
+    int lineNumber,
+    int startColumn,
+    int endColumn,
+    const std::string& message,
+    const std::string& help,
+    const std::map<int, std::string>& sourceLines
+) {
+    Diagnostic diagnostic;
+    diagnostic.message = message;
+    diagnostic.labels.push_back({
+        sourceSpanForColumns(inputFile, sourceLines, lineNumber, startColumn, std::max(startColumn, endColumn)),
+        "",
+        true
+    });
+    if (!help.empty()) diagnostic.helps.push_back(help);
+    recordDiagnostic(std::move(diagnostic));
+}
+
+int listSizeInitializerDepth(Type type) {
+    int depth = 0;
+    while (isListType(type) && !type.subtypes.empty()) {
+        ++depth;
+        type = type.subtypes[0];
+    }
+    return depth;
+}
+
+struct ListSizeInitializerResult {
+    bool ok = false;
+    size_t nextTokenIndex = 0;
+    std::string generatedExpression;
+};
+
+ListSizeInitializerResult parseListSizeInitializer(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& statementBody,
+    int statementStartColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>& tokens,
+    size_t openParenIndex,
+    const Type& targetType,
+    const TypeInfo& typeInfo
+) {
+    const auto sourceColumn = [statementStartColumn](int tokenColumn) {
+        return statementStartColumn + tokenColumn - 1;
+    };
+    size_t closeParenIndex = tokens.size();
+    int depth = 0;
+    for (size_t index = openParenIndex; index < tokens.size(); ++index) {
+        if (tokens[index].kind == TokenKind::LeftParen) {
+            ++depth;
+        } else if (tokens[index].kind == TokenKind::RightParen && --depth == 0) {
+            closeParenIndex = index;
+            break;
+        } else if (tokens[index].kind == TokenKind::EndOfFile) {
+            break;
+        }
+    }
+
+    if (closeParenIndex == tokens.size()) {
+        const int endColumn = tokens[openParenIndex].span.endColumn;
+        recordListSizeDiagnostic(
+            inputFile,
+            lineNumber,
+            sourceColumn(tokens[openParenIndex].span.startColumn),
+            sourceColumn(endColumn),
+            "unclosed parenthesis in List size initializer",
+            "add `)` after the final size",
+            sourceLines
+        );
+        return {};
+    }
+
+    if (!isListType(targetType)) {
+        recordListSizeDiagnostic(
+            inputFile,
+            lineNumber,
+            sourceColumn(tokens[openParenIndex].span.startColumn),
+            sourceColumn(tokens[closeParenIndex].span.endColumn),
+            "size initialization is only supported for List and string declarations",
+            "declare this container empty, then add its values explicitly",
+            sourceLines
+        );
+        return {};
+    }
+
+    if (closeParenIndex == openParenIndex + 1) {
+        recordListSizeDiagnostic(
+            inputFile,
+            lineNumber,
+            sourceColumn(tokens[openParenIndex].span.startColumn),
+            sourceColumn(tokens[closeParenIndex].span.endColumn),
+            "List size initializer requires at least one size",
+            "provide an int size, such as `(5)`, or remove the parentheses for an empty List",
+            sourceLines
+        );
+        return {};
+    }
+
+    std::vector<std::pair<size_t, size_t>> arguments;
+    size_t argumentStart = openParenIndex + 1;
+    int nestedDepth = 0;
+    for (size_t index = argumentStart; index < closeParenIndex; ++index) {
+        if (tokens[index].kind == TokenKind::LeftParen) ++nestedDepth;
+        else if (tokens[index].kind == TokenKind::RightParen) --nestedDepth;
+        else if (tokens[index].kind == TokenKind::Comma && nestedDepth == 0) {
+            arguments.push_back({argumentStart, index});
+            argumentStart = index + 1;
+        }
+    }
+    arguments.push_back({argumentStart, closeParenIndex});
+
+    for (const auto& argument : arguments) {
+        if (argument.first == argument.second) {
+            const int column = sourceColumn(tokens[argument.first == closeParenIndex ? closeParenIndex : argument.first].span.startColumn);
+            recordListSizeDiagnostic(
+                inputFile,
+                lineNumber,
+                column,
+                column,
+                "expected an int size in List size initializer",
+                "remove the extra comma or provide the missing size",
+                sourceLines
+            );
+            return {};
+        }
+    }
+
+    const int supportedDepth = listSizeInitializerDepth(targetType);
+    if (static_cast<int>(arguments.size()) > supportedDepth) {
+        const auto& extra = arguments[static_cast<size_t>(supportedDepth)];
+        recordListSizeDiagnostic(
+            inputFile,
+            lineNumber,
+            sourceColumn(tokens[extra.first].span.startColumn),
+            sourceColumn(tokens[extra.second - 1].span.endColumn),
+            "List size initializer has more sizes than its List/string depth",
+            "nested sizes can only descend through another List or string element type",
+            sourceLines
+        );
+        return {};
+    }
+
+    std::vector<std::string> generatedSizes;
+    for (const auto& argument : arguments) {
+        const std::string expressionText = expressionSliceForTokens(statementBody, tokens, argument.first, argument.second);
+        const int expressionColumn = sourceColumn(tokens[argument.first].span.startColumn);
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            expressionText,
+            expressionColumn,
+            sourceLines,
+            declaredVariables
+        );
+        if (!expression.ok) return {};
+        if (expression.type != PrimitiveType::Int) {
+            recordListSizeDiagnostic(
+                inputFile,
+                lineNumber,
+                expressionColumn,
+                sourceColumn(tokens[argument.second - 1].span.endColumn),
+                "List size initializer requires int sizes, got " + cpppTypeName(expression.type),
+                "use an int expression for every List dimension",
+                sourceLines
+            );
+            return {};
+        }
+        generatedSizes.push_back(expression.generatedExpression);
+    }
+
+    // Construction requirements are inferred from the emitted expression.
+
+    std::string generated = typeInfo.cppType + "(";
+    for (size_t index = 0; index < generatedSizes.size(); ++index) {
+        if (index > 0) generated += ", ";
+        generated += generatedSizes[index];
+    }
+    generated += ")";
+    return {true, closeParenIndex + 1, generated};
+}
 }
 
 TypeEmitResult emitTypeDeclaration(
@@ -1177,6 +1363,7 @@ TypeEmitResult emitTypeDeclaration(
     }
 
     std::vector<DeclaredName> variables;
+    std::string sizedInitializer;
     size_t tokenIndex = parsedType.nextTokenIndex;
     while (true) {
         if (tokens[tokenIndex].kind != TokenKind::Identifier) {
@@ -1229,6 +1416,54 @@ TypeEmitResult emitTypeDeclaration(
 
         variables.push_back({variableName, variableColumn});
         ++tokenIndex;
+
+        if (tokens[tokenIndex].kind == TokenKind::LeftParen) {
+            if (variables.size() != 1) {
+                recordListSizeDiagnostic(
+                    inputFile,
+                    lineNumber,
+                    sourceColumn(tokens[tokenIndex].span.startColumn),
+                    sourceColumn(tokens[tokenIndex].span.endColumn),
+                    "a List size initializer can declare only one variable",
+                    "split sized List declarations into separate statements",
+                    sourceLines
+                );
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            const ListSizeInitializerResult initializer = parseListSizeInitializer(
+                inputFile,
+                lineNumber,
+                statementBody,
+                statementStartColumn,
+                sourceLines,
+                declaredVariables,
+                tokens,
+                tokenIndex,
+                targetType,
+                typeInfo
+            );
+            if (!initializer.ok) {
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            sizedInitializer = initializer.generatedExpression;
+            tokenIndex = initializer.nextTokenIndex;
+            if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+                recordListSizeDiagnostic(
+                    inputFile,
+                    lineNumber,
+                    sourceColumn(tokens[tokenIndex].span.startColumn),
+                    sourceColumn(tokens[tokenIndex].span.endColumn),
+                    "unexpected token after List size initializer",
+                    "end the declaration after the closing `)`",
+                    sourceLines
+                );
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            break;
+        }
 
         if (tokens[tokenIndex].kind != TokenKind::Comma) {
             break;
@@ -1288,7 +1523,7 @@ TypeEmitResult emitTypeDeclaration(
         return {true, false, "", {}};
     }
 
-    std::string emittedValue = typeInfo.defaultValue;
+    std::string emittedValue = sizedInitializer.empty() ? typeInfo.defaultValue : sizedInitializer;
     std::vector<std::string> perVariableValues;
     if (!assignedValue.empty()) {
         emittedValue = assignedValue;

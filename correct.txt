@@ -3549,3 +3549,82 @@ two sum with Map
 
   Output:
     [1, 2]
+
+Sized List initialization
+-------------------------
+
+int List size initializer output
+  A List size initializer creates zero-filled primitive elements.
+
+  Example:
+    List<int> list(5);
+    print(len(list), list[0], list[4]);
+
+  Output:
+    5 0 0
+
+Map List size initializer output
+  A List size initializer default-constructs Map elements independently.
+
+  Example:
+    List<Map<int, int>> list(5);
+    list[0][1] = 7;
+    print(len(list), len(list[0]), len(list[1]));
+
+  Output:
+    5 1 0
+
+string size initializer output
+  A string size initializer creates that many default characters.
+
+  Example:
+    string s(5);
+    print(len(s));
+
+  Output:
+    5
+
+custom class List size initializer output
+  Class elements default to NULL when a List is sized.
+
+  Example:
+    class Node {
+        int value;
+    }
+    List<Node> list(2);
+    print(list);
+
+  Output:
+    [NULL, NULL]
+
+partial nested List size initializer output
+  Supplying only the outer size creates distinct empty inner Lists.
+
+  Example:
+    List<List<int>> grid(4);
+    grid[0].add(7);
+    print(len(grid), len(grid[0]), len(grid[1]));
+
+  Output:
+    4 1 0
+
+nested List size initializer output
+  One size per nested List dimension fills every primitive element.
+
+  Example:
+    List<List<int>> grid(4, 5);
+    grid[0][0] = 9;
+    print(len(grid), len(grid[0]), grid[0][0], grid[1][0]);
+
+  Output:
+    4 5 9 0
+
+List string size initializer output
+  Sized List<string> declarations create independently sized strings.
+
+  Example:
+    List<string> list(1, 3);
+    print(len(list), len(list[0]));
+
+  Output:
+    1 3

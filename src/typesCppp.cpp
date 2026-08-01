@@ -66,6 +66,7 @@ std::string containerMemberForLine(const std::string& line) {
     if (line.find("CPPPPair(const A&") != std::string::npos) return "ctor_values";
     if (line.find("CPPPPair(const pair") != std::string::npos) return "ctor_std";
     if (line.find("CPPPList(initializer_list") != std::string::npos) return "ctor_init";
+    if (line.find("CPPPList(size_type count") != std::string::npos) return "ctor_size";
     if (line.find("CPPPList(const vector<U>") != std::string::npos) return "ctor_convert";
     if (line.find("CPPPList(const vector") != std::string::npos || line.find("CPPPList(vector") != std::string::npos) return "ctor_vector";
     if (line.find("CPPPList(It first") != std::string::npos) return "ctor_iterator";
@@ -208,10 +209,11 @@ std::vector<std::string> containerSupport(
         "    using reverse_iterator = typename vector<T>::reverse_iterator; using const_reverse_iterator = typename vector<T>::const_reverse_iterator;",
         "    CPPPList() : values(cppp_smart_pointer<vector<T>>::make()) {}",
         "    CPPPList(initializer_list<T> init) : values(cppp_smart_pointer<vector<T>>::make(init)) {}",
+        "    template <typename... Sizes> CPPPList(size_type count, Sizes... sizes) : values(cppp_smart_pointer<vector<T>>::make()) { values->reserve(count); for (size_type i = 0; i < count; ++i) values->emplace_back(sizes...); }",
         "    CPPPList(const vector<T>& init) : values(cppp_smart_pointer<vector<T>>::make(init)) {}",
         "    CPPPList(vector<T>&& init) : values(cppp_smart_pointer<vector<T>>::make(std::move(init))) {}",
         "    template <typename U> CPPPList(const vector<U>& init) : values(cppp_smart_pointer<vector<T>>::make()) { values->reserve(init.size()); for (const auto& item : init) values->emplace_back(item); }",
-        "    template <typename It> CPPPList(It first, It last) : values(cppp_smart_pointer<vector<T>>::make(first, last)) {}",
+        "    template <typename It, typename = enable_if_t<!is_integral<It>::value>> CPPPList(It first, It last) : values(cppp_smart_pointer<vector<T>>::make(first, last)) {}",
         "    iterator begin() { return values->begin(); }",
         "    const_iterator begin() const { return values->begin(); }",
         "    iterator end() { return values->end(); }",

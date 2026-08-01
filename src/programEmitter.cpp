@@ -141,6 +141,17 @@ std::set<std::string> requiredSubmitContainerMembers(
                     members.insert(type + ".ctor_values");
                 }
             }
+            if (line.text.find(" = CPPPList<") != std::string::npos &&
+                line.text.find(">(") != std::string::npos) {
+                // Sized declarations call CPPPList's variadic constructor. Its
+                // elements are constructed in place, so retain the default
+                // constructors for any directly nested container type too.
+                members.insert("CPPPList.ctor_size");
+                members.insert("CPPPList.ctor_default");
+                if (line.text.find("CPPPMap<") != std::string::npos) members.insert("CPPPMap.ctor_default");
+                if (line.text.find("CPPPSet<") != std::string::npos) members.insert("CPPPSet.ctor_default");
+                if (line.text.find("CPPPPair<") != std::string::npos) members.insert("CPPPPair.ctor_default");
+            }
         }
     };
     inspect(context.generatedTopLevelLines);

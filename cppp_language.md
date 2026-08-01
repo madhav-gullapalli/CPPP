@@ -108,6 +108,13 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: `List` expects exactly one subtype. Nested forms like `List<List<int>>` are supported.
 - Complexity: O(1) for the type itself; operations vary
 
+### Sized `List` and `string` declarations
+
+- Syntax: `List<int> values(5);`, `List<List<int>> grid(4, 5);`, `string text(5);`
+- What it does: Creates a list or string with the given dimensions. Primitive elements use their normal defaults, class elements are `NULL`, and collection elements are independently default-constructed.
+- Notes: Each supplied size corresponds to one nested `List` or `string` dimension. A partial declaration such as `List<List<int>> grid(4);` creates four distinct empty inner lists. Other containers, including `Set`, `Map`, `Stack`, `Queue`, and `Deque`, cannot receive parenthesized sizes.
+- Complexity: O(product of supplied dimensions)
+
 ### Nested list types
 
 - Syntax: `List<List<int>> grid = [[1, 2], [3]];`
