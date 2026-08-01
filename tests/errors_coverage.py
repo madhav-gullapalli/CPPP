@@ -1,4 +1,6 @@
 import os
+import difflib
+import json
 import re
 import shutil
 import subprocess
@@ -10,6 +12,7 @@ from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 COMPILER = ROOT / "build" / ("cppp.exe" if os.name == "nt" else "cppp")
+ERROR_SNAPSHOTS = ROOT / "tests" / "errors_full_output.json"
 MAKE_CMD = os.environ.get("MAKE_CMD")
 if not MAKE_CMD:
     if os.name == "nt" and shutil.which("mingw32-make"):
@@ -289,6 +292,42 @@ def filtered_output(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def normalized_error_output(text: str) -> str:
+    normalized: List[str] = []
+    for line in filtered_output(text).splitlines():
+        if re.match(r"^.*\.cppp:\d+:\d+: error:", line):
+            line = re.sub(r"^.*\.cppp(?=:\d+:\d+: error:)", "<source>", line)
+        elif re.match(r"^\s*(?:-->|:::)\s+.*\.cppp:\d+:\d+$", line):
+            line = re.sub(
+                r"^(\s*(?:-->|:::)\s+).+\.cppp(?=:\d+:\d+$)",
+                r"\1<source>",
+                line,
+            )
+        normalized.append(line.rstrip())
+    return "\n".join(normalized).strip()
+
+
+def expect_full_error_output(
+    actual_text: str,
+    expected_text: str,
+    label: str,
+) -> None:
+    actual = normalized_error_output(actual_text)
+    expected = expected_text.strip()
+    if actual == expected:
+        return
+    difference = "\n".join(
+        difflib.unified_diff(
+            expected.splitlines(),
+            actual.splitlines(),
+            fromfile="expected",
+            tofile="actual",
+            lineterm="",
+        )
+    )
+    raise AssertionError(f"{label}: full diagnostic output differed\n{difference}")
+
+
 def expect_contains(haystack: str, needle: str, label: str) -> None:
     if needle not in haystack:
         raise AssertionError(f"{label}: expected to find {needle!r}\nActual output:\n{haystack}")
@@ -302,16 +341,18 @@ def print_progress(current: int, total: int, label: str) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) > 4:
-        raise SystemExit("usage: errors_coverage.py [doc-path|start-line] [start-line] [--subrun-only]")
-
     doc_arg: Optional[str] = None
     start_line: Optional[int] = None
     subrun_only = False
+    update_snapshots = False
     args = sys.argv[1:]
-    if args and args[-1] == "--subrun-only":
-        subrun_only = True
-        args = args[:-1]
+    for flag in ("--subrun-only", "--update-snapshots"):
+        if flag in args:
+            if flag == "--subrun-only":
+                subrun_only = True
+            else:
+                update_snapshots = True
+            args.remove(flag)
 
     if len(args) == 1:
         if args[0].isdigit():
@@ -324,13 +365,24 @@ def main() -> int:
             raise SystemExit("start-line must be an integer")
         start_line = int(args[1])
     elif len(args) > 2:
-        raise SystemExit("usage: errors_coverage.py [doc-path|start-line] [start-line] [--subrun-only]")
+        raise SystemExit(
+            "usage: errors_coverage.py [doc-path|start-line] [start-line] "
+            "[--subrun-only] [--update-snapshots]"
+        )
 
     doc_path = ROOT / (doc_arg or "errors.txt")
     if not doc_path.exists():
         raise SystemExit(f"Documentation file not found: {doc_path}")
 
     rules = SECTION_RULES.get(doc_path.name, {})
+    error_snapshots: Dict[str, str] = {}
+    if doc_path.name == "errors.txt":
+        if not ERROR_SNAPSHOTS.exists() and not update_snapshots:
+            raise SystemExit(f"Full error snapshot file not found: {ERROR_SNAPSHOTS}")
+        if ERROR_SNAPSHOTS.exists():
+            error_snapshots = json.loads(ERROR_SNAPSHOTS.read_text(encoding="utf-8"))
+    if update_snapshots and (doc_path.name != "errors.txt" or start_line is not None):
+        raise SystemExit("--update-snapshots requires a complete errors.txt run")
     tmp_dir = ROOT / "tests" / "tmp" / f"{doc_path.stem}_catalog_{os.getpid()}"
     case_dir = tmp_dir / "cases"
     log_dir = tmp_dir / "logs"
@@ -342,6 +394,22 @@ def main() -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     cases = parse_cases(doc_path)
+    if doc_path.name == "errors.txt" and start_line is None and not update_snapshots:
+        failing_case_keys = {
+            case.key
+            for case in cases
+            if choose_mode(case, rules) in {"compile_fail", "run_runtime_error"}
+        }
+        snapshot_keys = set(error_snapshots)
+        missing_snapshots = sorted(failing_case_keys - snapshot_keys)
+        extra_snapshots = sorted(snapshot_keys - failing_case_keys)
+        if missing_snapshots or extra_snapshots:
+            details: List[str] = []
+            if missing_snapshots:
+                details.append(f"missing: {', '.join(missing_snapshots)}")
+            if extra_snapshots:
+                details.append(f"unused: {', '.join(extra_snapshots)}")
+            raise SystemExit(f"Full error snapshots do not match errors.txt ({'; '.join(details)})")
     if start_line is not None:
         cases = [case for case in cases if case.title_line >= start_line]
         mode_label = " subrun-only" if subrun_only else ""
@@ -350,6 +418,7 @@ def main() -> int:
         mode_label = " subrun-only" if subrun_only else ""
         print(f"Running {doc_path.name}{mode_label} coverage for {len(cases)} documented examples...")
     failures: List[str] = []
+    updated_snapshots: Dict[str, str] = {}
     total_cases = len(cases)
 
     for index, case in enumerate(cases, start=1):
@@ -471,13 +540,33 @@ def main() -> int:
                 code = run_command(args, log)
                 if code == 0:
                     raise AssertionError(f"{case.title}: expected compile failure")
-                expect_contains(log.read_text(encoding="utf-8"), case.diagnostic or "", case.title)
+                actual_output = log.read_text(encoding="utf-8")
+                if update_snapshots:
+                    updated_snapshots[case.key] = normalized_error_output(actual_output)
+                else:
+                    if case.key not in error_snapshots:
+                        raise AssertionError(f"{case.title}: missing full diagnostic snapshot for key {case.key!r}")
+                    expect_full_error_output(
+                        actual_output,
+                        error_snapshots[case.key],
+                        case.title,
+                    )
             elif mode == "run_runtime_error":
                 args.append("--run")
                 code = run_command(args, log)
                 if code == 0:
                     raise AssertionError(f"{case.title}: expected runtime failure")
-                expect_contains(log.read_text(encoding="utf-8"), case.diagnostic or "", case.title)
+                actual_output = log.read_text(encoding="utf-8")
+                if update_snapshots:
+                    updated_snapshots[case.key] = normalized_error_output(actual_output)
+                else:
+                    if case.key not in error_snapshots:
+                        raise AssertionError(f"{case.title}: missing full diagnostic snapshot for key {case.key!r}")
+                    expect_full_error_output(
+                        actual_output,
+                        error_snapshots[case.key],
+                        case.title,
+                    )
             else:
                 raise AssertionError(f"Unknown mode {mode} for {case.title}")
         except AssertionError as error:
@@ -490,6 +579,13 @@ def main() -> int:
             print()
             print(f"[{index}] {failure}")
         return 1
+
+    if update_snapshots:
+        ERROR_SNAPSHOTS.write_text(
+            json.dumps(updated_snapshots, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Updated {len(updated_snapshots)} full error snapshots.")
 
     print(f"{doc_path.name} documented examples are covered.")
     return 0
