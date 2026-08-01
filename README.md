@@ -78,6 +78,7 @@ build/cppp --cppp in.cppp
 build/cppp --cppp in.cppp --compile
 build/cppp --cppp in.cppp --run
 build/cppp --cppp in.cppp --submit
+build/cppp --cppp in.cppp --submit --readable
 ```
 
 Windows equivalents:
@@ -87,9 +88,10 @@ Windows equivalents:
 .\build\cppp.exe --cppp in.cppp --compile
 .\build\cppp.exe --cppp in.cppp --run
 .\build\cppp.exe --cppp in.cppp --submit
+.\build\cppp.exe --cppp in.cppp --submit --readable
 ```
 
-`--run` keeps extra runtime checks and CP++-style runtime diagnostics. `--submit` trims helpers more aggressively and emits code meant to look closer to ordinary contest C++.
+`--run` keeps extra runtime checks and CP++-style runtime diagnostics. `--submit` prunes unused support and whitespace-minifies the generated contest C++. Add `--readable` after `--submit` to inspect the same pruned program without compaction. The Make equivalents are `make submit INPUT=in.cppp READABLE=1` and `make subrun INPUT=in.cppp READABLE=1`.
 
 ## A Small Example
 

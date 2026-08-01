@@ -1085,7 +1085,7 @@ private:
                     report(expr.sourceColumn, signature.name + " expected parameters of " + expected + " type got " + got);
                     return false;
                 }
-                if (!signature.parameters[i].deepCopy &&
+                if (!signature.parameters[i].copyParameter &&
                     (isStringType(parameterType) || isCollectionType(parameterType))) {
                     if (!expr.arguments[i]->mutableValue) {
                         report(expr.sourceColumn, signature.name + " requires collection and string arguments to be mutable variables");
@@ -1428,6 +1428,10 @@ private:
         const std::string left = generate(*expr.left);
         const std::string right = generate(*expr.right);
         const std::string elementType = cppTypeForExpressionType(expr.inferredType.subtypes[0]);
+        requireContainerMember(expr.inferredType, "begin");
+        requireContainerMember(expr.inferredType, "end");
+        requireContainerMember(expr.inferredType, "insert_range");
+        requireContainerMember(expr.inferredType, "ctor_iterator");
         return "([&]() { const auto& __cppp_left_source = " + left + "; CPPPList<" + elementType + "> __cppp_left(__cppp_left_source.begin(), __cppp_left_source.end()); auto __cppp_right = " + right +
             "; __cppp_left.insert(__cppp_left.end(), __cppp_right.begin(), __cppp_right.end()); return __cppp_left; }())";
     }
@@ -1474,7 +1478,11 @@ private:
 
         if ((isCollectionType(expr.left->inferredType) || isPairType(expr.left->inferredType)) &&
             (expr.op == "==" || expr.op == "!=" || expr.op == "<" || expr.op == ">" || expr.op == "<=" || expr.op == ">=")) {
-            requireRuntimeHelper("CPPPContainerCompare");
+            const std::map<std::string, std::string> comparisonMembers = {
+                {"==", "compare_eq"}, {"!=", "compare_ne"}, {"<", "compare_lt"},
+                {">", "compare_gt"}, {"<=", "compare_le"}, {">=", "compare_ge"}
+            };
+            requireContainerMember(expr.left->inferredType, comparisonMembers.at(expr.op));
         }
 
         if (expr.op == "in") {
@@ -1486,6 +1494,8 @@ private:
                 return "((" + right + ").contains(" + needle + "))";
             }
             if (isListType(expr.right->inferredType) && isListType(expr.left->inferredType)) {
+                requireContainerMember(expr.right->inferredType, "begin_const");
+                requireContainerMember(expr.right->inferredType, "end_const");
                 const Type elementType = expr.right->inferredType.subtypes[0];
                 if (expr.left->inferredType == elementType) {
                     return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + left + ") != __cppp_list.end(); }())";
@@ -1502,12 +1512,18 @@ private:
                 needle = castExpressionTo(needle, expr.left->inferredType, elementType);
             }
             if (isListType(expr.right->inferredType)) {
+                requireContainerMember(expr.right->inferredType, "begin_const");
+                requireContainerMember(expr.right->inferredType, "end_const");
                 return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + needle + ") != __cppp_list.end(); }())";
             }
             if (isSetType(expr.right->inferredType)) {
+                requireContainerMember(expr.right->inferredType, "find_const");
+                requireContainerMember(expr.right->inferredType, "end_const");
                 return "([&]() { const auto& __cppp_set = " + right + "; return __cppp_set.find(" + needle + ") != __cppp_set.end(); }())";
             }
 
+            requireContainerMember(expr.right->inferredType, "find_const");
+            requireContainerMember(expr.right->inferredType, "end_const");
             return "([&]() { const auto& __cppp_map = " + right + "; return __cppp_map.find(" + needle + ") != __cppp_map.end(); }())";
         }
 
@@ -1557,7 +1573,7 @@ private:
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
                 if (i > 0) call += ", ";
                 std::string argument = generate(*expr.arguments[i]);
-                if (method != nullptr && method->parameters[i].deepCopy) {
+                if (method != nullptr && method->parameters[i].copyParameter) {
                     requireCopyHelpersForType(method->parameters[i].type);
                     argument = "CPPPCopy(" + argument + ")";
                 }
@@ -1587,6 +1603,7 @@ private:
         }
 
         if (expr.callee == "len") {
+            requireContainerMember(expr.arguments[0]->inferredType, "size");
             return "static_cast<long long>((" + generate(*expr.arguments[0]) + ").size())";
         }
 
@@ -1604,6 +1621,7 @@ private:
                 if (method == "pop") method = "pop_value";
                 if (method == "popFront") method = "pop_front_value";
                 if (method == "popBack") method = "pop_back_value";
+                requireContainerMember(receiverType, method);
                 return "(" + receiver + ")." + method + "(" + std::to_string(lineNumber) + ", " +
                     std::to_string(expr.sourceColumn) + ")";
             }
@@ -1613,6 +1631,7 @@ private:
                 if (expr.arguments[0]->inferredType != elementType) {
                     value = castExpressionTo(value, expr.arguments[0]->inferredType, elementType);
                 }
+                requireContainerMember(receiverType, expr.callee == "addFront" ? "push_front" : "push_back");
                 return "(" + receiver + ")." +
                     (expr.callee == "addFront" ? "push_front" : "push_back") +
                     "(" + value + ")";
@@ -1626,6 +1645,8 @@ private:
                     requireRuntimeHelper("CPPPListPop");
                     return "CPPPListPop(" + receiver + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                 }
+                requireContainerMember(expr.receiver->inferredType, "back");
+                requireContainerMember(expr.receiver->inferredType, "pop_back");
                 return "([&]() { auto __cppp_removed = (" + receiver + ").back(); (" + receiver + ").pop_back(); return __cppp_removed; }())";
             }
 
@@ -1638,6 +1659,9 @@ private:
                     requireRuntimeHelper("CPPPListRemoveAt");
                     return "CPPPListRemoveAt(" + receiver + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                 }
+                requireContainerMember(expr.receiver->inferredType, "index_mut");
+                requireContainerMember(expr.receiver->inferredType, "erase_one");
+                requireContainerMember(expr.receiver->inferredType, "begin_mut");
                 return "([&]() { auto __cppp_removed = (" + receiver + ")[" + index + "]; (" + receiver + ").erase((" + receiver + ").begin() + " + index + "); return __cppp_removed; }())";
             }
 
@@ -1665,6 +1689,7 @@ private:
                 requireRuntimeHelper("CPPPMapAt");
                 return "CPPPMapAt(" + receiver + ", " + key + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
             }
+            requireContainerMember(expr.receiver->inferredType, "at_const");
             return "(" + receiver + ").at(" + key + ")";
         }
 
@@ -1780,6 +1805,7 @@ private:
                         requireRuntimeHelper("CPPPSetMin");
                         return "CPPPSetMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                     }
+                    requireContainerMember(expr.arguments[0]->inferredType, "begin_mut");
                     return "(*(" + list + ").begin())";
                 }
                 if (isMapType(expr.arguments[0]->inferredType)) {
@@ -1787,8 +1813,11 @@ private:
                         requireRuntimeHelper("CPPPMapMin");
                         return "CPPPMapMin(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                     }
+                    requireContainerMember(expr.arguments[0]->inferredType, "begin_mut");
                     return "((" + list + ").begin()->first)";
                 }
+                requireContainerMember(expr.arguments[0]->inferredType, "begin_mut");
+                requireContainerMember(expr.arguments[0]->inferredType, "end_mut");
                 return "([&]() { auto __cppp_list = " + list + "; return *min_element(__cppp_list.begin(), __cppp_list.end()); }())";
             } else {
                 std::string retLine = "min(";
@@ -1815,6 +1844,7 @@ private:
                         requireRuntimeHelper("CPPPSetMax");
                         return "CPPPSetMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                     }
+                    requireContainerMember(expr.arguments[0]->inferredType, "rbegin_mut");
                     return "(*(" + list + ").rbegin())";
                 }
                 if (isMapType(expr.arguments[0]->inferredType)) {
@@ -1822,8 +1852,11 @@ private:
                         requireRuntimeHelper("CPPPMapMax");
                         return "CPPPMapMax(" + list + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
                     }
+                    requireContainerMember(expr.arguments[0]->inferredType, "rbegin_mut");
                     return "((" + list + ").rbegin()->first)";
                 }
+                requireContainerMember(expr.arguments[0]->inferredType, "begin_mut");
+                requireContainerMember(expr.arguments[0]->inferredType, "end_mut");
                 return "([&]() { auto __cppp_list = " + list + "; return *max_element(__cppp_list.begin(), __cppp_list.end()); }())";
             } else {
                 std::string retLine = "max(";
@@ -1845,6 +1878,8 @@ private:
             const std::string list = generate(*expr.arguments[0]);
             const Type elementType = expr.arguments[0]->inferredType.subtypes[0];
             const std::string initial = elementType == PrimitiveType::Float ? "0.0L" : "0LL";
+            requireContainerMember(expr.arguments[0]->inferredType, "begin_mut");
+            requireContainerMember(expr.arguments[0]->inferredType, "end_mut");
             return "([&]() { auto __cppp_list = " + list + "; return accumulate(__cppp_list.begin(), __cppp_list.end(), " + initial + "); }())";
         }
 
@@ -1860,7 +1895,7 @@ private:
                 if (expr.arguments[i]->inferredType != parameterType) {
                     argument = castExpressionTo(argument, expr.arguments[i]->inferredType, parameterType);
                 }
-                if (function->second.parameters[i].deepCopy) {
+                if (function->second.parameters[i].copyParameter) {
                     requireCopyHelpersForType(function->second.parameters[i].type);
                     argument = "CPPPCopy(" + argument + ")";
                 }
@@ -1878,6 +1913,8 @@ private:
         const std::string base = generate(*expr.base);
         std::string index = generate(*expr.index);
         if (isListType(expr.base->inferredType)) {
+            requireContainerMember(expr.base->inferredType, "index_const");
+            requireContainerMember(expr.base->inferredType, "size");
             if (emitRuntimeChecks) {
                 requireRuntimeHelper("CPPPListAt");
                 return "CPPPListAt(" + base + ", " + index + ", " + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
@@ -1886,9 +1923,11 @@ private:
         }
         if (isPairType(expr.base->inferredType)) {
             const auto* literal = dynamic_cast<const LiteralExpr*>(expr.index.get());
+            requireContainerMember(expr.base->inferredType, literal != nullptr && literal->text == "0" ? "first_const" : "second_const");
             return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
         }
         const Type keyType = expr.base->inferredType.subtypes[0];
+        requireContainerMember(expr.base->inferredType, "index_mut");
         if (!isImplicitlyConvertible(expr.index->inferredType, keyType) || expr.index->inferredType != keyType) {
             index = castExpressionTo(index, expr.index->inferredType, keyType);
         }
@@ -1904,6 +1943,8 @@ private:
             const std::string base = generateMutableAccess(*index->base);
             std::string generatedIndex = generate(*index->index);
             if (isListType(index->base->inferredType)) {
+                requireContainerMember(index->base->inferredType, "index_mut");
+                requireContainerMember(index->base->inferredType, "size");
                 if (index->index->inferredType != PrimitiveType::Int) {
                     generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
                 }
@@ -1915,9 +1956,11 @@ private:
             }
             if (isPairType(index->base->inferredType)) {
                 const auto* literal = dynamic_cast<const LiteralExpr*>(index->index.get());
+                requireContainerMember(index->base->inferredType, literal != nullptr && literal->text == "0" ? "first_mut" : "second_mut");
                 return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
             }
             const Type keyType = index->base->inferredType.subtypes[0];
+            requireContainerMember(index->base->inferredType, "index_mut");
             if (!isImplicitlyConvertible(index->index->inferredType, keyType) || index->index->inferredType != keyType) {
                 generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, keyType);
             }
@@ -1925,7 +1968,9 @@ private:
         }
         if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
             const std::string base = generate(*field->base);
-            return "((" + base + ")->" + field->field + ")";
+            return "((" + base + ")" +
+                (isClassType(field->base->inferredType) ? "->" : ".") +
+                field->field + ")";
         }
         return generate(expr);
     }
@@ -1939,11 +1984,17 @@ private:
             requireRuntimeHelper("CPPPListSlice");
             return "CPPPListSlice(" + base + ", " + start + ", " + end + ")";
         }
+        requireContainerMember(expr.base->inferredType, "size");
+        requireContainerMember(expr.base->inferredType, "begin_const");
+        requireContainerMember(expr.base->inferredType, "end_const");
+        requireContainerMember(expr.inferredType, "ctor_default");
+        requireContainerMember(expr.inferredType, "ctor_iterator");
         return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
     }
 
 // generateListLiteral implements the generateListLiteral behavior for the expressionParser.cpp module.
     std::string generateListLiteral(const ListLiteralExpr& expr) const {
+        requireContainerMember(expr.inferredType, expr.elements.empty() ? "ctor_default" : "ctor_init");
         const Type elementType = expr.inferredType.subtypes[0];
         std::string generated = "CPPPList<" + cppTypeForExpressionType(elementType) + ">{";
         for (size_t i = 0; i < expr.elements.size(); ++i) {
@@ -1961,6 +2012,7 @@ private:
     }
 
     std::string generateSetLiteral(const SetLiteralExpr& expr) const {
+        requireContainerMember(expr.inferredType, expr.elements.empty() ? "ctor_default" : "ctor_init");
         const Type elementType = expr.inferredType.subtypes[0];
         std::string generated = "CPPPSet<" + cppTypeForExpressionType(elementType) + ">{";
         for (size_t i = 0; i < expr.elements.size(); ++i) {
@@ -1978,6 +2030,7 @@ private:
     }
 
     std::string generateMapLiteral(const MapLiteralExpr& expr) const {
+        requireContainerMember(expr.inferredType, expr.entries.empty() ? "ctor_default" : "ctor_init");
         const Type keyType = expr.inferredType.subtypes[0];
         const Type valueType = expr.inferredType.subtypes[1];
         std::string generated = "CPPPMap<" + cppTypeForExpressionType(keyType) + ", " + cppTypeForExpressionType(valueType) + ">{";
@@ -2000,6 +2053,7 @@ private:
     }
 
     std::string generatePairLiteral(const PairLiteralExpr& expr) const {
+        requireContainerMember(expr.inferredType, "ctor_values");
         return "CPPPPair<" + cppTypeForExpressionType(expr.first->inferredType) + ", " + cppTypeForExpressionType(expr.second->inferredType) + ">(" + generate(*expr.first) + ", " + generate(*expr.second) + ")";
     }
 
@@ -2030,6 +2084,8 @@ std::string generateMutableAccessExpression(
         ExpressionCodegen codegen(lineNumber, emitRuntimeChecks, declaredFunctions);
         std::string generatedIndex = codegen.generate(*index->index);
         if (isListType(index->base->inferredType)) {
+            requireContainerMember(index->base->inferredType, "index_mut");
+            requireContainerMember(index->base->inferredType, "size");
             if (index->index->inferredType != PrimitiveType::Int) {
                 generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, PrimitiveType::Int);
             }
@@ -2041,9 +2097,11 @@ std::string generateMutableAccessExpression(
         }
         if (isPairType(index->base->inferredType)) {
             const auto* literal = dynamic_cast<const LiteralExpr*>(index->index.get());
+            requireContainerMember(index->base->inferredType, literal != nullptr && literal->text == "0" ? "first_mut" : "second_mut");
             return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
         }
         const Type keyType = index->base->inferredType.subtypes[0];
+        requireContainerMember(index->base->inferredType, "index_mut");
         if (!isImplicitlyConvertible(index->index->inferredType, keyType) || index->index->inferredType != keyType) {
             generatedIndex = castExpressionTo(generatedIndex, index->index->inferredType, keyType);
         }

@@ -147,20 +147,29 @@ void pruneSubmitLoopHelpers(CompileContext& context) {
 // Keep the driver flow linear on purpose:
 // raw file -> SourceFragment list -> generated line buffers -> emitted C++.
 int runCompilerDriver(int argc, char* argv[]) {
-    if ((argc != 3 && argc != 4) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run|--submit]\n";
+    if ((argc < 3 || argc > 5) || std::string(argv[1]) != "--cppp") {
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run|--submit [--readable]]\n";
         return 1;
     }
     clearRecordedSourceErrors();
     clearRequiredRuntimeHelpers();
 
-    const bool hasAction = argc == 4;
+    const bool hasAction = argc >= 4;
     const std::string action = hasAction ? std::string(argv[3]) : "";
     const bool shouldCompile = action == "--compile" || action == "--run" || action == "--submit";
     const bool shouldRun = action == "--run";
     const bool shouldSubmit = action == "--submit";
     if (hasAction && !shouldCompile) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
+        return 1;
+    }
+    const bool readableSubmit = argc == 5 && std::string(argv[4]) == "--readable";
+    if (argc == 5 && !readableSubmit) {
+        std::cerr << "Error: unknown option " << argv[4] << '\n';
+        return 1;
+    }
+    if (argc == 5 && !shouldSubmit) {
+        std::cerr << "Error: --readable can only be used with --submit\n";
         return 1;
     }
     setExpressionRuntimeChecksEnabled(shouldRun);
@@ -180,6 +189,7 @@ int runCompilerDriver(int argc, char* argv[]) {
     options.shouldCompile = shouldCompile;
     options.shouldRun = shouldRun;
     options.shouldSubmit = shouldSubmit;
+    options.readableSubmit = readableSubmit;
 
     std::ifstream input(options.inputFile, std::ios::binary);
     if (!input) {

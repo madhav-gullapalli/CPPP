@@ -1811,21 +1811,41 @@ invalid function return type
     2 |     return "hi";
       |            ^~~~
 
-deep must precede a collection
-  The `deep` modifier is only valid before a container parameter type such as
-  `List<int>` or `string`.
+copy must precede a collection, string, or class parameter type
+  The `copy` modifier is only valid before a collection, string, or class
+  parameter type. Primitive parameters are already passed by value.
 
   Example:
-    void f(deep int x){
+    void f(copy int x){
         print(x);
     }
 
   Diagnostic:
-    error: deep must precede a collection
+    error: copy must precede a collection, string, or class parameter type
      --> example.cppp:1:8
       |
-    1 | void f(deep int x){
+    1 | void f(copy int x){
       |        ^~~~
+      |
+      = help: remove `copy` to pass int normally
+
+deep parameter modifier has been replaced by copy
+  `deep` is no longer a parameter modifier. Use `copy` before a collection,
+  string, or class parameter when the function needs an independent value.
+
+  Example:
+    void f(deep List<int> values){
+        print(values);
+    }
+
+  Diagnostic:
+    error: deep parameter modifier has been replaced by copy
+     --> example.cppp:1:8
+      |
+    1 | void f(deep List<int> values){
+      |        ^~~~
+      |
+      = help: replace `deep` with `copy`
 
 Operator support
 ----------------
@@ -2376,14 +2396,16 @@ input() can only be used as the entire value in an assignment or declaration
   comes from the assignment or declaration target.
 
   Example:
-    int x = input() + 3;
+    void read() {
+        int x = input() + 3;
+    }
 
   Diagnostic:
     error: input() can only be used as the entire value in an assignment or declaration
-     --> example.cppp:1:9
+     --> example.cppp:2:13
       |
-    1 | int x = input() + 3;
-      |         ^~~~~
+    2 |     int x = input() + 3;
+      |             ^~~~~
 
 list input
   List targets can read directly from input by giving one size per List
@@ -2834,12 +2856,35 @@ submit helper pruning
   helper functions that the translated program actually references. A string
   literal, for example, keeps the CP++ char type and string printer but omits
   unrelated char input, output, and increment/decrement helpers. Class methods
-  are pruned individually, so using one method does not retain its siblings.
-  Entire unused classes and unreachable top-level functions are omitted too.
+  and overloads are pruned individually, so using List.size() or `==` does not
+  retain unrelated methods or the other comparison operators. Requirements in
+  unreachable functions are ignored. Entire unused classes and unreachable
+  top-level functions are omitted too. The remaining submit output is
+  whitespace-minified: comments and formatting whitespace are removed, while
+  literal contents and separators required by the C++ lexer are preserved.
+  Pass `--readable` after `--submit` to keep the same pruning but skip only the
+  final whitespace-compaction pass.
 
   Example:
-    int x = input();
-    print(x);
+    List<int> values = [1, 2];
+    values.add(3);
+    print(len(values));
+
+  Invalid CP++ is rejected before pruning, so an unused method is not a way to
+  hide a source error.
+
+  Error example:
+    void unusedBadCode() {
+        List<int> values = [1, 2];
+        values.add("three");
+    }
+
+  Diagnostic:
+    error: cannot add string to List<int>
+     --> example.cppp:3:16
+      |
+    3 |         values.add("three");
+      |                ^~~
 
 runtime diagnostic model
   CP++ has two runtime-oriented compilation targets. --run emits checked C++

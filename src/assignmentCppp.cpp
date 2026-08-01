@@ -9,6 +9,7 @@
 #include "assignmentCppp.h"
 
 #include "expressions.h"
+#include "functions.h"
 #include "tokenizer.h"
 #include "typesCppp.h"
 
@@ -131,6 +132,7 @@ AssignmentEmitResult emitAssignmentStatement(
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
     bool emitRuntimeChecks
 ) {
     const std::vector<Token> tokens = tokenize(statementBody);
@@ -173,6 +175,7 @@ AssignmentEmitResult emitAssignmentStatement(
             target.column,
             sourceLines,
             declaredVariables,
+            declaredFunctions,
             emitRuntimeChecks
         );
         if (!emittedTarget.ok) {
@@ -263,7 +266,8 @@ AssignmentEmitResult emitAssignmentStatement(
                 expressions[i],
                 expressionColumns[i],
                 sourceLines,
-                declaredVariables
+                declaredVariables,
+                declaredFunctions
             );
             if (!expression.ok) {
                 return {true, false, "", {}};
@@ -353,7 +357,8 @@ AssignmentEmitResult emitAssignmentStatement(
         combinedExpressionText,
         combinedExpressionColumn,
         sourceLines,
-        declaredVariables
+        declaredVariables,
+        declaredFunctions
     );
     if (!expression.ok) {
         return {true, false, "", {}};

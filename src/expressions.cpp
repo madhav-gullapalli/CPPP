@@ -458,6 +458,7 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                 case PrimitiveType::Deque:
                 case PrimitiveType::Set:
                 case PrimitiveType::Map:
+                    requireContainerMember(from, "empty");
                     return "(!(" + expression + ").empty())";
                 case PrimitiveType::Pair:
                     return expression;
@@ -559,6 +560,9 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
             return expression;
         case PrimitiveType::Pair:
             if (isPairType(from)) {
+                requireContainerMember(from, "first_const");
+                requireContainerMember(from, "second_const");
+                requireContainerMember(to, "ctor_values");
                 return "CPPPPair<" + cppTypeForType(to.subtypes[0]) + ", " + cppTypeForType(to.subtypes[1]) + ">(" +
                     castExpressionTo("(" + expression + ").first()", from.subtypes[0], to.subtypes[0]) + ", " +
                     castExpressionTo("(" + expression + ").second()", from.subtypes[1], to.subtypes[1]) + ")";

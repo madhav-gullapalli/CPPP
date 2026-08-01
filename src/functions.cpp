@@ -10,27 +10,49 @@
 
 #include "typesCppp.h"
 
+#include <utility>
+
 namespace {
 // isReferenceParameterType returns whether the supplied input satisfies the relevant condition.
 bool isReferenceParameterType(const Type& type) {
     return isStringType(type) || isCollectionType(type) || isClassType(type);
 }
 
-// isDeepEligibleType returns whether the supplied input satisfies the relevant condition.
-bool isDeepEligibleType(const Type& type) {
+// isCopyParameterEligibleType returns whether the supplied input satisfies the relevant condition.
+bool isCopyParameterEligibleType(const Type& type) {
     return isReferenceParameterType(type);
 }
 
 // cppParameterType implements the cppParameterType behavior for the functions.cpp module.
-std::string cppParameterType(const Type& type, bool deepCopy) {
+std::string cppParameterType(const Type& type, bool copyParameter) {
     const std::string cppType = cppTypeForType(type);
     if (cppType.empty()) {
         return "";
     }
-    if (!deepCopy && isReferenceParameterType(type)) {
+    if (!copyParameter && isReferenceParameterType(type)) {
         return cppType + "&";
     }
     return cppType;
+}
+
+void recordCopyParameterDiagnostic(
+    const std::string& inputFile,
+    int lineNumber,
+    int startColumn,
+    int endColumn,
+    const std::string& message,
+    const std::string& help,
+    const std::map<int, std::string>& sourceLines
+) {
+    Diagnostic diagnostic;
+    diagnostic.message = message;
+    diagnostic.labels.push_back({
+        sourceSpanForColumns(inputFile, sourceLines, lineNumber, startColumn, endColumn),
+        "",
+        true
+    });
+    diagnostic.helps.push_back(help);
+    recordDiagnostic(std::move(diagnostic));
 }
 }
 
@@ -108,12 +130,36 @@ ParsedFunctionHeader parseFunctionHeader(
     ++tokenIndex;
 
     while (tokenIndex < tokens.size() && tokens[tokenIndex].kind != TokenKind::RightParen) {
-        bool deepCopy = false;
+        bool copyParameter = false;
         if (tokens[tokenIndex].kind == TokenKind::Identifier && tokens[tokenIndex].text == "deep") {
-            deepCopy = true;
+            const int startColumn = statementColumn + tokens[tokenIndex].span.startColumn - 1;
+            const int endColumn = statementColumn + tokens[tokenIndex].span.endColumn - 1;
+            recordCopyParameterDiagnostic(
+                inputFile,
+                lineNumber,
+                startColumn,
+                endColumn,
+                "deep parameter modifier has been replaced by copy",
+                "replace `deep` with `copy`",
+                sourceLines
+            );
+            result.ok = false;
+            return result;
+        }
+        if (tokens[tokenIndex].kind == TokenKind::Identifier && tokens[tokenIndex].text == "copy") {
+            copyParameter = true;
             ++tokenIndex;
-            if (tokenIndex >= tokens.size()) {
-                recordSourceError(inputFile, lineNumber, statementColumn + tokens[tokenIndex - 1].span.startColumn - 1, "deep must precede a collection", sourceLines);
+            if (tokenIndex >= tokens.size() || tokens[tokenIndex].kind == TokenKind::EndOfFile) {
+                const int column = statementColumn + tokens[tokenIndex - 1].span.startColumn - 1;
+                recordCopyParameterDiagnostic(
+                    inputFile,
+                    lineNumber,
+                    column,
+                    column + 3,
+                    "copy must precede a collection, string, or class parameter type",
+                    "use `copy List<int> values` for an independent List parameter",
+                    sourceLines
+                );
                 result.ok = false;
                 return result;
             }
@@ -129,8 +175,18 @@ ParsedFunctionHeader parseFunctionHeader(
             result.ok = false;
             return result;
         }
-        if (deepCopy && !isDeepEligibleType(parameterType.type)) {
-            recordSourceError(inputFile, lineNumber, statementColumn + tokens[tokenIndex - 1].span.startColumn - 1, "deep must precede a collection", sourceLines);
+        if (copyParameter && !isCopyParameterEligibleType(parameterType.type)) {
+            const int startColumn = statementColumn + tokens[tokenIndex - 1].span.startColumn - 1;
+            const int endColumn = statementColumn + tokens[tokenIndex - 1].span.endColumn - 1;
+            recordCopyParameterDiagnostic(
+                inputFile,
+                lineNumber,
+                startColumn,
+                endColumn,
+                "copy must precede a collection, string, or class parameter type",
+                "remove `copy` to pass " + cpppTypeName(parameterType.type) + " normally",
+                sourceLines
+            );
             result.ok = false;
             return result;
         }
@@ -144,7 +200,7 @@ ParsedFunctionHeader parseFunctionHeader(
         result.signature.parameters.push_back({
             tokens[tokenIndex].text,
             parameterType.type,
-            deepCopy,
+            copyParameter,
             statementColumn + tokens[tokenIndex].span.startColumn - 1
         });
         ++tokenIndex;
@@ -188,7 +244,7 @@ ParsedFunctionHeader parseFunctionHeader(
         if (i > 0) {
             result.generatedSignature += ", ";
         }
-        const std::string parameterCppType = cppParameterType(result.signature.parameters[i].type, result.signature.parameters[i].deepCopy);
+        const std::string parameterCppType = cppParameterType(result.signature.parameters[i].type, result.signature.parameters[i].copyParameter);
         if (parameterCppType.empty()) {
             recordSourceError(inputFile, lineNumber, result.signature.parameters[i].column, "unsupported parameter type " + cpppTypeName(result.signature.parameters[i].type), sourceLines);
             result.ok = false;

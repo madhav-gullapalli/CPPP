@@ -986,6 +986,8 @@ ListEmitResult emitListStatement(
         const std::string generatedStatement = isSort
             ? "    sort((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end());"
             : "    reverse((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end());";
+        requireContainerMember(receiver.type, "begin_mut");
+        requireContainerMember(receiver.type, "end_mut");
 
         return {
             true,
@@ -1092,6 +1094,7 @@ ListEmitResult emitListStatement(
             } else {
                 operation = "insert";
             }
+            requireContainerMember(receiver.type, operation == "insert" ? "insert_one" : operation);
             return {
                 true,
                 true,
@@ -1140,6 +1143,9 @@ ListEmitResult emitListStatement(
 
         if (emitRuntimeChecks) {
             requireRuntimeHelper("CPPPListInsert");
+        } else {
+            requireContainerMember(receiver.type, "insert_one");
+            requireContainerMember(receiver.type, "begin_mut");
         }
         const std::string generatedStatement = emitRuntimeChecks
             ? "    CPPPListInsert(" + receiver.generatedExpression + ", " + emittedValue + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[1].column) + ");"
@@ -1161,6 +1167,8 @@ ListEmitResult emitListStatement(
     if (receiverIsList && arguments.size() == 1 && arguments[0].text.empty()) {
         if (emitRuntimeChecks) {
             requireRuntimeHelper("CPPPListPop");
+        } else {
+            requireContainerMember(receiver.type, "pop_back");
         }
         const std::string generatedStatement = emitRuntimeChecks
             ? "    CPPPListPop(" + receiver.generatedExpression + ", " + std::to_string(lineNumber) + ", " + std::to_string(tokens[methodIndex].span.startColumn) + ");"
@@ -1227,6 +1235,9 @@ ListEmitResult emitListStatement(
 
         if (emitRuntimeChecks) {
             requireRuntimeHelper("CPPPListRemoveAt");
+        } else {
+            requireContainerMember(receiver.type, "erase_one");
+            requireContainerMember(receiver.type, "begin_mut");
         }
         generatedStatement = emitRuntimeChecks
             ? "    CPPPListRemoveAt(" + receiver.generatedExpression + ", " + emittedIndex + ", " + std::to_string(lineNumber) + ", " + std::to_string(arguments[0].column) + ");"

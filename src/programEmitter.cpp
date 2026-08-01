@@ -8,9 +8,11 @@
 
 #include "programEmitter.h"
 
+#include "submitPostProcessor.h"
 #include "typesCppp.h"
 
 #include <cctype>
+#include <sstream>
 #include <string>
 #include <set>
 #include <vector>
@@ -118,18 +120,27 @@ std::set<std::string> requiredSubmitContainerMembers(
     const CompileContext& context,
     const std::set<std::string>& reachableOwners
 ) {
-    std::set<std::string> members;
-    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "find", "lower_bound", "upper_bound"};
+    std::set<std::string> members = requiredContainerMembersForOwners(reachableOwners);
     const auto inspect = [&](const std::vector<GeneratedLine>& lines) {
         for (const GeneratedLine& line : lines) {
             if (!line.submitOwnerKey.empty() && reachableOwners.count(line.submitOwnerKey) == 0) continue;
-            for (const std::string& name : names) {
-                if (line.text.find("." + name + "(") != std::string::npos) members.insert(name);
+            const std::vector<std::string> types = {
+                "CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPSet", "CPPPMap"
+            };
+            for (const std::string& type : types) {
+                if (line.text.find(type + "<") == std::string::npos) continue;
+                if (line.text.find("= {}") != std::string::npos || line.text.find(">{}") != std::string::npos) {
+                    members.insert(type + ".ctor_default");
+                }
+                if ((type == "CPPPList" || type == "CPPPSet" || type == "CPPPMap") &&
+                    line.text.find(">{") != std::string::npos && line.text.find(">{}") == std::string::npos) {
+                    members.insert(type + ".ctor_init");
+                }
+                if (type == "CPPPPair" &&
+                    (line.text.find("= {") != std::string::npos || line.text.find(">(") != std::string::npos)) {
+                    members.insert(type + ".ctor_values");
+                }
             }
-            if (line.text.find('[') != std::string::npos) members.insert("index");
-            if (line.text.find("CPPPList<") != std::string::npos && line.text.find('{') != std::string::npos) members.insert("ctor_init");
-            if (line.text.find("CPPPList<") != std::string::npos && line.text.find("begin()") != std::string::npos && line.text.find("end()") != std::string::npos) members.insert("ctor_iterator");
-            if (line.text.find(" : ") != std::string::npos) { members.insert("begin"); members.insert("end"); }
         }
     };
     inspect(context.generatedTopLevelLines);
@@ -166,8 +177,11 @@ void emitGeneratedLines(
 
 void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
     const CompileOptions& options = context.options;
+    std::ostringstream submitBuffer;
+    const bool compactSubmit = options.shouldSubmit && !options.readableSubmit;
+    std::ostream& destination = compactSubmit ? static_cast<std::ostream&>(submitBuffer) : output;
     const auto emitLine = [&](const std::string& text, int sourceLine = 0) {
-        output << text << '\n';
+        destination << text << '\n';
         ++context.generatedLine;
         if (sourceLine != 0) {
             context.cppToCpppLine[context.generatedLine] = sourceLine;
@@ -218,12 +232,12 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
     for (const std::string& preambleLine : preambleLines) {
         emitLine(preambleLine);
     }
-    emitGeneratedLines(output, context, context.generatedTopLevelLines);
+    emitGeneratedLines(destination, context, context.generatedTopLevelLines);
     if (!context.generatedTopLevelLines.empty()) {
         emitLine("");
     }
 
-    emitGeneratedLines(output, context, context.generatedFunctionLines);
+    emitGeneratedLines(destination, context, context.generatedFunctionLines);
     if (!context.generatedFunctionLines.empty()) {
         emitLine("");
     }
@@ -236,7 +250,7 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
         emitLine("    try {");
     }
 
-    emitGeneratedLines(output, context, context.generatedMainLines);
+    emitGeneratedLines(destination, context, context.generatedMainLines);
 
     emitLine("    return 0;");
     if (options.shouldRun) {
@@ -255,4 +269,5 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
         emitLine("    }");
     }
     emitLine("}");
+    if (compactSubmit) output << compactSubmitCpp(submitBuffer.str());
 }

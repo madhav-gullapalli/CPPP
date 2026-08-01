@@ -20,6 +20,7 @@ SOURCES := \
 $(SRC_DIR)/cppp.cpp \
 $(SRC_DIR)/compilerDriver.cpp \
 $(SRC_DIR)/programEmitter.cpp \
+$(SRC_DIR)/submitPostProcessor.cpp \
 $(SRC_DIR)/functions.cpp \
 $(SRC_DIR)/assignmentCppp.cpp \
 $(SRC_DIR)/sourceSplitter.cpp \
@@ -46,6 +47,7 @@ $(SRC_DIR)/expressions.h \
 $(SRC_DIR)/listsCppp.h \
 $(SRC_DIR)/printCppp.h \
 $(SRC_DIR)/sourceSplitter.h \
+$(SRC_DIR)/submitPostProcessor.h \
 $(SRC_DIR)/statementParser.h \
 $(SRC_DIR)/statementCompiler.h \
 $(SRC_DIR)/stmtAst.h \
@@ -75,10 +77,10 @@ run: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)" --run
 
 submit: $(COMPILER)
-	"$(COMPILER)" --cppp "$(INPUT)" --submit
+	"$(COMPILER)" --cppp "$(INPUT)" --submit $(if $(filter 1 true yes,$(READABLE)),--readable,)
 
 subrun: $(COMPILER)
-	"$(COMPILER)" --cppp "$(INPUT)" --submit
+	"$(COMPILER)" --cppp "$(INPUT)" --submit $(if $(filter 1 true yes,$(READABLE)),--readable,)
 	"$(PROGRAM)"
 
 test: $(COMPILER)

@@ -31,6 +31,7 @@ struct CompileOptions {
     bool shouldCompile = false;
     bool shouldRun = false;
     bool shouldSubmit = false;
+    bool readableSubmit = false;
 };
 
 // One logical statement fragment produced by source splitting.

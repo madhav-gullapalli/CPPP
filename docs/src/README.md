@@ -21,8 +21,10 @@ The compiler pipeline today is:
    using helper modules for expressions, types, assignments, print, lists,
    functions, and control-flow headers.
 5. `src/programEmitter.cpp` turns the generated line buffers in
-   `CompileContext` into one final C++ translation unit.
-6. `src/compilerDriver.cpp` optionally invokes `g++` and optionally runs the
+   `CompileContext` into one readable C++ translation unit.
+6. `src/submitPostProcessor.cpp` optionally compacts the completed translation
+   unit for `--submit`; `--readable` skips this post-processing pass.
+7. `src/compilerDriver.cpp` optionally invokes `g++` and optionally runs the
    produced executable.
 
 If you only read two files first, make them:
@@ -113,6 +115,13 @@ This is the final emission stage. It writes includes, runtime helper preamble,
 optional runtime-diagnostic scaffolding, emitted top-level declarations,
 emitted function bodies, and generated `main()`.
 
+## [src/submitPostProcessor.cpp](../../src/submitPostProcessor.cpp) and [src/submitPostProcessor.h](../../src/submitPostProcessor.h)
+This post-emission pass is used only by compact submit mode. It receives the
+complete readable C++ translation unit, removes comments and nonessential
+whitespace without changing literals or preprocessor boundaries, and returns
+the compact text. It does not participate in parsing, lowering, reachability,
+or helper pruning.
+
 ## [src/errors.cpp](../../src/errors.cpp) and [src/errors.h](../../src/errors.h)
 These files collect diagnostics and render user-facing source-mapped errors. If
 an error message is confusing or a new source-level diagnostic needs to exist,
@@ -150,3 +159,7 @@ helper machinery for list operations.
 - `emitTranslatedProgram(...)` serializes the final translation unit.
 - `emitGeneratedLines(...)` writes queued generated lines while preserving
   source mappings.
+
+### `src/submitPostProcessor.cpp`
+- `compactSubmitCpp(...)` performs lexical compaction on a completed readable
+  translation unit; no lowering or code generation happens in this pass.

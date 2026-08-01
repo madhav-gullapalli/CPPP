@@ -347,6 +347,29 @@ list indexed assignment
     List<int> values = [1, 2, 3];
     values[1] = 9;
 
+multiline indexed assignment with function call output
+  An indexed assignment may span lines, including a user-defined function call
+  in the index expression.
+
+  Example:
+    struct Holder {
+        List<int> values;
+    }
+    int position(int index) {
+        return index;
+    }
+    void update(Holder holder, int index) {
+        holder.values[
+            position(index)
+        ] = 1;
+        print(holder.values);
+    }
+    Holder holder = Holder([0]);
+    update(holder, 0);
+
+  Output:
+    [1]
+
 list indexed compound assignment
   List elements support compound assignment like normal variables.
 
@@ -1552,7 +1575,7 @@ recursive string builder
   every leaf result.
 
   Example:
-    void printBinary(deep string tmp, int dep){
+    void printBinary(copy string tmp, int dep){
         if(dep){
             printBinary(tmp + "0", dep-1);
             printBinary(tmp + "1", dep -1 );
@@ -1568,12 +1591,12 @@ recursive string builder
     10
     11
 
-deep container parameter
-  Prefixing a container parameter with `deep` passes that argument by copy
-  instead of by reference.
+copy parameter
+  Prefixing a collection, string, or class parameter with `copy` passes that
+  argument as an independent copy instead of by reference.
 
   Example:
-    void f(deep List<int> A, List<int> B){
+    void f(copy List<int> A, List<int> B){
         A.add(1);
         B.add(2);
     }
@@ -3108,6 +3131,23 @@ inline struct fields and copies output
 
   Output:
     {x: 2, y: 3} {x: 9, y: 3}
+
+inline struct field increment output
+  Incrementing a field through an inline struct value mutates that field.
+
+  Example:
+    struct Counter {
+        int value;
+    }
+    void increment(Counter counter) {
+        counter.value++;
+        print(counter.value);
+    }
+    Counter counter = Counter(3);
+    increment(counter);
+
+  Output:
+    4
 
 inline struct equality output
   Struct equality compares each inline field.

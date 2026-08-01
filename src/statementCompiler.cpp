@@ -401,7 +401,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     equal += "((" + fieldName + " && other." + fieldName + ") ? (*" + fieldName + " == *other." + fieldName + ") : (!" + fieldName + " && !other." + fieldName + "))";
                 } else {
                     if (isCollectionType(fieldType) || isPairType(fieldType)) {
-                        requireRuntimeHelper("CPPPContainerCompare");
+                        requireContainerMember(fieldType, "compare_eq");
                     }
                     equal += fieldName + " == other." + fieldName;
                 }
@@ -641,6 +641,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 part,
                 context.sourceLines,
                 context.declaredVariables,
+                context.declaredFunctions,
                 !context.options.shouldSubmit
             );
             if (assignmentResult.matched) {
@@ -1011,6 +1012,10 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 : (isMapType(iterable.type)
                 ? Type(PrimitiveType::Pair, {iterable.type.subtypes[0], iterable.type.subtypes[1]})
                 : iterable.type.subtypes[0]);
+            if (!isRangeType(iterable.type)) {
+                requireContainerMember(iterable.type, "begin_mut");
+                requireContainerMember(iterable.type, "end_mut");
+            }
             if (forEachHeader.usesVar) {
                 loopVariableType = elementType;
                 loopDeclaration = cppTypeForType(loopVariableType) + " " + forEachHeader.variableName;
@@ -1411,13 +1416,17 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         const std::map<std::string, Type> declarationsBefore = context.declaredVariables;
         const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, statementBody, statementStartColumn, context.sourceLines, context.declaredVariables);
         if (typeResult.matched) {
-            if (!typeResult.ok) {
-                continue;
-            }
+            // Invalid declarations reserve their names to suppress cascaded errors.  They
+            // still belong to the enclosing lexical block and must leave scope with it.
             if (!context.blockDeclaredNames.empty()) {
                 for (const auto& variable : context.declaredVariables) {
-                    if (declarationsBefore.count(variable.first) == 0) context.blockDeclaredNames.back().push_back(variable.first);
+                    if (declarationsBefore.count(variable.first) == 0) {
+                        context.blockDeclaredNames.back().push_back(variable.first);
+                    }
                 }
+            }
+            if (!typeResult.ok) {
+                continue;
             }
 
             context.queueGeneratedLine(
@@ -1435,6 +1444,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             statementBody,
             context.sourceLines,
             context.declaredVariables,
+            context.declaredFunctions,
             !context.options.shouldSubmit
         );
         if (assignmentResult.matched) {

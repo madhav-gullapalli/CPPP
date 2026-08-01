@@ -20,7 +20,7 @@
 struct FunctionParameter {
     std::string name;
     Type type;
-    bool deepCopy = false;
+    bool copyParameter = false;
     int column = 0;
 };
 

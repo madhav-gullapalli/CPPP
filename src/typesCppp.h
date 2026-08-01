@@ -58,6 +58,8 @@ void requireCopyHelpersForType(const Type& type);
 void requirePrintHelpersForType(const Type& type);
 void setRuntimeRequirementOwner(const std::string& ownerKey);
 std::set<std::string> requiredRuntimeHelpersForOwners(const std::set<std::string>& ownerKeys);
+void requireContainerMember(const Type& type, const std::string& memberName);
+std::set<std::string> requiredContainerMembersForOwners(const std::set<std::string>& ownerKeys);
 void requireStructMethod(const std::string& structName, const std::string& methodName);
 const std::set<std::string>& requiredStructMethods();
 // cppTypeForType implements the cppTypeForType behavior for the typesCppp.h module.

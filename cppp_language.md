@@ -31,9 +31,9 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 ### Submit mode
 
-- Syntax: `build/cppp --cppp file.cppp --submit`
-- What it does: Emits slimmer contest-oriented generated C++ and prunes unused helpers.
-- Notes: Some extra runtime checking present in `--run` is intentionally not carried into submit-oriented output.
+- Syntax: `build/cppp --cppp file.cppp --submit [--readable]`
+- What it does: Emits compact contest-oriented generated C++ and prunes unreachable functions, unused container classes, runtime helpers, and individual container methods.
+- Notes: By default, submit output removes comments, indentation, blank lines, and every token separator that C++ does not require. Preprocessor directives retain their required terminating newlines; the remaining C++ is emitted on one line. String and character literal contents are unchanged. Add `--readable` to inspect the same pruned submit program with ordinary formatting, for example `build/cppp --cppp file.cppp --submit --readable`. For the Make targets, use `make submit INPUT=file.cppp READABLE=1` or `make subrun INPUT=file.cppp READABLE=1`. Method overloads and comparison operators are retained independently; using `List.size()` does not retain unrelated `List` methods. Requirements inside unreachable functions do not keep methods or classes alive. Some extra runtime checking present in `--run` is intentionally not carried into submit-oriented output. Normal transpile and `--run` modes remain readable and retain the complete runtime support surface for diagnostics and debugging.
 - Complexity: proportional to source size
 
 ## General Syntax
@@ -655,11 +655,11 @@ List element is the top; for Queue, the first List element is the top/front.
 - Notes: Mutating a plain `List<...>` or `string` parameter mutates the caller-visible value.
 - Complexity: O(1) call setup
 
-### `deep` container parameters
+### `copy` parameters
 
-- Syntax: `void f(deep List<int> copy, List<int> ref){ ... }`
-- What it does: Passes the `deep` container parameter as an independent deep copy instead of an alias.
-- Notes: `deep` is only implemented for collection-like parameters such as `List<...>` and `string`; it has the same recursive copy behavior as `copy()`.
+- Syntax: `void f(copy List<int> values, List<int> ref){ ... }`
+- What it does: Passes the `copy` parameter as an independent recursive copy instead of an alias.
+- Notes: `copy` is only valid before collection, string, and class parameters; it has the same recursive copy behavior as `copy()`.
 - Complexity: proportional to the copied container size
 
 ## Lists

@@ -959,7 +959,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[0].span.startColumn,
+                sourceColumn(tokens[0].span.startColumn),
                 "var declarations require a variable name",
                 sourceLines
             );
@@ -994,7 +994,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[2].span.startColumn,
+                sourceColumn(tokens[2].span.startColumn),
                 "var declarations support exactly one variable",
                 sourceLines
             );
@@ -1006,7 +1006,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[1].span.endColumn + 1,
+                sourceColumn(tokens[1].span.endColumn + 1),
                 "var declarations require an initializer so the type can be inferred",
                 sourceLines
             );
@@ -1018,7 +1018,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[2].span.startColumn,
+                sourceColumn(tokens[2].span.startColumn),
                 "var declarations must use '=' with an initializer",
                 sourceLines
             );
@@ -1030,7 +1030,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[2].span.endColumn + 1,
+                sourceColumn(tokens[2].span.endColumn + 1),
                 "var declarations require an initializer so the type can be inferred",
                 sourceLines
             );
@@ -1038,8 +1038,8 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        const int assignedValueColumn = tokens[3].span.startColumn;
         const int assignedValueStartColumn = tokens[3].span.startColumn;
+        const int assignedValueColumn = sourceColumn(assignedValueStartColumn);
         int assignedValueEndColumn = tokens[3].span.endColumn;
         size_t tokenIndex = 3;
         while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
@@ -1161,7 +1161,7 @@ TypeEmitResult emitTypeDeclaration(
     const std::string typeName = parsedType.name;
     const Type targetType = parsedType.type;
     if (targetType == PrimitiveType::Void) {
-        recordSourceError(inputFile, lineNumber, tokens[0].span.startColumn, "variables cannot have void type", sourceLines);
+        recordSourceError(inputFile, lineNumber, sourceColumn(tokens[0].span.startColumn), "variables cannot have void type", sourceLines);
         return {true, false, "", {}};
     }
     const TypeInfo typeInfo = typeInfoFor(targetType);
@@ -1169,7 +1169,7 @@ TypeEmitResult emitTypeDeclaration(
         recordSourceError(
             inputFile,
             lineNumber,
-            tokens[0].span.startColumn,
+            sourceColumn(tokens[0].span.startColumn),
             "unsupported type " + cpppTypeName(targetType),
             sourceLines
         );
@@ -1183,7 +1183,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[tokenIndex].span.startColumn,
+                sourceColumn(tokens[tokenIndex].span.startColumn),
                 "expected variable name after " + typeName,
                 sourceLines
             );
@@ -1207,7 +1207,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                variableColumn,
+                sourceColumn(variableColumn),
                 "variable '" + variableName + "' is already declared",
                 sourceLines
             );
@@ -1219,7 +1219,7 @@ TypeEmitResult emitTypeDeclaration(
                 recordSourceError(
                     inputFile,
                     lineNumber,
-                    variableColumn,
+                    sourceColumn(variableColumn),
                     "variable '" + variableName + "' is already declared",
                     sourceLines
                 );
@@ -1239,7 +1239,7 @@ TypeEmitResult emitTypeDeclaration(
             recordSourceError(
                 inputFile,
                 lineNumber,
-                tokens[tokenIndex - 1].span.endColumn + 1,
+                sourceColumn(tokens[tokenIndex - 1].span.endColumn + 1),
                 "expected variable name after ','",
                 sourceLines
             );
@@ -1264,8 +1264,8 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        assignedValueColumn = tokens[tokenIndex].span.startColumn;
         const int assignedValueStartColumn = tokens[tokenIndex].span.startColumn;
+        assignedValueColumn = sourceColumn(assignedValueStartColumn);
         int assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
         while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
             assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
@@ -1280,7 +1280,7 @@ TypeEmitResult emitTypeDeclaration(
         recordSourceError(
             inputFile,
             lineNumber,
-            tokens[tokenIndex].span.startColumn,
+            sourceColumn(tokens[tokenIndex].span.startColumn),
             "expected ';' or '=' after variable name",
             sourceLines
         );
@@ -1658,7 +1658,7 @@ TypeEmitResult emitTypeDeclaration(
         generatedStatement += variables[i].name + " = " + initializer;
         ranges.push_back({
             lineNumber,
-            variables[i].column,
+            sourceColumn(variables[i].column),
             generatedStartColumn,
             generatedStartColumn + static_cast<int>(variables[i].name.size()) - 1
         });

@@ -36,23 +36,73 @@ std::map<std::string, std::set<std::string>>& runtimeRequirementOwners() {
     return owners;
 }
 
+std::map<std::string, std::set<std::string>>& containerMemberRequirementOwners() {
+    static std::map<std::string, std::set<std::string>> owners;
+    return owners;
+}
+
+std::string containerTypeName(const Type& type) {
+    switch (type.primitive) {
+        case PrimitiveType::Pair: return "CPPPPair";
+        case PrimitiveType::List: return "CPPPList";
+        case PrimitiveType::Stack: return "CPPPStack";
+        case PrimitiveType::Queue: return "CPPPQueue";
+        case PrimitiveType::Deque: return "CPPPDeque";
+        case PrimitiveType::Set: return "CPPPSet";
+        case PrimitiveType::Map: return "CPPPMap";
+        default: return "";
+    }
+}
+
 std::string containerMemberForLine(const std::string& line) {
-    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "find", "lower_bound", "upper_bound"};
-    if (line.find("operator[]") != std::string::npos) return "index";
+    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push", "push_front", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "top", "pop_value", "pop_front_value", "pop_back_value", "to_list", "find", "lower_bound", "upper_bound"};
+    if (line.find("operator[]") != std::string::npos) {
+        return line.find(") const") != std::string::npos ? "index_const" : "index_mut";
+    }
+    if (line.find("CPPPPair()") != std::string::npos || line.find("CPPPList()") != std::string::npos ||
+        line.find("CPPPStack()") != std::string::npos || line.find("CPPPQueue()") != std::string::npos ||
+        line.find("CPPPDeque()") != std::string::npos || line.find("CPPPSet()") != std::string::npos ||
+        line.find("CPPPMap()") != std::string::npos) return "ctor_default";
+    if (line.find("CPPPPair(const A&") != std::string::npos) return "ctor_values";
+    if (line.find("CPPPPair(const pair") != std::string::npos) return "ctor_std";
     if (line.find("CPPPList(initializer_list") != std::string::npos) return "ctor_init";
     if (line.find("CPPPList(const vector<U>") != std::string::npos) return "ctor_convert";
     if (line.find("CPPPList(const vector") != std::string::npos || line.find("CPPPList(vector") != std::string::npos) return "ctor_vector";
     if (line.find("CPPPList(It first") != std::string::npos) return "ctor_iterator";
-    if (line.find("friend bool operator") != std::string::npos) return "compare";
-    if (line.find("operator vector") != std::string::npos || line.find("operator set") != std::string::npos || line.find("operator map") != std::string::npos || line.find("operator const vector") != std::string::npos || line.find("operator const set") != std::string::npos || line.find("operator const map") != std::string::npos) return "convert";
+    if (line.find("CPPPSet(initializer_list") != std::string::npos || line.find("CPPPMap(initializer_list") != std::string::npos) return "ctor_init";
+    if (line.find("CPPPSet(const set<U>") != std::string::npos) return "ctor_convert";
+    if (line.find("CPPPSet(const set") != std::string::npos || line.find("CPPPSet(set") != std::string::npos ||
+        line.find("CPPPMap(const map") != std::string::npos || line.find("CPPPMap(map") != std::string::npos) return "ctor_std";
+    if (line.find("CPPPSet(It first") != std::string::npos || line.find("CPPPMap(It first") != std::string::npos) return "ctor_iterator";
+    if (line.find("friend bool operator==") != std::string::npos) return "compare_eq";
+    if (line.find("friend bool operator!=") != std::string::npos) return "compare_ne";
+    if (line.find("friend bool operator<=") != std::string::npos) return "compare_le";
+    if (line.find("friend bool operator>=") != std::string::npos) return "compare_ge";
+    if (line.find("friend bool operator<") != std::string::npos) return "compare_lt";
+    if (line.find("friend bool operator>") != std::string::npos) return "compare_gt";
+    if (line.find("template <typename It> iterator insert") != std::string::npos ||
+        line.find("template <typename It> void insert") != std::string::npos) return "insert_range";
+    if (line.find("iterator insert") != std::string::npos || line.find("pair<iterator,bool> insert") != std::string::npos) return "insert_one";
+    if (line.find("iterator erase(const_iterator first") != std::string::npos) return "erase_range";
+    if (line.find("iterator erase(const_iterator pos") != std::string::npos) return "erase_one";
+    if (line.find("size_type erase") != std::string::npos) return "erase_key";
+    if (line.find("operator vector") != std::string::npos || line.find("operator set") != std::string::npos || line.find("operator map") != std::string::npos ||
+        line.find("operator const vector") != std::string::npos || line.find("operator const set") != std::string::npos || line.find("operator const map") != std::string::npos ||
+        line.find("operator storage_type") != std::string::npos || line.find("operator const storage_type") != std::string::npos) return "convert";
     for (const std::string& name : names) {
-        if (line.find(" " + name + "(") != std::string::npos) return name;
+        if (line.find(" " + name + "(") != std::string::npos) {
+            const bool overloadedByConst = name == "first" || name == "second" || name == "begin" || name == "end" ||
+                name == "rbegin" || name == "rend" || name == "at" || name == "front" || name == "back" ||
+                name == "find" || name == "lower_bound" || name == "upper_bound";
+            if (overloadedByConst) return name + (line.find(") const") != std::string::npos ? "_const" : "_mut");
+            return name;
+        }
     }
     return "";
 }
 
 void collectContainerMemberUses(const std::string& line, std::set<std::string>& members) {
-    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "find", "lower_bound", "upper_bound"};
+    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push", "push_front", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "top", "pop_value", "pop_front_value", "pop_back_value", "to_list", "find", "lower_bound", "upper_bound"};
     for (const std::string& name : names) {
         if (line.find("." + name + "(") != std::string::npos) members.insert(name);
     }
@@ -60,6 +110,31 @@ void collectContainerMemberUses(const std::string& line, std::set<std::string>& 
     if (line.find("CPPPList<") != std::string::npos && line.find('{') != std::string::npos) members.insert("ctor_init");
     if (line.find("CPPPList<") != std::string::npos && line.find("begin()") != std::string::npos && line.find("end()") != std::string::npos) members.insert("ctor_iterator");
     if (line.find(" : ") != std::string::npos) { members.insert("begin"); members.insert("end"); }
+}
+
+bool declaresDefaultConstructedContainer(const std::string& line, const std::string& typeName) {
+    size_t searchFrom = 0;
+    while (true) {
+        const size_t typeStart = line.find(typeName + "<", searchFrom);
+        if (typeStart == std::string::npos) return false;
+        size_t cursor = typeStart + typeName.size();
+        int depth = 0;
+        for (; cursor < line.size(); ++cursor) {
+            if (line[cursor] == '<') ++depth;
+            else if (line[cursor] == '>' && --depth == 0) {
+                ++cursor;
+                break;
+            }
+        }
+        while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor]))) ++cursor;
+        if (cursor < line.size() && (std::isalpha(static_cast<unsigned char>(line[cursor])) || line[cursor] == '_')) {
+            while (cursor < line.size() &&
+                (std::isalnum(static_cast<unsigned char>(line[cursor])) || line[cursor] == '_')) ++cursor;
+            while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor]))) ++cursor;
+            if (cursor < line.size() && line[cursor] == ';') return true;
+        }
+        searchFrom = typeStart + typeName.size() + 1;
+    }
 }
 
 std::vector<std::string> smartPointerSupport() {
@@ -111,14 +186,16 @@ std::vector<std::string> containerSupport(
         "    CPPPPair() = default;",
         "    CPPPPair(const A& firstValue, const B& secondValue) : firstValue(firstValue), secondValue(secondValue) {}",
         "    template <typename X, typename Y> CPPPPair(const pair<X,Y>& value) : firstValue(value.first), secondValue(value.second) {}",
-        "    A& first() { return firstValue; } const A& first() const { return firstValue; }",
-        "    B& second() { return secondValue; } const B& second() const { return secondValue; }",
+        "    A& first() { return firstValue; }",
+        "    const A& first() const { return firstValue; }",
+        "    B& second() { return secondValue; }",
+        "    const B& second() const { return secondValue; }",
         "    friend bool operator==(const CPPPPair& a, const CPPPPair& b) { return a.firstValue == b.firstValue && a.secondValue == b.secondValue; }",
-        "    friend bool operator!=(const CPPPPair& a, const CPPPPair& b) { return !(a == b); }",
+        "    friend bool operator!=(const CPPPPair& a, const CPPPPair& b) { return pair<A,B>(a.firstValue, a.secondValue) != pair<A,B>(b.firstValue, b.secondValue); }",
         "    friend bool operator<(const CPPPPair& a, const CPPPPair& b) { return pair<A,B>(a.firstValue, a.secondValue) < pair<A,B>(b.firstValue, b.secondValue); }",
-        "    friend bool operator>(const CPPPPair& a, const CPPPPair& b) { return b < a; }",
-        "    friend bool operator<=(const CPPPPair& a, const CPPPPair& b) { return !(b < a); }",
-        "    friend bool operator>=(const CPPPPair& a, const CPPPPair& b) { return !(a < b); }",
+        "    friend bool operator>(const CPPPPair& a, const CPPPPair& b) { return pair<A,B>(a.firstValue, a.secondValue) > pair<A,B>(b.firstValue, b.secondValue); }",
+        "    friend bool operator<=(const CPPPPair& a, const CPPPPair& b) { return pair<A,B>(a.firstValue, a.secondValue) <= pair<A,B>(b.firstValue, b.secondValue); }",
+        "    friend bool operator>=(const CPPPPair& a, const CPPPPair& b) { return pair<A,B>(a.firstValue, a.secondValue) >= pair<A,B>(b.firstValue, b.secondValue); }",
         "};",
         "",
         "template <typename T>",
@@ -150,8 +227,7 @@ std::vector<std::string> containerSupport(
         "    void reserve(size_type n) { values->reserve(n); }",
         "    void resize(size_type n) { values->resize(n); }",
         "    void clear() { values->clear(); }",
-        "    void push_back(const T& value) { values->push_back(value); }",
-        "    void push_back(T&& value) { values->push_back(std::move(value)); }",
+        "    void push_back(T value) { values->push_back(std::move(value)); }",
         "    void pop_back() { values->pop_back(); }",
         "    template <typename... Args> void emplace_back(Args&&... args) { values->emplace_back(std::forward<Args>(args)...); }",
         "    iterator insert(const_iterator pos, const T& value) { return values->insert(pos, value); }",
@@ -169,11 +245,11 @@ std::vector<std::string> containerSupport(
         "    operator vector<T>&() { return *values; }",
         "    operator const vector<T>&() const { return *values; }",
         "    friend bool operator==(const CPPPList& a, const CPPPList& b) { return *a.values == *b.values; }",
-        "    friend bool operator!=(const CPPPList& a, const CPPPList& b) { return !(a == b); }",
+        "    friend bool operator!=(const CPPPList& a, const CPPPList& b) { return *a.values != *b.values; }",
         "    friend bool operator<(const CPPPList& a, const CPPPList& b) { return *a.values < *b.values; }",
-        "    friend bool operator>(const CPPPList& a, const CPPPList& b) { return b < a; }",
-        "    friend bool operator<=(const CPPPList& a, const CPPPList& b) { return !(b < a); }",
-        "    friend bool operator>=(const CPPPList& a, const CPPPList& b) { return !(a < b); }",
+        "    friend bool operator>(const CPPPList& a, const CPPPList& b) { return *a.values > *b.values; }",
+        "    friend bool operator<=(const CPPPList& a, const CPPPList& b) { return *a.values <= *b.values; }",
+        "    friend bool operator>=(const CPPPList& a, const CPPPList& b) { return *a.values >= *b.values; }",
         "};",
         "",
         "template <typename T>",
@@ -225,21 +301,41 @@ std::vector<std::string> containerSupport(
         "    cppp_smart_pointer<storage_type> values;",
         "public:",
         "    using value_type = T; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
-        "    CPPPSet() : values(cppp_smart_pointer<storage_type>::make()) {} CPPPSet(initializer_list<T> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
-        "    CPPPSet(const set<T>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {} CPPPSet(set<T>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
+        "    CPPPSet() : values(cppp_smart_pointer<storage_type>::make()) {}",
+        "    CPPPSet(initializer_list<T> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
+        "    CPPPSet(const set<T>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
+        "    CPPPSet(set<T>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
         "    template <typename U> CPPPSet(const set<U>& init) : values(cppp_smart_pointer<storage_type>::make()) { for (const auto& item : init) values->emplace(item); }",
         "    template <typename It> CPPPSet(It first, It last) : values(cppp_smart_pointer<storage_type>::make(first, last)) {}",
-        "    iterator begin() { return values->begin(); } const_iterator begin() const { return values->begin(); } iterator end() { return values->end(); } const_iterator end() const { return values->end(); }",
-        "    reverse_iterator rbegin() { return values->rbegin(); } const_reverse_iterator rbegin() const { return values->rbegin(); } reverse_iterator rend() { return values->rend(); } const_reverse_iterator rend() const { return values->rend(); }",
-        "    bool empty() const { return values->empty(); } size_type size() const { return values->size(); } void clear() { values->clear(); }",
-        "    pair<iterator,bool> insert(const T& value) { return values->insert(value); } template <typename It> void insert(It first, It last) { values->insert(first, last); }",
-        "    iterator erase(const_iterator pos) { return values->erase(pos); } size_type erase(const T& key) { return values->erase(key); }",
-        "    iterator find(const T& key) { return values->find(key); } const_iterator find(const T& key) const { return values->find(key); }",
-        "    iterator lower_bound(const T& key) { return values->lower_bound(key); } const_iterator lower_bound(const T& key) const { return values->lower_bound(key); }",
-        "    iterator upper_bound(const T& key) { return values->upper_bound(key); } const_iterator upper_bound(const T& key) const { return values->upper_bound(key); }",
-        "    operator storage_type&() { return *values; } operator const storage_type&() const { return *values; }",
-        "    friend bool operator==(const CPPPSet& a, const CPPPSet& b) { return *a.values == *b.values; } friend bool operator!=(const CPPPSet& a, const CPPPSet& b) { return !(a == b); }",
-        "    friend bool operator<(const CPPPSet& a, const CPPPSet& b) { return *a.values < *b.values; } friend bool operator>(const CPPPSet& a, const CPPPSet& b) { return b < a; } friend bool operator<=(const CPPPSet& a, const CPPPSet& b) { return !(b < a); } friend bool operator>=(const CPPPSet& a, const CPPPSet& b) { return !(a < b); }",
+        "    iterator begin() { return values->begin(); }",
+        "    const_iterator begin() const { return values->begin(); }",
+        "    iterator end() { return values->end(); }",
+        "    const_iterator end() const { return values->end(); }",
+        "    reverse_iterator rbegin() { return values->rbegin(); }",
+        "    const_reverse_iterator rbegin() const { return values->rbegin(); }",
+        "    reverse_iterator rend() { return values->rend(); }",
+        "    const_reverse_iterator rend() const { return values->rend(); }",
+        "    bool empty() const { return values->empty(); }",
+        "    size_type size() const { return values->size(); }",
+        "    void clear() { values->clear(); }",
+        "    pair<iterator,bool> insert(const T& value) { return values->insert(value); }",
+        "    template <typename It> void insert(It first, It last) { values->insert(first, last); }",
+        "    iterator erase(const_iterator pos) { return values->erase(pos); }",
+        "    size_type erase(const T& key) { return values->erase(key); }",
+        "    iterator find(const T& key) { return values->find(key); }",
+        "    const_iterator find(const T& key) const { return values->find(key); }",
+        "    iterator lower_bound(const T& key) { return values->lower_bound(key); }",
+        "    const_iterator lower_bound(const T& key) const { return values->lower_bound(key); }",
+        "    iterator upper_bound(const T& key) { return values->upper_bound(key); }",
+        "    const_iterator upper_bound(const T& key) const { return values->upper_bound(key); }",
+        "    operator storage_type&() { return *values; }",
+        "    operator const storage_type&() const { return *values; }",
+        "    friend bool operator==(const CPPPSet& a, const CPPPSet& b) { return *a.values == *b.values; }",
+        "    friend bool operator!=(const CPPPSet& a, const CPPPSet& b) { return *a.values != *b.values; }",
+        "    friend bool operator<(const CPPPSet& a, const CPPPSet& b) { return *a.values < *b.values; }",
+        "    friend bool operator>(const CPPPSet& a, const CPPPSet& b) { return *a.values > *b.values; }",
+        "    friend bool operator<=(const CPPPSet& a, const CPPPSet& b) { return *a.values <= *b.values; }",
+        "    friend bool operator>=(const CPPPSet& a, const CPPPSet& b) { return *a.values >= *b.values; }",
         "};",
         "",
         "template <typename K, typename V>",
@@ -249,21 +345,43 @@ std::vector<std::string> containerSupport(
         "    cppp_smart_pointer<storage_type> values;",
         "public:",
         "    using value_type = pair<const K,V>; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
-        "    CPPPMap() : values(cppp_smart_pointer<storage_type>::make()) {} CPPPMap(initializer_list<value_type> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
-        "    CPPPMap(const map<K,V>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {} CPPPMap(map<K,V>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
+        "    CPPPMap() : values(cppp_smart_pointer<storage_type>::make()) {}",
+        "    CPPPMap(initializer_list<value_type> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
+        "    CPPPMap(const map<K,V>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
+        "    CPPPMap(map<K,V>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
         "    template <typename It> CPPPMap(It first, It last) : values(cppp_smart_pointer<storage_type>::make(first, last)) {}",
-        "    iterator begin() { return values->begin(); } const_iterator begin() const { return values->begin(); } iterator end() { return values->end(); } const_iterator end() const { return values->end(); }",
-        "    reverse_iterator rbegin() { return values->rbegin(); } const_reverse_iterator rbegin() const { return values->rbegin(); } reverse_iterator rend() { return values->rend(); } const_reverse_iterator rend() const { return values->rend(); }",
-        "    bool empty() const { return values->empty(); } size_type size() const { return values->size(); } void clear() { values->clear(); }",
-        "    V& operator[](const K& key) { return (*values)[key]; } V& at(const K& key) { return values->at(key); } const V& at(const K& key) const { return values->at(key); }",
-        "    pair<iterator,bool> insert(const value_type& value) { return values->insert(value); } template <typename It> void insert(It first, It last) { values->insert(first, last); }",
-        "    iterator erase(const_iterator pos) { return values->erase(pos); } size_type erase(const K& key) { return values->erase(key); }",
-        "    iterator find(const K& key) { return values->find(key); } const_iterator find(const K& key) const { return values->find(key); }",
-        "    iterator lower_bound(const K& key) { return values->lower_bound(key); } const_iterator lower_bound(const K& key) const { return values->lower_bound(key); }",
-        "    iterator upper_bound(const K& key) { return values->upper_bound(key); } const_iterator upper_bound(const K& key) const { return values->upper_bound(key); }",
-        "    operator storage_type&() { return *values; } operator const storage_type&() const { return *values; }",
-        "    friend bool operator==(const CPPPMap& a, const CPPPMap& b) { return *a.values == *b.values; } friend bool operator!=(const CPPPMap& a, const CPPPMap& b) { return !(a == b); }",
-        "    friend bool operator<(const CPPPMap& a, const CPPPMap& b) { return *a.values < *b.values; } friend bool operator>(const CPPPMap& a, const CPPPMap& b) { return b < a; } friend bool operator<=(const CPPPMap& a, const CPPPMap& b) { return !(b < a); } friend bool operator>=(const CPPPMap& a, const CPPPMap& b) { return !(a < b); }",
+        "    iterator begin() { return values->begin(); }",
+        "    const_iterator begin() const { return values->begin(); }",
+        "    iterator end() { return values->end(); }",
+        "    const_iterator end() const { return values->end(); }",
+        "    reverse_iterator rbegin() { return values->rbegin(); }",
+        "    const_reverse_iterator rbegin() const { return values->rbegin(); }",
+        "    reverse_iterator rend() { return values->rend(); }",
+        "    const_reverse_iterator rend() const { return values->rend(); }",
+        "    bool empty() const { return values->empty(); }",
+        "    size_type size() const { return values->size(); }",
+        "    void clear() { values->clear(); }",
+        "    V& operator[](const K& key) { return (*values)[key]; }",
+        "    V& at(const K& key) { return values->at(key); }",
+        "    const V& at(const K& key) const { return values->at(key); }",
+        "    pair<iterator,bool> insert(const value_type& value) { return values->insert(value); }",
+        "    template <typename It> void insert(It first, It last) { values->insert(first, last); }",
+        "    iterator erase(const_iterator pos) { return values->erase(pos); }",
+        "    size_type erase(const K& key) { return values->erase(key); }",
+        "    iterator find(const K& key) { return values->find(key); }",
+        "    const_iterator find(const K& key) const { return values->find(key); }",
+        "    iterator lower_bound(const K& key) { return values->lower_bound(key); }",
+        "    const_iterator lower_bound(const K& key) const { return values->lower_bound(key); }",
+        "    iterator upper_bound(const K& key) { return values->upper_bound(key); }",
+        "    const_iterator upper_bound(const K& key) const { return values->upper_bound(key); }",
+        "    operator storage_type&() { return *values; }",
+        "    operator const storage_type&() const { return *values; }",
+        "    friend bool operator==(const CPPPMap& a, const CPPPMap& b) { return *a.values == *b.values; }",
+        "    friend bool operator!=(const CPPPMap& a, const CPPPMap& b) { return *a.values != *b.values; }",
+        "    friend bool operator<(const CPPPMap& a, const CPPPMap& b) { return *a.values < *b.values; }",
+        "    friend bool operator>(const CPPPMap& a, const CPPPMap& b) { return *a.values > *b.values; }",
+        "    friend bool operator<=(const CPPPMap& a, const CPPPMap& b) { return *a.values <= *b.values; }",
+        "    friend bool operator>=(const CPPPMap& a, const CPPPMap& b) { return *a.values >= *b.values; }",
         "};",
         ""
     };
@@ -274,14 +392,15 @@ std::vector<std::string> containerSupport(
     for (const std::string& line : all) {
         if (group.empty() && line.empty()) continue;
         const std::string member = containerMemberForLine(line);
-        bool requiredCombinedMember = false;
-        for (const std::string& requiredMember : requiredMembers) {
-            if (line.find(" " + requiredMember + "(") != std::string::npos) {
-                requiredCombinedMember = true;
-                break;
-            }
-        }
-        if (member.empty() || requiredMembers.count("all") != 0 || requiredMembers.count(member) != 0 || requiredCombinedMember) {
+        const size_t variantSeparator = member.find('_');
+        const std::string genericMember = variantSeparator == std::string::npos
+            ? member
+            : member.substr(0, variantSeparator);
+        if (member.empty() || requiredMembers.count("all") != 0 ||
+            requiredMembers.count(member) != 0 ||
+            requiredMembers.count(genericMember) != 0 ||
+            requiredMembers.count(groupType + "." + member) != 0 ||
+            requiredMembers.count(groupType + "." + genericMember) != 0) {
             group.push_back(line);
         }
         if (line == "class CPPPPair {") groupType = "CPPPPair";
@@ -1082,7 +1201,45 @@ void clearRequiredRuntimeHelpers() {
     runtimeRequirementSet().clear();
     structMethodRequirementSet().clear();
     runtimeRequirementOwners().clear();
+    containerMemberRequirementOwners().clear();
     runtimeRequirementOwner().clear();
+}
+
+void requireContainerMember(const Type& type, const std::string& memberName) {
+    const std::string typeName = containerTypeName(type);
+    if (typeName.empty()) return;
+    containerMemberRequirementOwners()[typeName + "." + memberName].insert(runtimeRequirementOwner());
+    if (isStackType(type) && memberName == "to_list") {
+        requireContainerMember(Type(PrimitiveType::List, type.subtypes), "ctor_vector");
+    } else if (isQueueType(type) && memberName == "to_list") {
+        const Type listType(PrimitiveType::List, type.subtypes);
+        requireContainerMember(listType, "ctor_default");
+        requireContainerMember(listType, "reserve");
+        requireContainerMember(listType, "push_back");
+    } else if (isDequeType(type) && memberName == "to_list") {
+        requireContainerMember(Type(PrimitiveType::List, type.subtypes), "ctor_iterator");
+    }
+    if ((isSetType(type) || isMapType(type)) && !type.subtypes.empty() &&
+        (isCollectionType(type.subtypes[0]) || isPairType(type.subtypes[0]))) {
+        requireContainerMember(type.subtypes[0], "compare_lt");
+    }
+}
+
+std::set<std::string> requiredContainerMembersForOwners(const std::set<std::string>& ownerKeys) {
+    std::set<std::string> members;
+    for (const auto& requirement : containerMemberRequirementOwners()) {
+        if (requirement.second.count("") != 0) {
+            members.insert(requirement.first);
+            continue;
+        }
+        for (const std::string& owner : requirement.second) {
+            if (ownerKeys.count(owner) != 0) {
+                members.insert(requirement.first);
+                break;
+            }
+        }
+    }
+    return members;
 }
 
 void requireRuntimeHelper(const std::string& helperName) {
@@ -1196,32 +1353,37 @@ std::vector<std::string> typeSupportPreambleForSubmit(
 
     std::set<std::string> containerTypes = requiredContainerTypes;
     std::set<std::string> containerMembers = requiredContainerMembers;
-    if (resolvedHelpers.count("CPPPContainerCompare") != 0) containerMembers.insert("compare");
-    if (containerTypes.count("CPPPSet") != 0 || containerTypes.count("CPPPMap") != 0) containerMembers.insert("compare");
-    if (containerTypes.count("CPPPStack") != 0 ||
-        containerTypes.count("CPPPQueue") != 0 ||
-        containerTypes.count("CPPPDeque") != 0) {
-        containerMembers.insert("ctor_vector");
-        containerMembers.insert("ctor_iterator");
-        containerMembers.insert("reserve");
-        containerMembers.insert("push_back");
-    }
     if (resolvedHelpers.count("CPPPInputList") != 0 || resolvedHelpers.count("CPPPInputListLine") != 0) {
-        containerMembers.insert("ctor_vector");
-        containerMembers.insert("ctor_convert");
+        containerMembers.insert("CPPPList.ctor_default");
+        containerMembers.insert("CPPPList.ctor_vector");
+        containerMembers.insert("CPPPList.ctor_convert");
     }
     for (const RuntimeHelper& helper : helpers) {
         if (resolvedHelpers.count(helper.name) == 0) continue;
         if (helper.name == "CPPPPrintValueBase") continue;
+        std::set<std::string> helperTypes;
+        std::set<std::string> helperMembers;
         for (const std::string& line : helper.code) {
-            collectContainerMemberUses(line, containerMembers);
-            if (line.find("CPPPPair<") != std::string::npos) containerTypes.insert("CPPPPair");
-            if (line.find("CPPPList<") != std::string::npos) containerTypes.insert("CPPPList");
-            if (line.find("CPPPStack<") != std::string::npos) containerTypes.insert("CPPPStack");
-            if (line.find("CPPPQueue<") != std::string::npos) containerTypes.insert("CPPPQueue");
-            if (line.find("CPPPDeque<") != std::string::npos) containerTypes.insert("CPPPDeque");
-            if (line.find("CPPPSet<") != std::string::npos) containerTypes.insert("CPPPSet");
-            if (line.find("CPPPMap<") != std::string::npos) containerTypes.insert("CPPPMap");
+            collectContainerMemberUses(line, helperMembers);
+            if (line.find("CPPPPair<") != std::string::npos) helperTypes.insert("CPPPPair");
+            if (line.find("CPPPList<") != std::string::npos) helperTypes.insert("CPPPList");
+            if (line.find("CPPPStack<") != std::string::npos) helperTypes.insert("CPPPStack");
+            if (line.find("CPPPQueue<") != std::string::npos) helperTypes.insert("CPPPQueue");
+            if (line.find("CPPPDeque<") != std::string::npos) helperTypes.insert("CPPPDeque");
+            if (line.find("CPPPSet<") != std::string::npos) helperTypes.insert("CPPPSet");
+            if (line.find("CPPPMap<") != std::string::npos) helperTypes.insert("CPPPMap");
+        }
+        containerTypes.insert(helperTypes.begin(), helperTypes.end());
+        for (const std::string& type : helperTypes) {
+            for (const std::string& line : helper.code) {
+                if (declaresDefaultConstructedContainer(line, type)) {
+                    containerMembers.insert(type + ".ctor_default");
+                    break;
+                }
+            }
+            for (const std::string& member : helperMembers) {
+                containerMembers.insert(type + "." + member);
+            }
         }
     }
     std::vector<std::string> preamble = smartPointerSupport();
