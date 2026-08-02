@@ -97,6 +97,8 @@ bool supportsDefaultComparator(const Type& type) {
         type == PrimitiveType::Char || type == PrimitiveType::Bool) return true;
     if (isListType(type)) return supportsDefaultComparator(type.subtypes[0]);
     if (isPairType(type)) return supportsDefaultComparator(type.subtypes[0]) && supportsDefaultComparator(type.subtypes[1]);
+    if (isSetType(type)) return supportsDefaultComparator(type.subtypes[0]);
+    if (isMapType(type)) return supportsDefaultComparator(type.subtypes[0]) && supportsDefaultComparator(type.subtypes[1]);
     return false;
 }
 

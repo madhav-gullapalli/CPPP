@@ -15,6 +15,16 @@
 #include <memory>
 
 namespace {
+std::string cppStringLiteral(const std::string& text) {
+    std::string result = "\"";
+    for (char character : text) {
+        if (character == '\\' || character == '\"') result += '\\';
+        if (character == '\n') result += "\\n";
+        else result += character;
+    }
+    return result + "\"";
+}
+
 Type builtinFunctionType(const std::string& name) {
     const Type integer = PrimitiveType::Int;
     if (name == "sum") {
@@ -1455,18 +1465,18 @@ private:
             requireContainerMember(expr.inferredType.subtypes[1], "begin_mut");
             requireContainerMember(expr.inferredType.subtypes[1], "end_mut");
             return cppTypeForType(expr.inferredType) +
-                "([](CPPPList<long long> values) { return accumulate(values.begin(), values.end(), 0LL); })";
+                "([](CPPPList<long long> values) { return accumulate(values.begin(), values.end(), 0LL); }, \"builtin:sum\")";
         }
         if ((expr.name == "min" || expr.name == "max") && isFunctionType(expr.inferredType)) {
             requireRuntimeHelper("CPPPFunctionType");
             return cppTypeForType(expr.inferredType) +
                 "([](long long a, long long b, long long c, long long d) { return " + expr.name +
-                "(" + expr.name + "(a, b), " + expr.name + "(c, d)); })";
+                "(" + expr.name + "(a, b), " + expr.name + "(c, d)); }, \"builtin:" + expr.name + "\")";
         }
         if (expr.name == "abs" && isFunctionType(expr.inferredType)) {
             requireRuntimeHelper("CPPPFunctionType");
             return cppTypeForType(expr.inferredType) +
-                "([](long long value) { return abs(value); })";
+                "([](long long value) { return abs(value); }, \"builtin:abs\")";
         }
         return expr.name;
     }
@@ -1703,10 +1713,15 @@ private:
         if (!expr.receiver && expr.partialApplication) {
             requireRuntimeHelper("CPPPFunctionType");
             std::string generated = cppTypeForType(expr.inferredType) + "([__cppp_callable = " + expr.callee;
+            std::string semanticKey = "partial:" + expr.callee + "(";
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                const std::string bound = generate(*expr.arguments[i]);
                 generated += ", ";
-                generated += "__cppp_bound" + std::to_string(i) + " = " + generate(*expr.arguments[i]);
+                generated += "__cppp_bound" + std::to_string(i) + " = " + bound;
+                if (i > 0) semanticKey += ",";
+                semanticKey += bound;
             }
+            semanticKey += ")";
             generated += "](";
             for (size_t i = 1; i < expr.inferredType.subtypes.size(); ++i) {
                 if (i > 1) generated += ", ";
@@ -1723,7 +1738,7 @@ private:
                 if (!expr.arguments.empty() || i > 1) generated += ", ";
                 generated += "__cppp_arg" + std::to_string(i - 1);
             }
-            return generated + "); })";
+            return generated + "); }, " + cppStringLiteral(semanticKey) + ")";
         }
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const std::string receiver = generate(*expr.receiver);

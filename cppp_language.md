@@ -613,16 +613,16 @@ List element is the top; for Queue, the first List element is the top/front.
 
 ### Function values and function types
 
-- Syntax: `int(int, int) operation = add;`, `void() action = run;`
-- What it does: Declares a stack-resident callable value. The type before the parentheses is the return type; the types inside are the parameters. Parameter names and modifiers such as `copy` are not part of a function type.
-- Notes: A declared function or supported built-in function may be assigned to a matching function value, passed as a parameter, stored in a class or struct field, or inferred with `var`. Assignment aliases the same callable. Functions whose only difference is a `copy` parameter modifier have the same function type.
+- Syntax: `int(int, int) operation = add;`, `int(copy List<int>) snapshot = consume;`, `void() action = run;`
+- What it does: Declares a stack-resident callable value. The type before the parentheses is the return type; the types inside are the parameters. `copy` and `deep` are accepted parameter annotations and are erased for signature compatibility.
+- Notes: A declared function or supported built-in function may be assigned to a matching function value, passed as a parameter, stored in a class or struct field, or inferred with `var`. Assignment aliases the same callable. Function-variable annotations do not alter how an indirect call passes its argument.
 - Complexity: O(1) assignment and comparison
 
 ### Calling and partially applying function values
 
 - Syntax: `int result = operation(2, 3);`, `int(int) addFive = add(5);`
 - What it does: Supplying every argument invokes the function. Supplying a valid prefix binds those first arguments and produces a new function over the remaining parameters.
-- Notes: Partial applications are lambda-backed callable values. Aliasing one partial function preserves its identity; independently creating the same partial application creates a different callable. Function values support calls, assignment, `==`, and `!=`; other operators are rejected.
+- Notes: Partial applications are closure-backed callable values. Equality is semantic for generated partials: the same callable with the same bound argument expressions compares equal (for example, `add(5) == add(5)`). Function values support calls, assignment, `==`, and `!=`; other operators are rejected.
 - Complexity: O(1) to create or alias a partial application, plus the cost of copied bound primitive values and the eventual function call
 
 ### Top-level function definition
@@ -750,9 +750,9 @@ List element is the top; for Queue, the first List element is the top/front.
 
 ### Sort in place
 
-- Syntax: `values.sort();`
-- What it does: Sorts a list in place using the default ordering of the element type.
-- Notes: Takes no arguments.
+- Syntax: `values.sort();`, `values.sort(compare)`, `values.sort(default)`, `values.sort(compare(1))`, `values.sort(compare("field"))`
+- What it does: Sorts a list in place using its default order or a `bool(T, T)` comparator.
+- Notes: `default` and `greater` select ascending and descending structural order. `compare(index)` orders nested List or Pair elements by one component; `compare("field")` orders structs by a comparable field.
 - Complexity: O(n log n)
 
 ### Reverse in place
@@ -937,7 +937,7 @@ runtime error.
   print(2 in seen, seen.remove(1));
   ```
 - What it does: Adds, removes, and checks membership of unique sorted values.
-- Notes: `print(seen, delim = ",")` prints the values in sorted order. `min(set)`, `max(set)`, `set.prev(x)`, and `set.next(x)` expose ordered traversal operations.
+- Notes: `Set<T> seen(comparator)` installs an optional `bool(T, T)` ordering comparator; omit it to use structural ascending order. `print(seen, delim = ",")` prints values in that order. `min(set)`, `max(set)`, `set.prev(x)`, and `set.next(x)` expose ordered traversal operations.
 - Complexity: O(log n) add/remove/membership; O(1) min/max; O(log n) prev/next
 
 ### Map operations
@@ -949,7 +949,7 @@ runtime error.
   print(counts[1], counts.at(2), 3 in counts);
   ```
 - What it does: Reads and updates values by sorted keys.
-- Notes: `map[key]` inserts a default value if the key is missing. `map.at(key)` requires an existing key, while `map.remove(key)` returns and removes one. `min(map)`, `max(map)`, `map.prev(key)`, and `map.next(key)` operate on keys.
+- Notes: `Map<K, V> counts(comparator)` installs an optional `bool(K, K)` key comparator; omit it to use structural ascending order. `map[key]` inserts a default value if the key is missing. `map.at(key)` requires an existing key, while `map.remove(key)` returns and removes one. `min(map)`, `max(map)`, `map.prev(key)`, and `map.next(key)` operate on keys.
 - Complexity: O(log n) access, update, membership, remove, prev, and next; O(1) min/max
 
 ### Pair access and map iteration

@@ -2062,11 +2062,9 @@ ParsedTypeResult parseDeclaredTypeTokens(
                     result.ok = false;
                     return result;
                 }
-                if (tokens[index].kind == TokenKind::Identifier && tokens[index].text == "copy") {
-                    recordSourceError(inputFile, lineNumber, tokens[index].span.startColumn,
-                        "function variable types contain only parameter types, not 'copy'", sourceLines);
-                    result.ok = false;
-                    return result;
+                if (tokens[index].kind == TokenKind::Identifier &&
+                    (tokens[index].text == "copy" || tokens[index].text == "deep")) {
+                    ++index;
                 }
                 const ParsedTypeResult parameter = parseDeclaredTypeTokens(
                     inputFile, lineNumber, tokens, index, sourceLines, false);

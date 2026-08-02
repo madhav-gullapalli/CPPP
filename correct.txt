@@ -3771,17 +3771,30 @@ free function comparison output
     1 0
 
 partial function comparison output
-  Aliases of one partial function compare equal, while separate lambdas have distinct identities.
+  Function equality compares partial applications by their callable and bound arguments, not allocation identity.
 
   Example:
     int add(int left, int right){ return left + right; }
     int(int) first = add(5);
     var alias = first;
     int(int) separate = add(5);
-    print(first == alias, first != separate);
+    print(first == alias, first == separate, first != separate);
 
   Output:
-    1 1
+    1 1 0
+
+function variable parameter modifiers output
+  `copy` and `deep` may annotate function-value parameter types and do not change signature compatibility.
+
+  Example:
+    int consume(copy List<int> values){ values.add(9); return len(values); }
+    int(copy List<int>) copyMarked = consume;
+    int(deep List<int>) deepMarked = consume;
+    List<int> values = [1, 2];
+    print(copyMarked(values), deepMarked(values), len(values));
+
+  Output:
+    3 4 4
 
 copy parameter function conversion output
   Function types erase copy from the signature; indirect calls therefore use ordinary aliasing.

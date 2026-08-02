@@ -4416,15 +4416,6 @@ ordinary value cannot initialize zero-parameter function
   Diagnostic:
     error: cannot implicitly convert int to int()
 
-function type cannot contain copy modifier
-  Function value types contain only return and parameter types; copy belongs to a function declaration.
-
-  Example:
-    int(copy List<int>) operation;
-
-  Diagnostic:
-    error: function variable types contain only parameter types, not 'copy'
-
 Comparators
 -----------
 
@@ -4520,14 +4511,6 @@ compare index requires nested Lists or Pairs
   Diagnostic:
     error: compare(index) can only order Lists or Pairs
 
-compare cannot order Set elements
-  Example:
-    List<Set<int>> values = [{1}];
-    values.sort(compare(0));
-
-  Diagnostic:
-    error: compare(index) cannot compare elements of type Set<int>
-
 Pair compare index is bounded
   Example:
     List<Pair<int, char>> values = [(1, 'a')];
@@ -4598,13 +4581,6 @@ Map compare field requires struct keys
 
   Diagnostic:
     error: compare(field) can only order a List of structs
-
-Set compare cannot order Set elements
-  Example:
-    Set<Set<int>> values(compare(0));
-
-  Diagnostic:
-    error: compare(index) cannot compare elements of type Set<int>
 
 Map Pair compare index is bounded
   Example:
