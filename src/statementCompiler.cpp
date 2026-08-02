@@ -100,6 +100,7 @@ bool isBuiltinCallName(const std::string& name) {
 
 bool isUnsupportedBareCallStatement(
     const std::vector<Token>& tokens,
+    const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
     const std::map<std::string, std::map<std::string, Type>>& declaredStructs
 ) {
@@ -111,7 +112,9 @@ bool isUnsupportedBareCallStatement(
         return false;
     }
 
-    return declaredFunctions.count(tokens[0].text) == 0 &&
+    const auto variable = declaredVariables.find(tokens[0].text);
+    return (variable == declaredVariables.end() || !isFunctionType(variable->second)) &&
+        declaredFunctions.count(tokens[0].text) == 0 &&
         declaredStructs.count(tokens[0].text) == 0 &&
         !isBuiltinCallName(tokens[0].text);
 }
@@ -124,6 +127,11 @@ bool recordContextualStatementSuggestion(
     if (tokens.empty() ||
         tokens[0].kind != TokenKind::Identifier ||
         !tokens[0].sourceSpan.valid()) {
+        return false;
+    }
+
+    const auto functionVariable = context.declaredVariables.find(tokens[0].text);
+    if (functionVariable != context.declaredVariables.end() && isFunctionType(functionVariable->second)) {
         return false;
     }
 
@@ -1541,6 +1549,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
 
         if (isUnsupportedBareCallStatement(
                 statementTokens,
+                context.declaredVariables,
                 context.declaredFunctions,
                 context.declaredStructs)) {
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unsupported statement", context.sourceLines);
