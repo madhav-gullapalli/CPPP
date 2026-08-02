@@ -614,15 +614,15 @@ List element is the top; for Queue, the first List element is the top/front.
 ### Function values and function types
 
 - Syntax: `int(int, int) operation = add;`, `int(copy List<int>) snapshot = consume;`, `void() action = run;`
-- What it does: Declares a stack-resident callable value. The type before the parentheses is the return type; the types inside are the parameters. `copy` and `deep` are accepted parameter annotations and are erased for signature compatibility.
-- Notes: A declared function or supported built-in function may be assigned to a matching function value, passed as a parameter, stored in a class or struct field, or inferred with `var`. Assignment aliases the same callable. Function-variable annotations do not alter how an indirect call passes its argument.
+- What it does: Declares a stack-resident callable value. The type before the parentheses is the return type; the types inside are the parameters. `copy` and `deep` mark a reference parameter as independently copied when this function value is called.
+- Notes: A declared function or supported built-in function may be assigned to a matching function value, passed as a parameter, stored in a class or struct field, or inferred with `var`. Assignment aliases the same callable. Parameter copy modes are part of function-value compatibility, so `int(copy List<int>)` and `int(List<int>)` are distinct types.
 - Complexity: O(1) assignment and comparison
 
 ### Calling and partially applying function values
 
 - Syntax: `int result = operation(2, 3);`, `int(int) addFive = add(5);`
 - What it does: Supplying every argument invokes the function. Supplying a valid prefix binds those first arguments and produces a new function over the remaining parameters.
-- Notes: Partial applications are closure-backed callable values. Equality is semantic for generated partials: the same callable with the same bound argument expressions compares equal (for example, `add(5) == add(5)`). Function values support calls, assignment, `==`, and `!=`; other operators are rejected.
+- Notes: Partial applications are closure-backed callable values. Equality recursively compares the stored callable and every bound argument, so independently created equivalent closures compare equal (for example, `add(5) == add(5)`). Function values support calls, assignment, `==`, and `!=`; other operators are rejected.
 - Complexity: O(1) to create or alias a partial application, plus the cost of copied bound primitive values and the eventual function call
 
 ### Top-level function definition

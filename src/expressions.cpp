@@ -203,6 +203,7 @@ std::string cpppTypeName(const Type& type) {
             std::string result = cpppTypeName(type.subtypes[0]) + "(";
             for (size_t i = 1; i < type.subtypes.size(); ++i) {
                 if (i > 1) result += ", ";
+                if (i - 1 < type.functionParameterCopy.size() && type.functionParameterCopy[i - 1]) result += "copy ";
                 result += cpppTypeName(type.subtypes[i]);
             }
             return result + ")";
@@ -266,8 +267,14 @@ bool isFunctionType(const Type& type) {
 
 Type functionTypeForSignature(const FunctionSignature& signature) {
     std::vector<Type> parts = {signature.returnsVoid ? Type(PrimitiveType::Void) : signature.returnType};
-    for (const FunctionParameter& parameter : signature.parameters) parts.push_back(parameter.type);
-    return Type(PrimitiveType::Function, std::move(parts));
+    std::vector<bool> copies;
+    for (const FunctionParameter& parameter : signature.parameters) {
+        parts.push_back(parameter.type);
+        copies.push_back(parameter.copyParameter);
+    }
+    Type result(PrimitiveType::Function, std::move(parts));
+    result.functionParameterCopy = std::move(copies);
+    return result;
 }
 
 bool isStructType(const Type& type) {

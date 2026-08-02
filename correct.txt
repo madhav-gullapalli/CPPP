@@ -3784,7 +3784,7 @@ partial function comparison output
     1 1 0
 
 function variable parameter modifiers output
-  `copy` and `deep` may annotate function-value parameter types and do not change signature compatibility.
+  `copy` and `deep` may annotate function-value parameter types and deep-copy arguments at indirect calls.
 
   Example:
     int consume(copy List<int> values){ values.add(9); return len(values); }
@@ -3794,21 +3794,7 @@ function variable parameter modifiers output
     print(copyMarked(values), deepMarked(values), len(values));
 
   Output:
-    3 4 4
-
-copy parameter function conversion output
-  Function types erase copy from the signature; indirect calls therefore use ordinary aliasing.
-
-  Example:
-    int consume(copy List<int> values){ values.add(9); return len(values); }
-    List<int> values = [1, 2];
-    print(consume(values), len(values));
-    int(List<int>) indirect = consume;
-    print(indirect(values), len(values));
-
-  Output:
-    3 2
-    3 3
+    3 3 2
 
 generic binary search with function parameter output
   A binary search can accept interchangeable predicate functions.

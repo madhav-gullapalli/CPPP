@@ -11,6 +11,7 @@
 #include "errors.h"
 #include "tokenizer.h"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <set>
@@ -42,6 +43,9 @@ enum class PrimitiveType {
 struct Type {
     PrimitiveType primitive = PrimitiveType::Unknown;
     std::vector<Type> subtypes;
+    // Function parameter modes, one entry per subtype after the return type.
+    // A true entry means calls through this function value deep-copy that argument.
+    std::vector<bool> functionParameterCopy;
     std::string name;
 
     Type() = default;
@@ -55,7 +59,17 @@ struct Type {
 };
 
 inline bool operator==(const Type& left, const Type& right) {
-    return left.primitive == right.primitive && left.subtypes == right.subtypes && left.name == right.name;
+    bool functionModesEqual = true;
+    if (left.primitive == PrimitiveType::Function && right.primitive == PrimitiveType::Function) {
+        const size_t count = std::max(left.functionParameterCopy.size(), right.functionParameterCopy.size());
+        for (size_t i = 0; i < count; ++i) {
+            const bool leftCopy = i < left.functionParameterCopy.size() && left.functionParameterCopy[i];
+            const bool rightCopy = i < right.functionParameterCopy.size() && right.functionParameterCopy[i];
+            if (leftCopy != rightCopy) { functionModesEqual = false; break; }
+        }
+    }
+    return left.primitive == right.primitive && left.subtypes == right.subtypes &&
+        functionModesEqual && left.name == right.name;
 }
 
 inline bool operator!=(const Type& left, const Type& right) {

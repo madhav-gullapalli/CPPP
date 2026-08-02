@@ -128,6 +128,7 @@ struct CastExpr : Expr {
 // CallExpr implements the CallExpr behavior for the exprAst.h module.
 struct CallExpr : Expr {
     std::string callee;
+    Type functionType;
     std::unique_ptr<Expr> receiver;
     std::vector<std::unique_ptr<Expr>> arguments;
     bool partialApplication = false;

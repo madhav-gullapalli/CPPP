@@ -4416,6 +4416,16 @@ ordinary value cannot initialize zero-parameter function
   Diagnostic:
     error: cannot implicitly convert int to int()
 
+function variable copy mode mismatch
+  A function value must preserve whether a reference parameter is copied.
+
+  Example:
+    int consume(copy List<int> values){ return len(values); }
+    int(List<int>) indirect = consume;
+
+  Diagnostic:
+    error: cannot implicitly convert int(copy List<int>) to int(List<int>)
+
 Comparators
 -----------
 

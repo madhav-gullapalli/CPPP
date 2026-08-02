@@ -15,16 +15,6 @@
 #include <memory>
 
 namespace {
-std::string cppStringLiteral(const std::string& text) {
-    std::string result = "\"";
-    for (char character : text) {
-        if (character == '\\' || character == '\"') result += '\\';
-        if (character == '\n') result += "\\n";
-        else result += character;
-    }
-    return result + "\"";
-}
-
 Type builtinFunctionType(const std::string& name) {
     const Type integer = PrimitiveType::Int;
     if (name == "sum") {
@@ -728,6 +718,7 @@ private:
             const auto variable = declaredVariables.find(expr.callee);
             if (variable != declaredVariables.end() && isFunctionType(variable->second)) {
                 const Type& functionType = variable->second;
+                expr.functionType = functionType;
                 const size_t parameterCount = functionType.subtypes.size() - 1;
                 if (expr.arguments.size() > parameterCount) {
                     report(expr.sourceColumn, expr.callee + " expects " + std::to_string(parameterCount) + " arguments, got " + std::to_string(expr.arguments.size()));
@@ -744,6 +735,12 @@ private:
                     std::vector<Type> remaining = {functionType.subtypes[0]};
                     remaining.insert(remaining.end(), functionType.subtypes.begin() + 1 + expr.arguments.size(), functionType.subtypes.end());
                     expr.inferredType = Type(PrimitiveType::Function, std::move(remaining));
+                    if (functionType.functionParameterCopy.size() > expr.arguments.size()) {
+                        expr.inferredType.functionParameterCopy.assign(
+                            functionType.functionParameterCopy.begin() + expr.arguments.size(),
+                            functionType.functionParameterCopy.end()
+                        );
+                    }
                     expr.partialApplication = true;
                 } else {
                     expr.inferredType = functionType.subtypes[0];
@@ -831,6 +828,7 @@ private:
             const auto functionField = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.callee);
             if (fields != nullptr && functionField != fields->end() && isFunctionType(functionField->second)) {
                 const Type& functionType = functionField->second;
+                expr.functionType = functionType;
                 const size_t parameterCount = functionType.subtypes.size() - 1;
                 if (expr.arguments.size() != parameterCount) {
                     report(expr.sourceColumn, expr.callee + " expects " + std::to_string(parameterCount) + " arguments");
@@ -1202,6 +1200,9 @@ private:
                 std::vector<Type> remaining = {signature.returnsVoid ? Type(PrimitiveType::Void) : signature.returnType};
                 for (size_t i = expr.arguments.size(); i < signature.parameters.size(); ++i) remaining.push_back(signature.parameters[i].type);
                 expr.inferredType = Type(PrimitiveType::Function, std::move(remaining));
+                for (size_t i = expr.arguments.size(); i < signature.parameters.size(); ++i) {
+                    expr.inferredType.functionParameterCopy.push_back(signature.parameters[i].copyParameter);
+                }
                 expr.partialApplication = true;
             } else {
                 expr.inferredType = signature.returnsVoid ? PrimitiveType::Void : signature.returnType;
@@ -1465,18 +1466,18 @@ private:
             requireContainerMember(expr.inferredType.subtypes[1], "begin_mut");
             requireContainerMember(expr.inferredType.subtypes[1], "end_mut");
             return cppTypeForType(expr.inferredType) +
-                "([](CPPPList<long long> values) { return accumulate(values.begin(), values.end(), 0LL); }, \"builtin:sum\")";
+                "([](CPPPList<long long> values) { return accumulate(values.begin(), values.end(), 0LL); })";
         }
         if ((expr.name == "min" || expr.name == "max") && isFunctionType(expr.inferredType)) {
             requireRuntimeHelper("CPPPFunctionType");
             return cppTypeForType(expr.inferredType) +
                 "([](long long a, long long b, long long c, long long d) { return " + expr.name +
-                "(" + expr.name + "(a, b), " + expr.name + "(c, d)); }, \"builtin:" + expr.name + "\")";
+                "(" + expr.name + "(a, b), " + expr.name + "(c, d)); })";
         }
         if (expr.name == "abs" && isFunctionType(expr.inferredType)) {
             requireRuntimeHelper("CPPPFunctionType");
             return cppTypeForType(expr.inferredType) +
-                "([](long long value) { return abs(value); }, \"builtin:abs\")";
+                "([](long long value) { return abs(value); })";
         }
         return expr.name;
     }
@@ -1705,23 +1706,42 @@ private:
                 std::string call = "(" + receiver + ")" + (isClassType(expr.receiver->inferredType) ? "->" : ".") + expr.callee + "(";
                 for (size_t i = 0; i < expr.arguments.size(); ++i) {
                     if (i > 0) call += ", ";
-                    call += generate(*expr.arguments[i]);
+                    std::string argument = generate(*expr.arguments[i]);
+                    if (i < field->second.functionParameterCopy.size() &&
+                        field->second.functionParameterCopy[i]) {
+                        requireCopyHelpersForType(field->second.subtypes[i + 1]);
+                        argument = "CPPPCopy(" + argument + ")";
+                    }
+                    call += argument;
                 }
                 return call + ")";
             }
         }
         if (!expr.receiver && expr.partialApplication) {
             requireRuntimeHelper("CPPPFunctionType");
-            std::string generated = cppTypeForType(expr.inferredType) + "([__cppp_callable = " + expr.callee;
-            std::string semanticKey = "partial:" + expr.callee + "(";
+            std::string generated = "([&]() { auto __cppp_callable = " + expr.callee + ";";
+            std::vector<std::string> stateTypes = {"decltype(__cppp_callable)"};
+            std::vector<std::string> stateValues = {"__cppp_callable"};
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
-                const std::string bound = generate(*expr.arguments[i]);
-                generated += ", ";
-                generated += "__cppp_bound" + std::to_string(i) + " = " + bound;
-                if (i > 0) semanticKey += ",";
-                semanticKey += bound;
+                std::string bound = generate(*expr.arguments[i]);
+                const auto function = declaredFunctions.find(expr.callee);
+                const bool copyBound =
+                    (isFunctionType(expr.functionType) && i < expr.functionType.functionParameterCopy.size() && expr.functionType.functionParameterCopy[i]) ||
+                    (function != declaredFunctions.end() && function->second.parameters[i].copyParameter);
+                if (copyBound) {
+                    const Type& parameterType = function != declaredFunctions.end()
+                        ? function->second.parameters[i].type
+                        : expr.functionType.subtypes[i + 1];
+                    requireCopyHelpersForType(parameterType);
+                    bound = "CPPPCopy(" + bound + ")";
+                }
+                const std::string boundName = "__cppp_bound" + std::to_string(i);
+                generated += " auto " + boundName + " = " + bound + ";";
+                stateTypes.push_back("decltype(" + boundName + ")");
+                stateValues.push_back(boundName);
             }
-            semanticKey += ")";
+            generated += " return " + cppTypeForType(expr.inferredType) + "([__cppp_callable";
+            for (size_t i = 0; i < expr.arguments.size(); ++i) generated += ", __cppp_bound" + std::to_string(i);
             generated += "](";
             for (size_t i = 1; i < expr.inferredType.subtypes.size(); ++i) {
                 if (i > 1) generated += ", ";
@@ -1738,7 +1758,17 @@ private:
                 if (!expr.arguments.empty() || i > 1) generated += ", ";
                 generated += "__cppp_arg" + std::to_string(i - 1);
             }
-            return generated + "); }, " + cppStringLiteral(semanticKey) + ")";
+            generated += "); }, new CPPPPartialClosureState<";
+            for (size_t i = 0; i < stateTypes.size(); ++i) {
+                if (i > 0) generated += ", ";
+                generated += stateTypes[i];
+            }
+            generated += ">(";
+            for (size_t i = 0; i < stateValues.size(); ++i) {
+                if (i > 0) generated += ", ";
+                generated += stateValues[i];
+            }
+            return generated + ")); }())";
         }
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const std::string receiver = generate(*expr.receiver);
@@ -2075,6 +2105,11 @@ private:
                     requireCopyHelpersForType(function->second.parameters[i].type);
                     argument = "CPPPCopy(" + argument + ")";
                 }
+            } else if (isFunctionType(expr.functionType) &&
+                       i < expr.functionType.functionParameterCopy.size() &&
+                       expr.functionType.functionParameterCopy[i]) {
+                requireCopyHelpersForType(expr.functionType.subtypes[i + 1]);
+                argument = "CPPPCopy(" + argument + ")";
             }
             generated += argument;
         }

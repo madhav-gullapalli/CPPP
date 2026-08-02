@@ -2053,6 +2053,7 @@ ParsedTypeResult parseDeclaredTypeTokens(
         result.nextTokenIndex < tokens.size() &&
         tokens[result.nextTokenIndex].kind == TokenKind::LeftParen) {
         std::vector<Type> functionParts = {result.type};
+        std::vector<bool> functionCopies;
         size_t index = result.nextTokenIndex + 1;
         if (index < tokens.size() && tokens[index].kind != TokenKind::RightParen) {
             while (true) {
@@ -2062,8 +2063,10 @@ ParsedTypeResult parseDeclaredTypeTokens(
                     result.ok = false;
                     return result;
                 }
+                bool copyParameter = false;
                 if (tokens[index].kind == TokenKind::Identifier &&
                     (tokens[index].text == "copy" || tokens[index].text == "deep")) {
+                    copyParameter = true;
                     ++index;
                 }
                 const ParsedTypeResult parameter = parseDeclaredTypeTokens(
@@ -2075,6 +2078,7 @@ ParsedTypeResult parseDeclaredTypeTokens(
                     return result;
                 }
                 functionParts.push_back(parameter.type);
+                functionCopies.push_back(copyParameter);
                 index = parameter.nextTokenIndex;
                 if (index >= tokens.size() || tokens[index].kind != TokenKind::Comma) break;
                 ++index;
@@ -2087,6 +2091,7 @@ ParsedTypeResult parseDeclaredTypeTokens(
             return result;
         }
         result.type = Type(PrimitiveType::Function, std::move(functionParts));
+        result.type.functionParameterCopy = std::move(functionCopies);
         result.name = cpppTypeName(result.type);
         result.nextTokenIndex = index + 1;
     }
