@@ -115,6 +115,7 @@
   "function_argument_parameter_count_mismatch": "error: use expected parameters of int(int) type got int(int, int)\n --> <source>:3:1\n  |\n3 | use(add);\n  | ^~~",
   "function_argument_parameter_type_mismatch": "error: use expected parameters of int(int, float) type got int(int, int)\n --> <source>:3:1\n  |\n3 | use(add);\n  | ^~~",
   "function_argument_return_type_mismatch": "error: use expected parameters of float(int, int) type got int(int, int)\n --> <source>:3:1\n  |\n3 | use(add);\n  | ^~~",
+  "function_variable_copy_mode_mismatch": "error: cannot implicitly convert int(copy List<int>) to int(List<int>)\n --> <source>:2:27\n  |\n2 | int(List<int>) indirect = consume;\n  |                           ^~~~~~~",
   "function_variable_parameter_count_mismatch": "error: cannot implicitly convert int(int, int) to int(int)\n --> <source>:3:22\n  |\n3 | int(int) operation = source;\n  |                      ^~~~~~",
   "function_variable_parameter_type_mismatch": "error: cannot implicitly convert int(int, int) to int(int, float)\n --> <source>:3:29\n  |\n3 | int(int, float) operation = source;\n  |                             ^~~~~~",
   "function_variable_return_type_mismatch": "error: cannot implicitly convert int(int, int) to float(int, int)\n --> <source>:3:29\n  |\n3 | float(int, int) operation = source;\n  |                             ^~~~~~",
