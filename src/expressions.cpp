@@ -142,6 +142,7 @@ int primitiveArity(PrimitiveType primitive) {
         case PrimitiveType::Map:
         case PrimitiveType::Pair:
             return 2;
+        case PrimitiveType::Function:
         case PrimitiveType::Struct:
         case PrimitiveType::Class:
             return 0;
@@ -197,6 +198,15 @@ std::string cpppTypeName(const Type& type) {
                 return "Pair<" + cpppTypeName(type.subtypes[0]) + ", " + cpppTypeName(type.subtypes[1]) + ">";
             }
             return "Pair";
+        case PrimitiveType::Function: {
+            if (type.subtypes.empty()) return "function";
+            std::string result = cpppTypeName(type.subtypes[0]) + "(";
+            for (size_t i = 1; i < type.subtypes.size(); ++i) {
+                if (i > 1) result += ", ";
+                result += cpppTypeName(type.subtypes[i]);
+            }
+            return result + ")";
+        }
         case PrimitiveType::Struct:
         case PrimitiveType::Class:
             return type.name;
@@ -248,6 +258,16 @@ bool isMapType(const Type& type) {
 
 bool isPairType(const Type& type) {
     return type.primitive == PrimitiveType::Pair && type.subtypes.size() == 2;
+}
+
+bool isFunctionType(const Type& type) {
+    return type.primitive == PrimitiveType::Function && !type.subtypes.empty();
+}
+
+Type functionTypeForSignature(const FunctionSignature& signature) {
+    std::vector<Type> parts = {signature.returnsVoid ? Type(PrimitiveType::Void) : signature.returnType};
+    for (const FunctionParameter& parameter : signature.parameters) parts.push_back(parameter.type);
+    return Type(PrimitiveType::Function, std::move(parts));
 }
 
 bool isStructType(const Type& type) {
@@ -462,6 +482,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
                     return "(!(" + expression + ").empty())";
                 case PrimitiveType::Pair:
                     return expression;
+                case PrimitiveType::Function:
+                    return expression;
                 case PrimitiveType::Struct:
                     return expression;
                 case PrimitiveType::Class:
@@ -552,6 +574,8 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
             }
             return expression;
         case PrimitiveType::Range:
+            return expression;
+        case PrimitiveType::Function:
             return expression;
         case PrimitiveType::Struct:
         case PrimitiveType::Class:
@@ -852,6 +876,7 @@ std::string inputFunctionForType(const Type& type) {
         case PrimitiveType::Deque:
         case PrimitiveType::Set:
         case PrimitiveType::Map:
+        case PrimitiveType::Function:
         case PrimitiveType::Unknown:
             return "";
         case PrimitiveType::Pair:

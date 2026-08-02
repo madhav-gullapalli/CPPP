@@ -3628,3 +3628,422 @@ List string size initializer output
 
   Output:
     1 3
+
+Function variables
+------------------
+
+declare function variables
+  Function types contain a return type followed by parameter types.
+
+  Example:
+    int(int) operation;
+    void() callback;
+
+higher order function output
+  Function values may be passed to and called by another function.
+
+  Example:
+    int answer(){ return 42; }
+    int invoke(int() operation){ return operation(); }
+    int() operation = answer;
+    print(invoke(operation));
+
+  Output:
+    42
+
+built-in function variables output
+  Built-in sum and four-argument min functions may be stored as function values.
+
+  Example:
+    int(List<int>) total = sum;
+    int(int, int, int, int) minimum = min;
+    List<int> values = [1, 2, 3];
+    print(total(values), minimum(9, 2, 7, 4));
+
+  Output:
+    6 2
+
+custom function variable output
+  A declared CP++ function may initialize a matching function variable.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) operation = add;
+    print(operation(3, 4));
+
+  Output:
+    7
+
+function variable alias output
+  Assigning a function variable aliases the same callable identity.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) first = add;
+    var second = first;
+    print(first == second, second(3, 4));
+
+  Output:
+    1 7
+
+function variable evaluation output
+  Supplying every parameter evaluates a function variable normally.
+
+  Example:
+    int multiply(int left, int right){ return left * right; }
+    int(int, int) operation = multiply;
+    int value = operation(3, 4);
+    print(value);
+
+  Output:
+    12
+
+function variable partial application output
+  Supplying a prefix of a function variable's parameters returns a function for the remainder.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) operation = add;
+    int(int) addFive = operation(5);
+    print(addFive(3));
+
+  Output:
+    8
+
+free function partial application output
+  Normal declared functions support the same prefix partial application.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int) addFive = add(5);
+    print(addFive(3));
+
+  Output:
+    8
+
+var infers function reference output
+  var infers a complete function type from a declared function reference.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    var operation = add;
+    print(operation(3, 4));
+
+  Output:
+    7
+
+var infers partial function output
+  var infers the remaining function type produced by partial application.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    var addFive = add(5);
+    print(addFive(3));
+
+  Output:
+    8
+
+struct function field output
+  Structs may store and invoke function values as fields.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    struct Calculator {
+        int(int, int) operation;
+        int apply(int left, int right){ return operation(left, right); }
+    }
+    Calculator calculator = Calculator(add);
+    print(calculator.apply(3, 4));
+
+  Output:
+    7
+
+free function comparison output
+  Wrappers referring to the same free function compare equal.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) first = add;
+    int(int, int) second = add;
+    print(first == second, first != second);
+
+  Output:
+    1 0
+
+partial function comparison output
+  Aliases of one partial function compare equal, while separate lambdas have distinct identities.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int) first = add(5);
+    var alias = first;
+    int(int) separate = add(5);
+    print(first == alias, first != separate);
+
+  Output:
+    1 1
+
+copy parameter function conversion output
+  Function types erase copy from the signature; indirect calls therefore use ordinary aliasing.
+
+  Example:
+    int consume(copy List<int> values){ values.add(9); return len(values); }
+    List<int> values = [1, 2];
+    print(consume(values), len(values));
+    int(List<int>) indirect = consume;
+    print(indirect(values), len(values));
+
+  Output:
+    3 2
+    3 3
+
+generic binary search with function parameter output
+  A binary search can accept interchangeable predicate functions.
+
+  Example:
+    int firstFind(int low, int high, bool(int) check){
+        while (low < high) {
+            int middle = low + (high - low) / 2;
+            if (check(middle)) { high = middle; } else { low = middle + 1; }
+        }
+        return low;
+    }
+    bool atLeastFive(int value){ return value >= 5; }
+    bool atLeastTen(int value){ return value >= 10; }
+    bool atLeast(int threshold, int value){ return value >= threshold; }
+    bool(int) atLeastTwelve = atLeast(12);
+    print(firstFind(0, 20, atLeastFive), firstFind(0, 20, atLeastTen), firstFind(0, 20, atLeastTwelve));
+
+  Output:
+    5 10 12
+
+generic segment tree function field output
+  A segment tree class can store its combine operation as a function field.
+
+  Example:
+    int larger(int left, int right){ return max(left, right); }
+    class SegTree {
+        List<int> backing;
+        int(int, int) operation;
+        int sentinel;
+        void add(int value, int position){
+            position += len(backing) / 2;
+            backing[position] = value;
+            while (position > 1) {
+                position /= 2;
+                backing[position] = operation(backing[position * 2], backing[position * 2 + 1]);
+            }
+        }
+        int query(int left, int right){
+            int result = sentinel;
+            left += len(backing) / 2;
+            right += len(backing) / 2;
+            while (left < right) {
+                if (left % 2 == 1) { result = operation(result, backing[left]); left++; }
+                if (right % 2 == 1) { right--; result = operation(result, backing[right]); }
+                left /= 2;
+                right /= 2;
+            }
+            return result;
+        }
+    }
+    List<int> storage(8);
+    SegTree tree = SegTree(storage, larger, -1000000);
+    tree.add(3, 0);
+    tree.add(8, 1);
+    tree.add(5, 2);
+    tree.add(2, 3);
+    print(tree.query(0, 4), tree.query(2, 4));
+
+  Output:
+    8 5
+
+Comparators
+-----------
+
+sort comparator of ints
+  A bool(int, int) function can set List sort order.
+
+  Example:
+    bool down(int a, int b){ return a > b; }
+    List<int> values = [2, 3, 1];
+    values.sort(down);
+    print(values);
+
+  Output:
+    [3, 2, 1]
+
+sort comparator with structs
+  Comparators can order custom struct values.
+
+  Example:
+    struct Point { int x; }
+    bool byX(Point a, Point b){ return a.x < b.x; }
+    List<Point> values = [Point(3), Point(1)];
+    values.sort(byX);
+    print(values);
+
+  Output:
+    [{x: 1}, {x: 3}]
+
+Set comparator of ints
+  A Set constructor accepts an optional comparator.
+
+  Example:
+    bool down(int a, int b){ return a > b; }
+    Set<int> values(down);
+    values.add(1); values.add(3); values.add(2);
+    print(values);
+
+  Output:
+    {3, 2, 1}
+
+Set comparator with structs
+  A custom comparator makes struct values usable as Set keys.
+
+  Example:
+    struct Point { int x; }
+    bool byX(Point a, Point b){ return a.x < b.x; }
+    Set<Point> values(byX);
+    values.add(Point(2)); values.add(Point(1));
+    print(values);
+
+  Output:
+    {{x: 1}, {x: 2}}
+
+Map comparator of ints
+  A Map constructor orders keys with its optional comparator.
+
+  Example:
+    bool down(int a, int b){ return a > b; }
+    Map<int, int> values(down);
+    values[1] = 10; values[2] = 20;
+    print(values);
+
+  Output:
+    {2:20, 1:10}
+
+Map comparator with structs
+  Custom struct keys work with a custom Map comparator.
+
+  Example:
+    struct Point { int x; }
+    bool byX(Point a, Point b){ return a.x < b.x; }
+    Map<Point, int> values(byX);
+    values[Point(2)] = 20; values[Point(1)] = 10;
+    print(values);
+
+  Output:
+    {{x: 1}:10, {x: 2}:20}
+
+sort with default comparator
+  default explicitly uses normal ascending order.
+
+  Example:
+    List<int> values = [2, 1];
+    values.sort(default);
+    print(values);
+
+  Output:
+    [1, 2]
+
+sort with greater comparator
+  greater explicitly uses descending order.
+
+  Example:
+    List<int> values = [2, 1];
+    values.sort(greater);
+    print(values);
+
+  Output:
+    [2, 1]
+
+sort lists with compare(index)
+  compare(index) orders List values by that element.
+
+  Example:
+    List<List<int>> values = [[2, 4], [1, 3]];
+    values.sort(compare(1));
+    print(values);
+
+  Output:
+    [[1, 3], [2, 4]]
+
+sort pairs with compare(index)
+  compare(index) also selects a Pair component.
+
+  Example:
+    List<Pair<int, int>> values = [(2, 4), (1, 3)];
+    values.sort(compare(1));
+    print(values);
+
+  Output:
+    [(1,3), (2,4)]
+
+sort structs with compare(field)
+  compare("field") orders structs by a comparable field.
+
+  Example:
+    struct Point { int x; }
+    List<Point> values = [Point(2), Point(1)];
+    values.sort(compare("x"));
+    print(values);
+
+  Output:
+    [{x: 1}, {x: 2}]
+
+Set default comparator
+  default works in a Set constructor.
+
+  Example:
+    Set<int> values(default);
+    values.add(2); values.add(1);
+    print(values);
+
+  Output:
+    {1, 2}
+
+Set greater comparator
+  greater works in a Set constructor.
+
+  Example:
+    Set<int> values(greater);
+    values.add(2); values.add(1);
+    print(values);
+
+  Output:
+    {2, 1}
+
+Set compare(index)
+  compare(index) orders List keys in a Set.
+
+  Example:
+    Set<List<int>> values(compare(1));
+    values.add([2, 4]); values.add([1, 3]);
+    print(values);
+
+  Output:
+    {[1, 3], [2, 4]}
+
+Map compare(index)
+  compare(index) orders Pair keys in a Map.
+
+  Example:
+    Map<Pair<int, int>, int> values(compare(1));
+    values[(2, 4)] = 4; values[(1, 3)] = 3;
+    print(values);
+
+  Output:
+    {(1,3):3, (2,4):4}
+
+Map compare(field)
+  compare(field) orders struct keys in a Map.
+
+  Example:
+    struct Point { int x; }
+    Map<Point, int> values(compare("x"));
+    values[Point(2)] = 2; values[Point(1)] = 1;
+    print(values);
+
+  Output:
+    {{x: 1}:1, {x: 2}:2}

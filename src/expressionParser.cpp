@@ -15,6 +15,20 @@
 #include <memory>
 
 namespace {
+Type builtinFunctionType(const std::string& name) {
+    const Type integer = PrimitiveType::Int;
+    if (name == "sum") {
+        return Type(PrimitiveType::Function, {integer, Type(PrimitiveType::List, {integer})});
+    }
+    if (name == "min" || name == "max") {
+        return Type(PrimitiveType::Function, {integer, integer, integer, integer, integer});
+    }
+    if (name == "abs") {
+        return Type(PrimitiveType::Function, {integer, integer});
+    }
+    return PrimitiveType::Unknown;
+}
+
 // cppTypeForExpressionType implements the cppTypeForExpressionType behavior for the expressionParser.cpp module.
 std::string cppTypeForExpressionType(const Type& type) {
     switch (type.primitive) {
@@ -62,6 +76,8 @@ std::string cppTypeForExpressionType(const Type& type) {
                 return "CPPPPair<" + cppTypeForExpressionType(type.subtypes[0]) + ", " + cppTypeForExpressionType(type.subtypes[1]) + ">";
             }
             return "";
+        case PrimitiveType::Function:
+            return cppTypeForType(type);
         case PrimitiveType::Struct:
             return type.name;
         case PrimitiveType::Class:
@@ -405,6 +421,18 @@ private:
     bool analyzeVariable(VariableExpr& expr) {
         const auto variable = declaredVariables.find(expr.name);
         if (variable == declaredVariables.end()) {
+            const auto function = declaredFunctions.find(expr.name);
+            if (function != declaredFunctions.end()) {
+                expr.inferredType = functionTypeForSignature(function->second);
+                expr.mutableValue = false;
+                return true;
+            }
+            const Type builtinType = builtinFunctionType(expr.name);
+            if (isFunctionType(builtinType)) {
+                expr.inferredType = builtinType;
+                expr.mutableValue = false;
+                return true;
+            }
             std::vector<std::string> candidates;
             candidates.reserve(declaredVariables.size());
             for (const auto& declared : declaredVariables) {
@@ -499,6 +527,11 @@ private:
             return false;
         }
 
+        if (isFunctionType(expr.operand->inferredType)) {
+            report(expr.sourceColumn, "function values only support calls, assignment, ==, and !=");
+            return false;
+        }
+
         if (expr.op == "++" || expr.op == "--") {
             if (!expr.operand->mutableValue) {
                 report(expr.sourceColumn, expr.postfix ? "expected variable before '" + expr.op + "'" : "expected variable after '" + expr.op + "'");
@@ -534,6 +567,12 @@ private:
 // analyzeBinary analyzes the construct and validates its semantics.
     bool analyzeBinary(BinaryExpr& expr) {
         if (!analyze(*expr.left) || !analyze(*expr.right)) {
+            return false;
+        }
+
+        if ((isFunctionType(expr.left->inferredType) || isFunctionType(expr.right->inferredType)) &&
+            expr.op != "==" && expr.op != "!=") {
+            report(expr.sourceColumn, "function values only support calls, assignment, ==, and !=");
             return false;
         }
 
@@ -612,6 +651,14 @@ private:
                 expr.inferredType = PrimitiveType::Bool;
                 return true;
             }
+            if (isFunctionType(leftType) || isFunctionType(rightType)) {
+                if ((expr.op != "==" && expr.op != "!=") || leftType != rightType) {
+                    report(expr.sourceColumn, "function values only support == and != with the same function type");
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Bool;
+                return true;
+            }
             if (leftType.primitive == PrimitiveType::List || rightType.primitive == PrimitiveType::List) {
                 if (leftType != rightType || !isLexicographicallyComparable(leftType)) {
                     report(expr.sourceColumn, "cannot compare " + cpppTypeName(leftType) + " and " + cpppTypeName(rightType));
@@ -664,6 +711,34 @@ private:
         for (const std::unique_ptr<Expr>& argument : expr.arguments) {
             if (!analyze(*argument)) {
                 return false;
+            }
+        }
+
+        if (!expr.receiver) {
+            const auto variable = declaredVariables.find(expr.callee);
+            if (variable != declaredVariables.end() && isFunctionType(variable->second)) {
+                const Type& functionType = variable->second;
+                const size_t parameterCount = functionType.subtypes.size() - 1;
+                if (expr.arguments.size() > parameterCount) {
+                    report(expr.sourceColumn, expr.callee + " expects " + std::to_string(parameterCount) + " arguments, got " + std::to_string(expr.arguments.size()));
+                    return false;
+                }
+                for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                    if (!expr.arguments[i]->explicitCast && !isImplicitlyConvertible(expr.arguments[i]->inferredType, functionType.subtypes[i + 1])) {
+                        report(expr.arguments[i]->sourceColumn, "cannot use " + cpppTypeName(expr.arguments[i]->inferredType) +
+                            " as " + cpppTypeName(functionType.subtypes[i + 1]) + " for " + expr.callee + "()");
+                        return false;
+                    }
+                }
+                if (expr.arguments.size() < parameterCount) {
+                    std::vector<Type> remaining = {functionType.subtypes[0]};
+                    remaining.insert(remaining.end(), functionType.subtypes.begin() + 1 + expr.arguments.size(), functionType.subtypes.end());
+                    expr.inferredType = Type(PrimitiveType::Function, std::move(remaining));
+                    expr.partialApplication = true;
+                } else {
+                    expr.inferredType = functionType.subtypes[0];
+                }
+                return true;
             }
         }
 
@@ -742,6 +817,25 @@ private:
         }
 
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
+            const std::map<std::string, Type>* fields = declaredStructFieldsForName(expr.receiver->inferredType.name);
+            const auto functionField = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.callee);
+            if (fields != nullptr && functionField != fields->end() && isFunctionType(functionField->second)) {
+                const Type& functionType = functionField->second;
+                const size_t parameterCount = functionType.subtypes.size() - 1;
+                if (expr.arguments.size() != parameterCount) {
+                    report(expr.sourceColumn, expr.callee + " expects " + std::to_string(parameterCount) + " arguments");
+                    return false;
+                }
+                for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                    if (!expr.arguments[i]->explicitCast && !isImplicitlyConvertible(expr.arguments[i]->inferredType, functionType.subtypes[i + 1])) {
+                        report(expr.arguments[i]->sourceColumn, "cannot use " + cpppTypeName(expr.arguments[i]->inferredType) +
+                            " as " + cpppTypeName(functionType.subtypes[i + 1]) + " for " + expr.callee + "()");
+                        return false;
+                    }
+                }
+                expr.inferredType = functionType.subtypes[0];
+                return true;
+            }
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             if (method == nullptr) {
                 reportNameSuggestion(
@@ -1046,7 +1140,7 @@ private:
         const auto function = declaredFunctions.find(expr.callee);
         if (function != declaredFunctions.end()) {
             const FunctionSignature& signature = function->second;
-            if (expr.arguments.size() != signature.parameters.size()) {
+            if (expr.arguments.size() > signature.parameters.size()) {
                 std::string expected;
                 for (size_t i = 0; i < signature.parameters.size(); ++i) {
                     if (i > 0) {
@@ -1094,7 +1188,14 @@ private:
                 }
             }
 
-            expr.inferredType = signature.returnsVoid ? PrimitiveType::Void : signature.returnType;
+            if (expr.arguments.size() < signature.parameters.size()) {
+                std::vector<Type> remaining = {signature.returnsVoid ? Type(PrimitiveType::Void) : signature.returnType};
+                for (size_t i = expr.arguments.size(); i < signature.parameters.size(); ++i) remaining.push_back(signature.parameters[i].type);
+                expr.inferredType = Type(PrimitiveType::Function, std::move(remaining));
+                expr.partialApplication = true;
+            } else {
+                expr.inferredType = signature.returnsVoid ? PrimitiveType::Void : signature.returnType;
+            }
             return true;
         }
 
@@ -1304,7 +1405,7 @@ public:
             return generateLiteral(*literal);
         }
         if (const auto* variable = dynamic_cast<const VariableExpr*>(&expr)) {
-            return variable->name;
+            return generateVariable(*variable);
         }
         if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
             return generateField(*field);
@@ -1347,6 +1448,28 @@ private:
     int lineNumber;
     bool emitRuntimeChecks;
     const std::map<std::string, FunctionSignature>& declaredFunctions;
+
+    std::string generateVariable(const VariableExpr& expr) const {
+        if (expr.name == "sum" && isFunctionType(expr.inferredType)) {
+            requireRuntimeHelper("CPPPFunctionType");
+            requireContainerMember(expr.inferredType.subtypes[1], "begin_mut");
+            requireContainerMember(expr.inferredType.subtypes[1], "end_mut");
+            return cppTypeForType(expr.inferredType) +
+                "([](CPPPList<long long> values) { return accumulate(values.begin(), values.end(), 0LL); })";
+        }
+        if ((expr.name == "min" || expr.name == "max") && isFunctionType(expr.inferredType)) {
+            requireRuntimeHelper("CPPPFunctionType");
+            return cppTypeForType(expr.inferredType) +
+                "([](long long a, long long b, long long c, long long d) { return " + expr.name +
+                "(" + expr.name + "(a, b), " + expr.name + "(c, d)); })";
+        }
+        if (expr.name == "abs" && isFunctionType(expr.inferredType)) {
+            requireRuntimeHelper("CPPPFunctionType");
+            return cppTypeForType(expr.inferredType) +
+                "([](long long value) { return abs(value); })";
+        }
+        return expr.name;
+    }
 
 // runtimeErrorThrowExpression provides runtime support for generated code.
     std::string runtimeErrorThrowExpression(int column, const std::string& message) const {
@@ -1564,6 +1687,44 @@ private:
 
 // generateCall implements the generateCall behavior for the expressionParser.cpp module.
     std::string generateCall(const CallExpr& expr) const {
+        if (expr.receiver && isStructType(expr.receiver->inferredType)) {
+            const std::map<std::string, Type>* fields = declaredStructFieldsForName(expr.receiver->inferredType.name);
+            const auto field = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.callee);
+            if (fields != nullptr && field != fields->end() && isFunctionType(field->second)) {
+                const std::string receiver = generate(*expr.receiver);
+                std::string call = "(" + receiver + ")" + (isClassType(expr.receiver->inferredType) ? "->" : ".") + expr.callee + "(";
+                for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                    if (i > 0) call += ", ";
+                    call += generate(*expr.arguments[i]);
+                }
+                return call + ")";
+            }
+        }
+        if (!expr.receiver && expr.partialApplication) {
+            requireRuntimeHelper("CPPPFunctionType");
+            std::string generated = cppTypeForType(expr.inferredType) + "([__cppp_callable = " + expr.callee;
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                generated += ", ";
+                generated += "__cppp_bound" + std::to_string(i) + " = " + generate(*expr.arguments[i]);
+            }
+            generated += "](";
+            for (size_t i = 1; i < expr.inferredType.subtypes.size(); ++i) {
+                if (i > 1) generated += ", ";
+                const Type& parameterType = expr.inferredType.subtypes[i];
+                generated += cppTypeForType(parameterType);
+                generated += " __cppp_arg" + std::to_string(i - 1);
+            }
+            generated += ") { return __cppp_callable(";
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                if (i > 0) generated += ", ";
+                generated += "__cppp_bound" + std::to_string(i);
+            }
+            for (size_t i = 1; i < expr.inferredType.subtypes.size(); ++i) {
+                if (!expr.arguments.empty() || i > 1) generated += ", ";
+                generated += "__cppp_arg" + std::to_string(i - 1);
+            }
+            return generated + "); })";
+        }
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const std::string receiver = generate(*expr.receiver);
             requireStructMethod(expr.receiver->inferredType.name, expr.callee);
@@ -2940,11 +3101,10 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             if (!match(TokenKind::LeftParen)) {
                 if (identifier.text == "range") {
                     report(identifier, "range must be called as range(stop), range(start, stop), or range(start, stop, step)");
-                } else {
-                    report(identifier, identifier.text + " must be called as " + identifier.text + "(list)");
+                    ok = false;
+                    return nullptr;
                 }
-                ok = false;
-                return nullptr;
+                return std::make_unique<VariableExpr>(identifier.text, absoluteColumn(identifier), identifier.sourceSpan);
             }
             const Token& leftParen = previous();
             std::vector<std::unique_ptr<Expr>> arguments;

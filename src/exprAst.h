@@ -130,6 +130,7 @@ struct CallExpr : Expr {
     std::string callee;
     std::unique_ptr<Expr> receiver;
     std::vector<std::unique_ptr<Expr>> arguments;
+    bool partialApplication = false;
 
     CallExpr(
         std::string callee,

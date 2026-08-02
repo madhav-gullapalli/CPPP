@@ -29,9 +29,11 @@ std::string cppParameterType(const Type& type, bool copyParameter) {
     if (cppType.empty()) {
         return "";
     }
-    if (!copyParameter && isReferenceParameterType(type)) {
-        return cppType + "&";
-    }
+    // CP++ handles aliasing in its value wrappers. Passing the wrapper itself by
+    // value keeps ordinary parameters aliased while also giving function types
+    // one modifier-free C++ signature. Direct calls to `copy` parameters still
+    // wrap the argument in CPPPCopy at the call site.
+    (void)copyParameter;
     return cppType;
 }
 

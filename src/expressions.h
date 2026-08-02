@@ -33,6 +33,7 @@ enum class PrimitiveType {
     Set,
     Map,
     Pair,
+    Function,
     Struct,
     Class
 };
@@ -112,6 +113,8 @@ bool isRangeType(const Type& type);
 bool isSetType(const Type& type);
 bool isMapType(const Type& type);
 bool isPairType(const Type& type);
+bool isFunctionType(const Type& type);
+Type functionTypeForSignature(const FunctionSignature& signature);
 bool isStructType(const Type& type);
 bool isClassType(const Type& type);
 bool isInlineStructType(const Type& type);

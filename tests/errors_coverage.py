@@ -383,7 +383,10 @@ def main() -> int:
             error_snapshots = json.loads(ERROR_SNAPSHOTS.read_text(encoding="utf-8"))
     if update_snapshots and (doc_path.name != "errors.txt" or start_line is not None):
         raise SystemExit("--update-snapshots requires a complete errors.txt run")
-    tmp_dir = ROOT / "tests" / "tmp" / f"{doc_path.stem}_catalog_{os.getpid()}"
+    tmp_root = Path(os.environ.get("CPPP_TEST_TMP_DIR", str(ROOT / "tests" / "tmp")))
+    if not tmp_root.is_absolute():
+        tmp_root = ROOT / tmp_root
+    tmp_dir = tmp_root / f"{doc_path.stem}_catalog_{os.getpid()}"
     case_dir = tmp_dir / "cases"
     log_dir = tmp_dir / "logs"
 

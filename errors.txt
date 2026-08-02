@@ -1735,22 +1735,22 @@ unclosed parenthesis in function call
     4 | print(solve("hi", 7));
       |       ^~~~~
 
-<name> expected <n> parameters of <types> type got <m>
-  Function calls with the wrong arity report both the expected count and the
-  provided count.
+partially applied function is not its return value
+  Calling a function with a valid prefix of its arguments creates a function
+  containing the remaining parameters. It does not run the function yet.
 
   Example:
     int add(int x, int y){
         return x + y;
     }
-    print(add(1));
+    int value = add(1);
 
   Diagnostic:
-    error: add expected 2 parameters of int and int type got 1
-     --> example.cppp:4:7
+    error: cannot implicitly convert int(int) to int
+     --> example.cppp:4:17
       |
-    4 | print(add(1));
-      |       ^~~
+    4 | int value = add(1);
+      |             ^~~~~~
 
 return can only be used inside a function
   `return` is only valid inside a user-defined function body.
@@ -4164,3 +4164,485 @@ List size initializer parenthesis mismatch
       |                             ^
       |
       = help: end the declaration after the closing ')'
+
+Function variable errors
+------------------------
+
+partial function cannot initialize a non-function value
+  A partially supplied function produces another function, not its final return value.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int value = add(1);
+
+  Diagnostic:
+    error: cannot implicitly convert int(int) to int
+
+cannot reference an undeclared function
+  A function variable initializer must name a built-in or declared function.
+
+  Example:
+    int(int) operation = missing;
+
+  Diagnostic:
+    error: use of undeclared variable 'missing'
+
+free function return type mismatch
+  The function's return type must match the function variable type.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    float(int, int) operation = add;
+
+  Diagnostic:
+    error: cannot implicitly convert int(int, int) to float(int, int)
+
+free function parameter count mismatch
+  The function's parameter count must match the function variable type.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int) operation = add;
+
+  Diagnostic:
+    error: cannot implicitly convert int(int, int) to int(int)
+
+free function parameter type mismatch
+  Every function parameter type must match in order.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, float) operation = add;
+
+  Diagnostic:
+    error: cannot implicitly convert int(int, int) to int(int, float)
+
+function variable return type mismatch
+  Reassigning a function variable still requires an identical function type.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) source = add;
+    float(int, int) operation = source;
+
+  Diagnostic:
+    error: cannot implicitly convert int(int, int) to float(int, int)
+
+function variable parameter count mismatch
+  Function variable aliases must have the same number of parameters.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) source = add;
+    int(int) operation = source;
+
+  Diagnostic:
+    error: cannot implicitly convert int(int, int) to int(int)
+
+function variable parameter type mismatch
+  Function variable aliases must have matching parameter types.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int, int) source = add;
+    int(int, float) operation = source;
+
+  Diagnostic:
+    error: cannot implicitly convert int(int, int) to int(int, float)
+
+function argument return type mismatch
+  A higher-order function checks the return type of a supplied function.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    void use(float(int, int) operation){}
+    use(add);
+
+  Diagnostic:
+    error: use expected parameters of float(int, int) type got int(int, int)
+
+function argument parameter count mismatch
+  A higher-order function checks the parameter count of a supplied function.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    void use(int(int) operation){}
+    use(add);
+
+  Diagnostic:
+    error: use expected parameters of int(int) type got int(int, int)
+
+function argument parameter type mismatch
+  A higher-order function checks every parameter type of a supplied function.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    void use(int(int, float) operation){}
+    use(add);
+
+  Diagnostic:
+    error: use expected parameters of int(int, float) type got int(int, int)
+
+class function field return type mismatch
+  A function used for a class field must have the field's return type.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    class Box { float(int, int) operation; }
+    Box box = Box(add);
+
+  Diagnostic:
+    error: cannot use int(int, int) for field 'operation' of Box
+
+class function field parameter count mismatch
+  A function used for a class field must have the field's parameter count.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    class Box { int(int) operation; }
+    Box box = Box(add);
+
+  Diagnostic:
+    error: cannot use int(int, int) for field 'operation' of Box
+
+class function field parameter type mismatch
+  A function used for a class field must have the field's parameter types.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    class Box { int(int, float) operation; }
+    Box box = Box(add);
+
+  Diagnostic:
+    error: cannot use int(int, int) for field 'operation' of Box
+
+cannot add function values
+  Function values do not support arithmetic.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    print(add + add);
+
+  Diagnostic:
+    error: function values only support calls, assignment, ==, and !=
+
+cannot order function values
+  Function values support equality, but not ordering comparisons.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    print(add < add);
+
+  Diagnostic:
+    error: function values only support calls, assignment, ==, and !=
+
+cannot negate function values
+  Function values do not have boolean truthiness.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    print(!add);
+
+  Diagnostic:
+    error: function values only support calls, assignment, ==, and !=
+
+cannot index function values
+  Function values are callable, not indexable.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    print(add[0]);
+
+  Diagnostic:
+    error: indexing requires a List value
+
+cannot increment function values
+  Function values do not support increment or decrement.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    add++;
+
+  Diagnostic:
+    error: function values only support calls, assignment, ==, and !=
+
+partial function return type mismatch
+  A partial function's final return type must match its declared function variable.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    float(int) operation = add(1);
+
+  Diagnostic:
+    error: cannot implicitly convert int(int) to float(int)
+
+partial function parameter count mismatch
+  A partial function type contains exactly its remaining parameters.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int() operation = add(1);
+
+  Diagnostic:
+    error: cannot implicitly convert int(int) to int()
+
+partial function parameter type mismatch
+  Remaining partial-function parameter types must match their declaration.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(float) operation = add(1);
+
+  Diagnostic:
+    error: cannot implicitly convert int(int) to int(float)
+
+fully evaluated function cannot initialize function variable
+  Supplying every argument returns the function result rather than another function.
+
+  Example:
+    int add(int left, int right){ return left + right; }
+    int(int) operation = add(1, 2);
+
+  Diagnostic:
+    error: cannot implicitly convert int to int(int)
+
+ordinary value cannot initialize zero-parameter function
+  A zero-parameter function value is still distinct from its return value.
+
+  Example:
+    int value = 7;
+    int() operation = value;
+
+  Diagnostic:
+    error: cannot implicitly convert int to int()
+
+function type cannot contain copy modifier
+  Function value types contain only return and parameter types; copy belongs to a function declaration.
+
+  Example:
+    int(copy List<int>) operation;
+
+  Diagnostic:
+    error: function variable types contain only parameter types, not 'copy'
+
+Comparators
+-----------
+
+undefined sort comparator
+  Example:
+    List<int> values = [2, 1];
+    values.sort(missing);
+
+  Diagnostic:
+    error: use of undeclared variable 'missing'
+
+sort comparator must return bool
+  Example:
+    int bad(int a, int b){ return a < b; }
+    List<int> values = [2, 1];
+    values.sort(bad);
+
+  Diagnostic:
+    error: comparator must have type bool(int, int), got int(int, int)
+
+sort comparator arity mismatch
+  Example:
+    bool bad(int a){ return true; }
+    List<int> values = [2, 1];
+    values.sort(bad);
+
+  Diagnostic:
+    error: comparator must have type bool(int, int), got bool(int)
+
+sort comparator parameter mismatch
+  Example:
+    bool bad(string a, string b){ return a < b; }
+    List<int> values = [2, 1];
+    values.sort(bad);
+
+  Diagnostic:
+    error: comparator must have type bool(int, int), got bool(string, string)
+
+undefined Set comparator
+  Example:
+    Set<int> values(missing);
+
+  Diagnostic:
+    error: use of undeclared variable 'missing'
+
+Map comparator must return bool
+  Example:
+    int bad(int a, int b){ return a < b; }
+    Map<int, int> values(bad);
+
+  Diagnostic:
+    error: comparator must have type bool(int, int), got int(int, int)
+
+Set comparator arity mismatch
+  Example:
+    bool bad(int a){ return true; }
+    Set<int> values(bad);
+
+  Diagnostic:
+    error: comparator must have type bool(int, int), got bool(int)
+
+Map comparator parameter mismatch
+  Example:
+    bool bad(string a, string b){ return a < b; }
+    Map<int, int> values(bad);
+
+  Diagnostic:
+    error: comparator must have type bool(int, int), got bool(string, string)
+
+default cannot order structs
+  Example:
+    struct Point { int x; }
+    List<Point> values = [Point(1)];
+    values.sort(default);
+
+  Diagnostic:
+    error: default cannot compare values of type Point; provide bool(Point, Point) instead
+
+greater cannot order structs
+  Example:
+    struct Point { int x; }
+    List<Point> values = [Point(1)];
+    values.sort(greater);
+
+  Diagnostic:
+    error: greater cannot compare values of type Point; provide bool(Point, Point) instead
+
+compare index requires nested Lists or Pairs
+  Example:
+    List<int> values = [1];
+    values.sort(compare(0));
+
+  Diagnostic:
+    error: compare(index) can only order Lists or Pairs
+
+compare cannot order Set elements
+  Example:
+    List<Set<int>> values = [{1}];
+    values.sort(compare(0));
+
+  Diagnostic:
+    error: compare(index) cannot compare elements of type Set<int>
+
+Pair compare index is bounded
+  Example:
+    List<Pair<int, char>> values = [(1, 'a')];
+    values.sort(compare(2));
+
+  Diagnostic:
+    error: compare(index) requires index 0 or 1 for Pair values
+
+struct compare index is invalid
+  Example:
+    struct Point { int x; }
+    List<Point> values = [Point(1)];
+    values.sort(compare(2));
+
+  Diagnostic:
+    error: compare(index) can only order Lists or Pairs
+
+field compare requires structs
+  Example:
+    List<List<int>> values = [[1]];
+    values.sort(compare("hi"));
+
+  Diagnostic:
+    error: compare(field) can only order a List of structs
+
+unknown struct comparison field
+  Example:
+    struct Point { int x; }
+    List<Point> values = [Point(1)];
+    values.sort(compare("y"));
+
+  Diagnostic:
+    error: struct Point has no field 'y'
+
+blank compare selector
+  Example:
+    Set<int> values(compare());
+
+  Diagnostic:
+    error: compare() expects an index or field name
+
+Set default cannot order structs
+  Example:
+    struct Point { int x; }
+    Set<Point> values(default);
+
+  Diagnostic:
+    error: default cannot compare values of type Point; provide bool(Point, Point) instead
+
+Map greater cannot order structs
+  Example:
+    struct Point { int x; }
+    Map<Point, int> values(greater);
+
+  Diagnostic:
+    error: greater cannot compare values of type Point; provide bool(Point, Point) instead
+
+Set compare index requires nested keys
+  Example:
+    Set<int> values(compare(0));
+
+  Diagnostic:
+    error: compare(index) can only order Lists or Pairs
+
+Map compare field requires struct keys
+  Example:
+    Map<List<int>, int> values(compare("hi"));
+
+  Diagnostic:
+    error: compare(field) can only order a List of structs
+
+Set compare cannot order Set elements
+  Example:
+    Set<Set<int>> values(compare(0));
+
+  Diagnostic:
+    error: compare(index) cannot compare elements of type Set<int>
+
+Map Pair compare index is bounded
+  Example:
+    Map<Pair<int, char>, int> values(compare(2));
+
+  Diagnostic:
+    error: compare(index) requires index 0 or 1 for Pair values
+
+Set struct compare index is invalid
+  Example:
+    struct Point { int x; }
+    Set<Point> values(compare(2));
+
+  Diagnostic:
+    error: compare(index) can only order Lists or Pairs
+
+Map unknown struct comparison field
+  Example:
+    struct Point { int x; }
+    Map<Point, int> values(compare("y"));
+
+  Diagnostic:
+    error: struct Point has no field 'y'
+
+Set blank compare selector
+  Example:
+    Set<int> values(compare());
+
+  Diagnostic:
+    error: compare() expects an index or field name
+
+comparator runtime error
+  Runtime checks inside a custom comparator keep their CP++ source location.
+
+  Example:
+    bool unsafe(int a, int b){ return a / (a - a) < b; }
+    List<int> values = [2, 1];
+    values.sort(unsafe);
+
+  Diagnostic:
+    error: runtime error: division by zero

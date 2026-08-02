@@ -24,6 +24,21 @@ struct ListEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
+struct ComparatorEmitResult {
+    bool ok = false;
+    std::string expression;
+};
+
+ComparatorEmitResult emitCollectionComparator(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& text,
+    int column,
+    const Type& itemType,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables
+);
+
 // listRuntimeHelpers handles list-specific behavior for the compiler or runtime.
 std::vector<RuntimeHelper> listRuntimeHelpers();
 

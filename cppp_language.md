@@ -611,6 +611,20 @@ List element is the top; for Queue, the first List element is the top/front.
 
 ## Functions
 
+### Function values and function types
+
+- Syntax: `int(int, int) operation = add;`, `void() action = run;`
+- What it does: Declares a stack-resident callable value. The type before the parentheses is the return type; the types inside are the parameters. Parameter names and modifiers such as `copy` are not part of a function type.
+- Notes: A declared function or supported built-in function may be assigned to a matching function value, passed as a parameter, stored in a class or struct field, or inferred with `var`. Assignment aliases the same callable. Functions whose only difference is a `copy` parameter modifier have the same function type.
+- Complexity: O(1) assignment and comparison
+
+### Calling and partially applying function values
+
+- Syntax: `int result = operation(2, 3);`, `int(int) addFive = add(5);`
+- What it does: Supplying every argument invokes the function. Supplying a valid prefix binds those first arguments and produces a new function over the remaining parameters.
+- Notes: Partial applications are lambda-backed callable values. Aliasing one partial function preserves its identity; independently creating the same partial application creates a different callable. Function values support calls, assignment, `==`, and `!=`; other operators are rejected.
+- Complexity: O(1) to create or alias a partial application, plus the cost of copied bound primitive values and the eventual function call
+
 ### Top-level function definition
 
 - Syntax:

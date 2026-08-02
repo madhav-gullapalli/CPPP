@@ -92,6 +92,108 @@ std::string expressionSliceForTokens(
     ));
 }
 
+bool supportsDefaultComparator(const Type& type) {
+    if (type == PrimitiveType::Int || type == PrimitiveType::Float ||
+        type == PrimitiveType::Char || type == PrimitiveType::Bool) return true;
+    if (isListType(type)) return supportsDefaultComparator(type.subtypes[0]);
+    if (isPairType(type)) return supportsDefaultComparator(type.subtypes[0]) && supportsDefaultComparator(type.subtypes[1]);
+    return false;
+}
+
+ComparatorEmitResult emitComparator(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& comparatorText,
+    int comparatorColumn,
+    const Type& itemType,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables
+) {
+    const std::string cppType = cppTypeForType(itemType);
+    const auto defaultComparator = [&](bool descending) -> ComparatorEmitResult {
+        if (!supportsDefaultComparator(itemType)) {
+            recordSourceError(inputFile, lineNumber, comparatorColumn,
+                std::string(descending ? "greater" : "default") + " cannot compare values of type " + cpppTypeName(itemType) + "; provide bool(" + cpppTypeName(itemType) + ", " + cpppTypeName(itemType) + ") instead",
+                sourceLines);
+            return {};
+        }
+        return {true, "[](" + cppType + " const& a, " + cppType + " const& b) { return a " + (descending ? ">" : "<") + " b; }"};
+    };
+
+    if (comparatorText.empty()) return defaultComparator(false);
+    if (comparatorText == "default") return defaultComparator(false);
+    if (comparatorText == "greater") return defaultComparator(true);
+
+    const std::vector<Token> tokens = tokenize(comparatorText);
+    if (tokens.size() >= 4 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "compare" &&
+        tokens[1].kind == TokenKind::LeftParen && tokens[tokens.size() - 2].kind == TokenKind::RightParen) {
+        const std::string selector = expressionSliceForTokens(comparatorText, tokens, 2, tokens.size() - 2);
+        if (selector.empty()) {
+            recordSourceError(inputFile, lineNumber, comparatorColumn, "compare() expects an index or field name", sourceLines);
+            return {};
+        }
+        if (tokens[2].kind == TokenKind::String && tokens.size() == 5) {
+            if (!isStructType(itemType)) {
+                recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(field) can only order a List of structs", sourceLines);
+                return {};
+            }
+            const std::string fieldName = tokens[2].text.substr(1, tokens[2].text.size() - 2);
+            const std::map<std::string, Type>* fields = declaredStructFieldsForName(itemType.name);
+            const auto field = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(fieldName);
+            if (fields == nullptr || field == fields->end()) {
+                std::vector<std::string> names;
+                if (fields != nullptr) for (const auto& entry : *fields) names.push_back(entry.first);
+                const std::string suggestion = closestDiagnosticCandidate(fieldName, names);
+                recordSourceError(inputFile, lineNumber, comparatorColumn, "struct " + itemType.name + " has no field '" + fieldName + "'" + (suggestion.empty() ? "" : "; did you mean '" + suggestion + "'?"), sourceLines);
+                return {};
+            }
+            if (!supportsDefaultComparator(field->second)) {
+                recordSourceError(inputFile, lineNumber, comparatorColumn, "field '" + fieldName + "' of " + itemType.name + " is not comparable", sourceLines);
+                return {};
+            }
+            return {true, "[](const " + cppType + "& a, const " + cppType + "& b) { return a." + fieldName + " < b." + fieldName + "; }"};
+        }
+
+        const ExpressionEmitResult index = emitExpression(inputFile, lineNumber, selector, comparatorColumn + 8, sourceLines, declaredVariables);
+        if (!index.ok) return {};
+        if (index.type != PrimitiveType::Int) {
+            recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) requires an int index", sourceLines);
+            return {};
+        }
+        if (isListType(itemType)) {
+            if (!supportsDefaultComparator(itemType.subtypes[0])) {
+                recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) cannot compare elements of type " + cpppTypeName(itemType.subtypes[0]), sourceLines);
+                return {};
+            }
+            return {true, "[__cppp_compare_index = " + index.generatedExpression + "](const " + cppType + "& a, const " + cppType + "& b) { return a[__cppp_compare_index] < b[__cppp_compare_index]; }"};
+        }
+        if (isPairType(itemType)) {
+            if (selector != "0" && selector != "1") {
+                recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) requires index 0 or 1 for Pair values", sourceLines);
+                return {};
+            }
+            const Type selected = itemType.subtypes[selector == "0" ? 0 : 1];
+            if (!supportsDefaultComparator(selected)) {
+                recordSourceError(inputFile, lineNumber, comparatorColumn, "selected Pair value is not comparable", sourceLines);
+                return {};
+            }
+            const std::string member = selector == "0" ? "first()" : "second()";
+            return {true, "[](const " + cppType + "& a, const " + cppType + "& b) { return a." + member + " < b." + member + "; }"};
+        }
+        recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) can only order Lists or Pairs", sourceLines);
+        return {};
+    }
+
+    const ExpressionEmitResult expression = emitExpression(inputFile, lineNumber, comparatorText, comparatorColumn, sourceLines, declaredVariables);
+    if (!expression.ok) return {};
+    const Type expected(PrimitiveType::Function, {Type(PrimitiveType::Bool), itemType, itemType});
+    if (expression.type != expected) {
+        recordSourceError(inputFile, lineNumber, comparatorColumn, "comparator must have type bool(" + cpppTypeName(itemType) + ", " + cpppTypeName(itemType) + "), got " + cpppTypeName(expression.type), sourceLines);
+        return {};
+    }
+    return {true, expression.generatedExpression};
+}
+
 bool emitTypedListLiteralAt(
     const std::string& inputFile,
     int lineNumber,
@@ -292,6 +394,18 @@ bool emitTypedListLiteralAt(
     );
     return false;
 }
+}
+
+ComparatorEmitResult emitCollectionComparator(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::string& text,
+    int column,
+    const Type& itemType,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables
+) {
+    return emitComparator(inputFile, lineNumber, text, column, itemType, sourceLines, declaredVariables);
 }
 
 // listRuntimeHelpers handles list-specific behavior for the compiler or runtime.
@@ -972,19 +1086,32 @@ ListEmitResult emitListStatement(
             return {true, false, "", {}};
         }
 
-        if (arguments.size() != 1 || !arguments[0].text.empty()) {
+        if (isReverse && (arguments.size() != 1 || !arguments[0].text.empty())) {
             recordSourceError(
                 inputFile,
                 lineNumber,
                 argumentsStartColumn,
-                actionName + "() does not take arguments",
+                "reverse() does not take arguments",
                 sourceLines
             );
             return {true, false, "", {}};
         }
 
+        std::string comparator;
+        if (isSort) {
+            if (arguments.size() > 1) {
+                recordSourceError(inputFile, lineNumber, argumentsStartColumn, "sort() expects at most one comparator", sourceLines);
+                return {true, false, "", {}};
+            }
+            const ComparatorEmitResult emitted = emitComparator(
+                inputFile, lineNumber, arguments[0].text, arguments[0].column, elementType, sourceLines, declaredVariables
+            );
+            if (!emitted.ok) return {true, false, "", {}};
+            comparator = emitted.expression;
+        }
+
         const std::string generatedStatement = isSort
-            ? "    sort((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end());"
+            ? "    sort((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end(), " + comparator + ");"
             : "    reverse((" + receiver.generatedExpression + ").begin(), (" + receiver.generatedExpression + ").end());";
         requireContainerMember(receiver.type, "begin_mut");
         requireContainerMember(receiver.type, "end_mut");

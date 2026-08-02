@@ -8,6 +8,7 @@
 
 #include "typesCppp.h"
 
+#include "listsCppp.h"
 #include "tokenizer.h"
 
 #include <algorithm>
@@ -192,6 +193,21 @@ bool needsRangeRuntimeHelper(const Type& type) {
 
 // typeInfoFor implements the typeInfoFor behavior for the typeDeclarations.cpp module.
 TypeInfo typeInfoFor(const Type& type) {
+    if (isFunctionType(type)) {
+        const TypeInfo returnInfo = typeInfoFor(type.subtypes[0]);
+        if (returnInfo.cppType.empty() && type.subtypes[0] != PrimitiveType::Void) return {"", ""};
+        std::string signature = type.subtypes[0] == PrimitiveType::Void ? "void" : returnInfo.cppType;
+        signature += "(";
+        for (size_t i = 1; i < type.subtypes.size(); ++i) {
+            const TypeInfo parameterInfo = typeInfoFor(type.subtypes[i]);
+            if (parameterInfo.cppType.empty()) return {"", ""};
+            if (i > 1) signature += ", ";
+            signature += parameterInfo.cppType;
+        }
+        signature += ")";
+        requireRuntimeHelper("CPPPFunctionType");
+        return {"CPPPFunction<" + signature + ">", "{}"};
+    }
     if (isListType(type)) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
         if (subtypeInfo.cppType.empty()) {
@@ -1418,6 +1434,48 @@ TypeEmitResult emitTypeDeclaration(
         ++tokenIndex;
 
         if (tokens[tokenIndex].kind == TokenKind::LeftParen) {
+            if (isSetType(targetType) || isMapType(targetType)) {
+                if (variables.size() != 1) {
+                    recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn), "a collection comparator can declare only one variable", sourceLines);
+                    rememberInvalidVariables(declaredVariables, variables);
+                    return {true, false, "", {}};
+                }
+                const size_t leftParenIndex = tokenIndex;
+                ++tokenIndex;
+                const size_t comparatorStart = tokenIndex;
+                int depth = 1;
+                while (tokens[tokenIndex].kind != TokenKind::EndOfFile && depth > 0) {
+                    if (tokens[tokenIndex].kind == TokenKind::LeftParen) ++depth;
+                    if (tokens[tokenIndex].kind == TokenKind::RightParen) --depth;
+                    if (depth == 0) break;
+                    ++tokenIndex;
+                }
+                if (tokens[tokenIndex].kind != TokenKind::RightParen || depth != 0) {
+                    recordSourceError(inputFile, lineNumber, sourceColumn(tokens[leftParenIndex].span.startColumn), "unclosed collection comparator", sourceLines);
+                    rememberInvalidVariables(declaredVariables, variables);
+                    return {true, false, "", {}};
+                }
+                const std::string comparatorText = trim(statementBody.substr(
+                    static_cast<size_t>(tokens[leftParenIndex].span.endColumn),
+                    static_cast<size_t>(tokens[tokenIndex].span.startColumn - tokens[leftParenIndex].span.endColumn - 1)
+                ));
+                const ComparatorEmitResult comparator = emitCollectionComparator(
+                    inputFile, lineNumber, comparatorText,
+                    sourceColumn(tokens[comparatorStart].span.startColumn), targetType.subtypes[0], sourceLines, declaredVariables
+                );
+                if (!comparator.ok) {
+                    rememberInvalidVariables(declaredVariables, variables);
+                    return {true, false, "", {}};
+                }
+                sizedInitializer = typeInfo.cppType + "(" + comparator.expression + ")";
+                ++tokenIndex;
+                if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+                    recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn), "unexpected token after collection comparator", sourceLines);
+                    rememberInvalidVariables(declaredVariables, variables);
+                    return {true, false, "", {}};
+                }
+                break;
+            }
             if (variables.size() != 1) {
                 recordListSizeDiagnostic(
                     inputFile,
@@ -1524,6 +1582,18 @@ TypeEmitResult emitTypeDeclaration(
     }
 
     std::string emittedValue = sizedInitializer.empty() ? typeInfo.defaultValue : sizedInitializer;
+    if (sizedInitializer.empty() && (isSetType(targetType) || isMapType(targetType))) {
+        const ComparatorEmitResult comparator = emitCollectionComparator(
+            inputFile, lineNumber, "", statementStartColumn, targetType.subtypes[0], sourceLines, declaredVariables
+        );
+        if (!comparator.ok) {
+            rememberInvalidVariables(declaredVariables, variables);
+            return {true, false, "", {}};
+        }
+        if (assignedValue.empty()) {
+            emittedValue = typeInfo.cppType + "(" + comparator.expression + ")";
+        }
+    }
     std::vector<std::string> perVariableValues;
     if (!assignedValue.empty()) {
         emittedValue = assignedValue;
@@ -1783,6 +1853,19 @@ TypeEmitResult emitTypeDeclaration(
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
+        } else if (isFunctionType(targetType)) {
+            if (!finishExpressionAssignment(
+                    inputFile,
+                    lineNumber,
+                    assignedValue,
+                    assignedValueColumn,
+                    targetType,
+                    sourceLines,
+                    declaredVariables,
+                    emittedValue)) {
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
         } else if (isStructType(targetType)) {
             if (!finishExpressionAssignment(
                     inputFile,
@@ -1933,35 +2016,81 @@ ParsedTypeResult parseDeclaredTypeTokens(
     bool allowVoid
 ) {
     ParsedTypeResult result;
-    if (allowVoid && isVoidTypeToken(tokens, startIndex)) {
+    const bool beginsWithVoid = isVoidTypeToken(tokens, startIndex);
+    if (beginsWithVoid && (allowVoid ||
+        (startIndex + 1 < tokens.size() && tokens[startIndex + 1].kind == TokenKind::LeftParen))) {
         result.matched = true;
         result.ok = true;
         result.type = PrimitiveType::Void;
         result.name = "void";
         result.nextTokenIndex = startIndex + 1;
-        return result;
+    } else {
+        ParsedTypeName parsedType;
+        if (!parseTypeAt(inputFile, lineNumber, tokens, startIndex, sourceLines, parsedType)) {
+            return result;
+        }
+
+        result.matched = true;
+        result.ok = parsedType.ok;
+        result.type = parsedType.type;
+        result.name = parsedType.name;
+        result.nextTokenIndex = parsedType.nextTokenIndex;
+
+        if (result.ok && parsedType.pendingRightClosers > 0) {
+            recordSourceError(
+                inputFile,
+                lineNumber,
+                tokens[startIndex].span.startColumn,
+                "unexpected '>' after type " + cpppTypeName(parsedType.type),
+                sourceLines
+            );
+            result.ok = false;
+            return result;
+        }
     }
 
-    ParsedTypeName parsedType;
-    if (!parseTypeAt(inputFile, lineNumber, tokens, startIndex, sourceLines, parsedType)) {
-        return result;
-    }
-
-    result.matched = true;
-    result.ok = parsedType.ok;
-    result.type = parsedType.type;
-    result.name = parsedType.name;
-    result.nextTokenIndex = parsedType.nextTokenIndex;
-
-    if (result.ok && parsedType.pendingRightClosers > 0) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[startIndex].span.startColumn,
-            "unexpected '>' after type " + cpppTypeName(parsedType.type),
-            sourceLines
-        );
-        result.ok = false;
+    if (result.ok &&
+        result.nextTokenIndex < tokens.size() &&
+        tokens[result.nextTokenIndex].kind == TokenKind::LeftParen) {
+        std::vector<Type> functionParts = {result.type};
+        size_t index = result.nextTokenIndex + 1;
+        if (index < tokens.size() && tokens[index].kind != TokenKind::RightParen) {
+            while (true) {
+                if (index >= tokens.size()) {
+                    recordSourceError(inputFile, lineNumber, tokens[result.nextTokenIndex].span.startColumn,
+                        "unclosed parenthesis in function type", sourceLines);
+                    result.ok = false;
+                    return result;
+                }
+                if (tokens[index].kind == TokenKind::Identifier && tokens[index].text == "copy") {
+                    recordSourceError(inputFile, lineNumber, tokens[index].span.startColumn,
+                        "function variable types contain only parameter types, not 'copy'", sourceLines);
+                    result.ok = false;
+                    return result;
+                }
+                const ParsedTypeResult parameter = parseDeclaredTypeTokens(
+                    inputFile, lineNumber, tokens, index, sourceLines, false);
+                if (!parameter.matched || !parameter.ok) {
+                    if (!parameter.matched) recordSourceError(inputFile, lineNumber, tokens[index].span.startColumn,
+                        "expected parameter type in function type", sourceLines);
+                    result.ok = false;
+                    return result;
+                }
+                functionParts.push_back(parameter.type);
+                index = parameter.nextTokenIndex;
+                if (index >= tokens.size() || tokens[index].kind != TokenKind::Comma) break;
+                ++index;
+            }
+        }
+        if (index >= tokens.size() || tokens[index].kind != TokenKind::RightParen) {
+            recordSourceError(inputFile, lineNumber, tokens[result.nextTokenIndex].span.startColumn,
+                "unclosed parenthesis in function type", sourceLines);
+            result.ok = false;
+            return result;
+        }
+        result.type = Type(PrimitiveType::Function, std::move(functionParts));
+        result.name = cpppTypeName(result.type);
+        result.nextTokenIndex = index + 1;
     }
 
     return result;

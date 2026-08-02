@@ -539,6 +539,12 @@ PrintEmitResult emitPrintStatement(
         if (!expression.ok) {
             return {false, "", {}};
         }
+
+        if (isFunctionType(expression.type)) {
+            recordSourceError(inputFile, lineNumber, arguments[i].column,
+                "function values cannot be printed; call the function or compare it with == or !=", sourceLines);
+            return {false, "", {}};
+        }
         if (expression.type != PrimitiveType::Char && !isStringType(expression.type)) {
             recordSourceError(inputFile, lineNumber, option.valueColumn, "print delim must be a string or char", sourceLines);
             return {false, "", {}};
