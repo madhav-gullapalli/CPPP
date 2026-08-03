@@ -10,6 +10,7 @@
 
 #include "listsCppp.h"
 
+#include <array>
 #include <cctype>
 #include <map>
 #include <set>
@@ -1498,8 +1499,29 @@ std::vector<std::string> typeSupportPreambleForSubmit(
             }
         }
     }
+    const auto addReferencedContainerTypes = [&](const std::vector<std::string>& lines) {
+        bool changed = false;
+        for (const std::string& line : lines) {
+            const std::array<std::pair<const char*, const char*>, 8> names = {{
+                {"CPPPPair<", "CPPPPair"}, {"CPPPList<", "CPPPList"},
+                {"CPPPStack<", "CPPPStack"}, {"CPPPQueue<", "CPPPQueue"},
+                {"CPPPDeque<", "CPPPDeque"}, {"CPPPHeap<", "CPPPHeap"},
+                {"CPPPSet<", "CPPPSet"}, {"CPPPMap<", "CPPPMap"}
+            }};
+            for (const auto& name : names) {
+                if (line.find(name.first) != std::string::npos && containerTypes.insert(name.second).second) {
+                    changed = true;
+                }
+            }
+        }
+        return changed;
+    };
+    std::vector<std::string> containers;
+    do {
+        containers = containerSupport(containerTypes, containerMembers);
+    } while (addReferencedContainerTypes(containers));
+
     std::vector<std::string> preamble = smartPointerSupport();
-    const std::vector<std::string> containers = containerSupport(containerTypes, containerMembers);
     preamble.insert(preamble.end(), containers.begin(), containers.end());
     for (const RuntimeHelper& helper : helpers) {
         if (resolvedHelpers.count(helper.name) == 0) {
