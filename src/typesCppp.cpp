@@ -71,6 +71,7 @@ std::string containerMemberForLine(const std::string& line) {
     if (line.find("CPPPList(const vector<U>") != std::string::npos) return "ctor_convert";
     if (line.find("CPPPList(const vector") != std::string::npos || line.find("CPPPList(vector") != std::string::npos) return "ctor_vector";
     if (line.find("CPPPList(It first") != std::string::npos) return "ctor_iterator";
+    if (line.find("CPPPHeap(const CPPPList") != std::string::npos) return "ctor_list";
     if (line.find("CPPPSet(initializer_list") != std::string::npos || line.find("CPPPMap(initializer_list") != std::string::npos) return "ctor_init";
     if (line.find("CPPPSet(const set<U>") != std::string::npos) return "ctor_convert";
     if (line.find("CPPPSet(const set") != std::string::npos || line.find("CPPPSet(set") != std::string::npos ||

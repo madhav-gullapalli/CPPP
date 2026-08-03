@@ -585,6 +585,7 @@ std::string castExpressionTo(const std::string& expression, const Type& from, co
         case PrimitiveType::Heap:
             if (isListType(from)) {
                 requireRuntimeHelper("CPPPListToHeap");
+                requireContainerMember(to, "ctor_list");
                 return "CPPPListToHeap<" + cppTypeForType(to.subtypes[0]) + ">(" + expression + ", " +
                     castLambdaExpression(from.subtypes[0], to.subtypes[0]) + ")";
             }
