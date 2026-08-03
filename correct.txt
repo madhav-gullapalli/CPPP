@@ -4046,3 +4046,159 @@ Map compare(field)
 
   Output:
     {{x: 1}:1, {x: 2}:2}
+
+Heaps
+-----
+
+empty heap pushes, pops, length, and top
+  A default Heap is a min-heap. Its printed backing array begins with `*`.
+
+  Example:
+    Heap<int> values;
+    for (int i = 20; i > 0; i--) { values.push(i); }
+    print(values, len(values), values.top());
+    rep(10) { values.pop(); }
+    print(values, len(values), values.top());
+
+  Output:
+    [*,1,2,7,4,3,10,8,11,5,12,13,19,15,16,9,20,14,17,6,18] 20 1
+    [*,11,12,15,14,13,19,16,20,17,18] 10 11
+
+heap of sets
+  Ordered built-in values, including Sets, can be heap elements.
+
+  Example:
+    Heap<Set<int>> values;
+    values.push({3}); values.push({1}); values.push({2});
+    print(values, values.top());
+
+  Output:
+    [*,{1},{3},{2}] {1}
+
+heapify a list
+  `Heap(list)` builds a heap from every List element at once.
+
+  Example:
+    List<int> source = [7, 2, 5, 1];
+    Heap<int> values = Heap(source);
+    print(values);
+
+  Output:
+    [*,1,2,5,7]
+
+heap to list
+  `List(heap)` returns the values in priority order.
+
+  Example:
+    Heap<int> values = Heap([7, 2, 5, 1]);
+    List<int> ordered = List(values);
+    print(values, ordered);
+
+  Output:
+    [*,1,2,5,7] [1, 2, 5, 7]
+
+heap of classes with a comparator
+  Classes use an explicit comparator rather than `compare("field")`.
+
+  Example:
+    class Point { int x; }
+    bool byX(Point a, Point b) { return a.x < b.x; }
+    Heap<Point> values(byX);
+    values.push(Point(3)); values.push(Point(1));
+    print(values, values.top());
+
+  Output:
+    [*,{x: 1},{x: 3}] {x: 1}
+
+heap alias and copy
+  Assignment aliases a heap, while `copy` deeply copies its contents and comparator.
+
+  Example:
+    Heap<int> values(greater);
+    values.push(2); values.push(7); values.push(5);
+    Heap<int> alias = values;
+    Heap<int> independent = copy(values);
+    alias.pop();
+    print(values, independent);
+
+  Output:
+    [*,5,2] [*,7,2,5]
+
+Dijkstra with a heap
+  A Heap of `(distance, node)` pairs drives Dijkstra's algorithm.
+
+  Example:
+    List<Pair<int, int>> dijkstra(List<List<Pair<int, int>>> adj, List<int> visited) {
+        List<int> distance(len(adj));
+        for (int i = 0; i < len(distance); i++) { distance[i] = 1000000; }
+        distance[0] = 0; Heap<Pair<int, int>> pending; pending.push((0, 0));
+        while (len(pending) > 0) {
+            Pair<int, int> current = pending.pop(); int node = current[1];
+            if (visited[node]) { continue; } visited[node] = 1;
+            for (Pair<int, int> edge in adj[node]) {
+                int next = edge[1]; int candidate = current[0] + edge[0];
+                if (candidate < distance[next]) { distance[next] = candidate; pending.push((candidate, next)); }
+            }
+        }
+        List<Pair<int, int>> result;
+        for (int i = 0; i < len(distance); i++) { result.add((distance[i], i)); }
+        return result;
+    }
+    List<List<Pair<int, int>>> graph = [[(4, 1), (1, 2)], [(1, 3)], [(2, 1), (5, 3)], []];
+    List<int> seen(4);
+    print(dijkstra(graph, seen), dijkstra(graph, seen));
+
+  Output:
+    [(0,0), (3,1), (1,2), (4,3)] [(0,0), (1000000,1), (1000000,2), (1000000,3)]
+
+median stream with two heaps
+  A min-heap and a `greater` max-heap maintain a running median.
+
+  Example:
+    class MedianStream {
+        Heap<int> top;
+        Heap<int> bottom(greater);
+        void add(int x) {
+            if (len(top) == 0 || x <= top.top()) { top.push(x); } else { bottom.push(x); }
+            if (len(top) > len(bottom) + 1) { bottom.push(top.pop()); }
+            if (len(bottom) > len(top)) { top.push(bottom.pop()); }
+        }
+        float getMedian() {
+            if (len(top) > len(bottom)) { return top.top(); }
+            return float(top.top() + bottom.top()) / 2;
+        }
+    }
+    Heap<int> small; Heap<int> large(greater);
+    MedianStream stream = MedianStream(small, large);
+    stream.add(5); stream.add(1); stream.add(9); stream.add(3);
+    print(stream.top, stream.bottom, stream.getMedian());
+
+  Output:
+    [*,5,9] [*,3,1] 4
+
+data structure comparators and truthiness
+  `copy` keeps Heap, Set, and Map comparators. Every collection is false when
+  empty and true after values are added; a Pair is always true because it
+  always has two slots.
+
+  Example:
+    Heap<int> heap(greater); heap.push(1); heap.push(2);
+    Heap<int> heapCopy = copy(heap); heapCopy.push(3);
+    Set<int> orderedSet(greater); orderedSet.add(1); orderedSet.add(2);
+    Set<int> setCopy = copy(orderedSet); setCopy.add(3);
+    Map<int, int> orderedMap(greater); orderedMap[1] = 1; orderedMap[2] = 2;
+    Map<int, int> mapCopy = copy(orderedMap); mapCopy[3] = 3;
+    List<int> list; Stack<int> stack; Queue<int> queue; Deque<int> deque;
+    Heap<int> emptyHeap; Set<int> emptySet; Map<int, int> emptyMap;
+    Pair<int, int> pair = (0, 0); int flags = 0;
+    if (list) { flags += 1; } if (stack) { flags += 2; } if (queue) { flags += 4; }
+    if (deque) { flags += 8; } if (emptyHeap) { flags += 16; } if (emptySet) { flags += 32; }
+    if (emptyMap) { flags += 64; }
+    list.add(1); stack.add(1); queue.add(1); deque.addFront(1);
+    if (list) { flags += 1; } if (stack) { flags += 2; } if (queue) { flags += 4; }
+    if (deque) { flags += 8; } if (heap) { flags += 16; } if (orderedSet) { flags += 32; }
+    if (orderedMap) { flags += 64; } if (pair) { flags += 128; }
+    print(heapCopy, setCopy, mapCopy, flags);
+
+  Output:
+    [*,3,1,2] {3, 2, 1} {3:3, 2:2, 1:1} 255

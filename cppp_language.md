@@ -766,7 +766,7 @@ List element is the top; for Queue, the first List element is the top/front.
 
 - Syntax: `len(values)`
 - What it does: Returns the number of elements in a collection as an `int`.
-- Notes: Works on `List`, `string`, `Set`, and `Map` values.
+- Notes: Works on `List`, `string`, `Heap`, `Set`, and `Map` values.
 - Complexity: O(1)
 
 ### Minimum of a list
@@ -865,6 +865,14 @@ runtime error.
 - What it does: Returns one character from a string.
 - Notes: Shares list-style indexing behavior, including negative indices.
 - Complexity: O(1)
+
+### Heap
+
+- Syntax: `Heap<T> values;`, `Heap<T> values(compare);`, `Heap<T> values = Heap(list);`, `List<T> ordered = List(values);`
+- What it does: Stores values in a heap-backed, aliasing priority collection. The default heap is a min-heap. Supplying a `bool(T, T)` comparator chooses the priority order; `greater` creates a max-heap.
+- Operations: `values.push(x)` inserts a value, `values.top()` returns the next value, `values.pop()` removes and returns it, and `len(values)` returns its size. `print(values)` displays the backing heap array as `[*,...]`; its non-root order is intentionally not sorted.
+- Notes: `Heap(list)` heapifies the whole List in O(n). `List(heap)` returns values in repeated-pop priority order in O(n). Assignment aliases the same heap; `copy(heap)` makes an independent deep copy and keeps its comparator. A default heap needs an ordered element type; classes require an explicit comparator.
+- Complexity: `push` and `pop` are O(log n), `top` and `len` are O(1), and heap construction from a List is O(n).
 
 ### String slicing
 

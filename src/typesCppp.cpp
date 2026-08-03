@@ -48,6 +48,7 @@ std::string containerTypeName(const Type& type) {
         case PrimitiveType::Stack: return "CPPPStack";
         case PrimitiveType::Queue: return "CPPPQueue";
         case PrimitiveType::Deque: return "CPPPDeque";
+        case PrimitiveType::Heap: return "CPPPHeap";
         case PrimitiveType::Set: return "CPPPSet";
         case PrimitiveType::Map: return "CPPPMap";
         default: return "";
@@ -55,13 +56,13 @@ std::string containerTypeName(const Type& type) {
 }
 
 std::string containerMemberForLine(const std::string& line) {
-    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push", "push_front", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "top", "pop_value", "pop_front_value", "pop_back_value", "to_list", "find", "lower_bound", "upper_bound"};
+    const std::vector<std::string> names = {"first", "second", "begin", "end", "cbegin", "cend", "rbegin", "rend", "empty", "size", "reserve", "resize", "clear", "push", "push_front", "push_back", "pop_back", "emplace_back", "insert", "erase", "at", "front", "back", "top", "pop_value", "pop_front_value", "pop_back_value", "to_list", "raw_items", "find", "lower_bound", "upper_bound"};
     if (line.find("operator[]") != std::string::npos) {
         return line.find(") const") != std::string::npos ? "index_const" : "index_mut";
     }
     if (line.find("CPPPPair()") != std::string::npos || line.find("CPPPList()") != std::string::npos ||
         line.find("CPPPStack()") != std::string::npos || line.find("CPPPQueue()") != std::string::npos ||
-        line.find("CPPPDeque()") != std::string::npos || line.find("CPPPSet()") != std::string::npos ||
+        line.find("CPPPDeque()") != std::string::npos || line.find("CPPPHeap()") != std::string::npos || line.find("CPPPSet()") != std::string::npos ||
         line.find("CPPPMap()") != std::string::npos) return "ctor_default";
     if (line.find("CPPPPair(const A&") != std::string::npos) return "ctor_values";
     if (line.find("CPPPPair(const pair") != std::string::npos) return "ctor_std";
@@ -297,19 +298,42 @@ std::vector<std::string> containerSupport(
         "};",
         "",
         "template <typename T>",
+        "class CPPPHeap {",
+        "    struct Compare { function<bool(const T&, const T&)> value; Compare() : value([](const T& left, const T& right) { return left > right; }) {} template <typename F> Compare(F compare) : value([compare](const T& left, const T& right) { return !compare(left, right); }) {} bool operator()(const T& left, const T& right) const { return value(left, right); } };",
+        "    class Storage : public priority_queue<T, vector<T>, Compare> { using Base = priority_queue<T, vector<T>, Compare>; public: using Base::Base; const vector<T>& raw() const { return this->c; } };",
+        "    Compare compare;",
+        "    cppp_smart_pointer<Storage> values;",
+        "public:",
+        "    CPPPHeap() : compare(), values(cppp_smart_pointer<Storage>::make(compare)) {}",
+        "    template <typename F> CPPPHeap(F comparison) : compare(comparison), values(cppp_smart_pointer<Storage>::make(compare)) {}",
+        "    CPPPHeap(const CPPPList<T>& initial) : compare(), values(cppp_smart_pointer<Storage>::make(compare, vector<T>(initial.begin(), initial.end()))) {}",
+        "    bool empty() const { return values->empty(); }",
+        "    size_t size() const { return values->size(); }",
+        "    void push(const T& value) { values->push(value); }",
+        "    const T& top(int line, int column) const { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot take top of empty Heap\"); return values->top(); }",
+        "    T pop_value(int line, int column) { if (values->empty()) throw runtime_error(to_string(line) + \":\" + to_string(column) + \":cannot pop empty Heap\"); T result = values->top(); values->pop(); return result; }",
+        "    CPPPList<T> to_list() const { Storage copy = *values; CPPPList<T> result; result.reserve(copy.size()); while (!copy.empty()) { result.push_back(copy.top()); copy.pop(); } return result; }",
+        "    const vector<T>& raw_items() const { return values->raw(); }",
+        "    CPPPHeap<T> copy_empty() const { CPPPHeap<T> result; result.compare = compare; result.values = cppp_smart_pointer<Storage>::make(result.compare); return result; }",
+        "    friend bool operator==(const CPPPHeap<T>& left, const CPPPHeap<T>& right) { return left.to_list() == right.to_list(); }",
+        "    friend bool operator!=(const CPPPHeap<T>& left, const CPPPHeap<T>& right) { return !(left == right); }",
+        "};",
+        "",
+        "template <typename T>",
         "class CPPPSet {",
         "    struct Compare { function<bool(const T&, const T&)> value; Compare() : value([](const T& left, const T& right) { return left < right; }) {} template <typename F> Compare(F compare) : value(compare) {} bool operator()(const T& left, const T& right) const { return value(left, right); } };",
         "    using storage_type = set<T, Compare>;",
+        "    Compare compare;",
         "    cppp_smart_pointer<storage_type> values;",
         "public:",
         "    using value_type = T; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
-        "    CPPPSet() : values(cppp_smart_pointer<storage_type>::make()) {}",
-        "    template <typename F> CPPPSet(F compare) : values(cppp_smart_pointer<storage_type>::make(Compare(compare))) {}",
-        "    CPPPSet(initializer_list<T> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
-        "    CPPPSet(const set<T>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
-        "    CPPPSet(set<T>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
-        "    template <typename U> CPPPSet(const set<U>& init) : values(cppp_smart_pointer<storage_type>::make()) { for (const auto& item : init) values->emplace(item); }",
-        "    template <typename It> CPPPSet(It first, It last) : values(cppp_smart_pointer<storage_type>::make(first, last)) {}",
+        "    CPPPSet() : compare(), values(cppp_smart_pointer<storage_type>::make(compare)) {}",
+        "    template <typename F> CPPPSet(F comparison) : compare(comparison), values(cppp_smart_pointer<storage_type>::make(compare)) {}",
+        "    CPPPSet(initializer_list<T> init) : compare(), values(cppp_smart_pointer<storage_type>::make(init, compare)) {}",
+        "    CPPPSet(const set<T>& init) : compare(), values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end(), compare)) {}",
+        "    CPPPSet(set<T>&& init) : compare(), values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end(), compare)) {}",
+        "    template <typename U> CPPPSet(const set<U>& init) : compare(), values(cppp_smart_pointer<storage_type>::make(compare)) { for (const auto& item : init) values->emplace(item); }",
+        "    template <typename It> CPPPSet(It first, It last) : compare(), values(cppp_smart_pointer<storage_type>::make(first, last, compare)) {}",
         "    iterator begin() { return values->begin(); }",
         "    const_iterator begin() const { return values->begin(); }",
         "    iterator end() { return values->end(); }",
@@ -333,6 +357,7 @@ std::vector<std::string> containerSupport(
         "    const_iterator upper_bound(const T& key) const { return values->upper_bound(key); }",
         "    operator storage_type&() { return *values; }",
         "    operator const storage_type&() const { return *values; }",
+        "    CPPPSet<T> copy_empty() const { CPPPSet<T> result; result.compare = compare; result.values = cppp_smart_pointer<storage_type>::make(result.compare); return result; }",
         "    friend bool operator==(const CPPPSet& a, const CPPPSet& b) { return *a.values == *b.values; }",
         "    friend bool operator!=(const CPPPSet& a, const CPPPSet& b) { return *a.values != *b.values; }",
         "    friend bool operator<(const CPPPSet& a, const CPPPSet& b) { return *a.values < *b.values; }",
@@ -345,15 +370,16 @@ std::vector<std::string> containerSupport(
         "class CPPPMap {",
         "    struct Compare { function<bool(const K&, const K&)> value; Compare() : value([](const K& left, const K& right) { return left < right; }) {} template <typename F> Compare(F compare) : value(compare) {} bool operator()(const K& left, const K& right) const { return value(left, right); } };",
         "    using storage_type = map<K,V,Compare>;",
+        "    Compare compare;",
         "    cppp_smart_pointer<storage_type> values;",
         "public:",
         "    using value_type = pair<const K,V>; using size_type = typename storage_type::size_type; using iterator = typename storage_type::iterator; using const_iterator = typename storage_type::const_iterator; using reverse_iterator = typename storage_type::reverse_iterator; using const_reverse_iterator = typename storage_type::const_reverse_iterator;",
-        "    CPPPMap() : values(cppp_smart_pointer<storage_type>::make()) {}",
-        "    template <typename F> CPPPMap(F compare) : values(cppp_smart_pointer<storage_type>::make(Compare(compare))) {}",
-        "    CPPPMap(initializer_list<value_type> init) : values(cppp_smart_pointer<storage_type>::make(init)) {}",
-        "    CPPPMap(const map<K,V>& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
-        "    CPPPMap(map<K,V>&& init) : values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end())) {}",
-        "    template <typename It> CPPPMap(It first, It last) : values(cppp_smart_pointer<storage_type>::make(first, last)) {}",
+        "    CPPPMap() : compare(), values(cppp_smart_pointer<storage_type>::make(compare)) {}",
+        "    template <typename F> CPPPMap(F comparison) : compare(comparison), values(cppp_smart_pointer<storage_type>::make(compare)) {}",
+        "    CPPPMap(initializer_list<value_type> init) : compare(), values(cppp_smart_pointer<storage_type>::make(init, compare)) {}",
+        "    CPPPMap(const map<K,V>& init) : compare(), values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end(), compare)) {}",
+        "    CPPPMap(map<K,V>&& init) : compare(), values(cppp_smart_pointer<storage_type>::make(init.begin(), init.end(), compare)) {}",
+        "    template <typename It> CPPPMap(It first, It last) : compare(), values(cppp_smart_pointer<storage_type>::make(first, last, compare)) {}",
         "    iterator begin() { return values->begin(); }",
         "    const_iterator begin() const { return values->begin(); }",
         "    iterator end() { return values->end(); }",
@@ -380,6 +406,7 @@ std::vector<std::string> containerSupport(
         "    const_iterator upper_bound(const K& key) const { return values->upper_bound(key); }",
         "    operator storage_type&() { return *values; }",
         "    operator const storage_type&() const { return *values; }",
+        "    CPPPMap<K,V> copy_empty() const { CPPPMap<K,V> result; result.compare = compare; result.values = cppp_smart_pointer<storage_type>::make(result.compare); return result; }",
         "    friend bool operator==(const CPPPMap& a, const CPPPMap& b) { return *a.values == *b.values; }",
         "    friend bool operator!=(const CPPPMap& a, const CPPPMap& b) { return *a.values != *b.values; }",
         "    friend bool operator<(const CPPPMap& a, const CPPPMap& b) { return *a.values < *b.values; }",
@@ -412,6 +439,7 @@ std::vector<std::string> containerSupport(
         if (line == "class CPPPStack {") groupType = "CPPPStack";
         if (line == "class CPPPQueue {") groupType = "CPPPQueue";
         if (line == "class CPPPDeque {") groupType = "CPPPDeque";
+        if (line == "class CPPPHeap {") groupType = "CPPPHeap";
         if (line == "class CPPPSet {") groupType = "CPPPSet";
         if (line == "class CPPPMap {") groupType = "CPPPMap";
         if (line == "};") {
@@ -1137,6 +1165,18 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPDequeToList<"}
         },
         {
+            "CPPPListToHeap",
+            {"template <typename Out, typename In, typename Converter> CPPPHeap<Out> CPPPListToHeap(const CPPPList<In>& values, Converter convert) { CPPPList<Out> converted; converted.reserve(values.size()); for (const auto& value : values) converted.push_back(convert(value)); return CPPPHeap<Out>(converted); }", ""},
+            {},
+            {"CPPPListToHeap<"}
+        },
+        {
+            "CPPPHeapToList",
+            {"template <typename Out, typename In, typename Converter> CPPPList<Out> CPPPHeapToList(const CPPPHeap<In>& values, Converter convert) { CPPPList<Out> result; CPPPList<In> source = values.to_list(); result.reserve(source.size()); for (const auto& value : source) result.push_back(convert(value)); return result; }", ""},
+            {},
+            {"CPPPHeapToList<"}
+        },
+        {
             "CPPPPrintValueString",
             {
                 "void CPPPPrintValue(ostream& output, const CPPPList<CPPPChar>& value) {",
@@ -1149,12 +1189,13 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPCharType"},
             {"CPPPPrintValueString("}
         },
-        {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const cppp_smart_pointer<T>& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
+        {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPHeap; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPHeap<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const cppp_smart_pointer<T>& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
         {"CPPPPrintValuePair", {"template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value) { output << '('; CPPPPrintValue(output, value.first()); output << ','; CPPPPrintValue(output, value.second()); output << ')'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueList", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values) { output << '['; for (size_t i = 0; i < values.size(); ++i) { if (i > 0) output << \", \"; CPPPPrintValue(output, values[i]); } output << ']'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueStack", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPStack<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
         {"CPPPPrintValueQueue", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPQueue<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
         {"CPPPPrintValueDeque", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPDeque<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
+        {"CPPPPrintValueHeap", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPHeap<T>& values) { output << \"[*\"; for (const auto& value : values.raw_items()) { output << ','; CPPPPrintValue(output, value); } output << ']'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueSet", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values) { output << '{'; bool first = true; for (const auto& value : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, value); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueMap", {"template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values) { output << '{'; bool first = true; for (const auto& entry : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, entry.first); output << ':'; CPPPPrintValue(output, entry.second); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValue", {"template <typename T> void CPPPPrintValue(ostream& output, const T& value) { output << value; }", ""}, {"CPPPPrintValueBase"}, {"CPPPPrintValue("}},
@@ -1176,8 +1217,9 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {"CPPPCopyStack", {"template <typename T> struct CPPPDeepCopier<CPPPStack<T>> { static CPPPStack<T> run(const CPPPStack<T>& value) { CPPPStack<T> result; CPPPList<T> items = value.to_list(); for (const auto& item : items) result.push(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyQueue", {"template <typename T> struct CPPPDeepCopier<CPPPQueue<T>> { static CPPPQueue<T> run(const CPPPQueue<T>& value) { CPPPQueue<T> result; CPPPList<T> items = value.to_list(); for (const auto& item : items) result.push(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyDeque", {"template <typename T> struct CPPPDeepCopier<CPPPDeque<T>> { static CPPPDeque<T> run(const CPPPDeque<T>& value) { CPPPDeque<T> result; CPPPList<T> items = value.to_list(); for (const auto& item : items) result.push_back(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
-        {"CPPPCopySet", {"template <typename T> struct CPPPDeepCopier<CPPPSet<T>> { static CPPPSet<T> run(const CPPPSet<T>& value) { CPPPSet<T> result; for (const auto& item : value) result.insert(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
-        {"CPPPCopyMap", {"template <typename K, typename V> struct CPPPDeepCopier<CPPPMap<K,V>> { static CPPPMap<K,V> run(const CPPPMap<K,V>& value) { CPPPMap<K,V> result; for (const auto& item : value) result[CPPPCopy(item.first)] = CPPPCopy(item.second); return result; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopyHeap", {"template <typename T> struct CPPPDeepCopier<CPPPHeap<T>> { static CPPPHeap<T> run(const CPPPHeap<T>& value) { CPPPHeap<T> result = value.copy_empty(); for (const auto& item : value.raw_items()) result.push(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopySet", {"template <typename T> struct CPPPDeepCopier<CPPPSet<T>> { static CPPPSet<T> run(const CPPPSet<T>& value) { CPPPSet<T> result = value.copy_empty(); for (const auto& item : value) result.insert(CPPPCopy(item)); return result; } };", ""}, {"CPPPCopyBase"}, {}},
+        {"CPPPCopyMap", {"template <typename K, typename V> struct CPPPDeepCopier<CPPPMap<K,V>> { static CPPPMap<K,V> run(const CPPPMap<K,V>& value) { CPPPMap<K,V> result = value.copy_empty(); for (const auto& item : value) result[CPPPCopy(item.first)] = CPPPCopy(item.second); return result; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopyStruct", {"template <typename T> struct CPPPDeepCopier<cppp_smart_pointer<T>> { static cppp_smart_pointer<T> run(const cppp_smart_pointer<T>& value) { return value ? cppp_smart_pointer<T>::make(*value) : nullptr; } };", ""}, {"CPPPCopyBase"}, {}},
         {"CPPPCopy", {"template <typename T> T CPPPCopy(const T& value) { return CPPPDeepCopier<T>::run(value); }", ""}, {"CPPPCopyBase"}, {"CPPPCopy("}},
         {
@@ -1228,7 +1270,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
 // typeSupportPreamble implements the typeSupportPreamble behavior for the typesCppp.cpp module.
 std::vector<std::string> typeSupportPreamble() {
     std::vector<std::string> preamble = smartPointerSupport();
-    const std::vector<std::string> containers = containerSupport({"CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPSet", "CPPPMap"}, {"all"});
+    const std::vector<std::string> containers = containerSupport({"CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPHeap", "CPPPSet", "CPPPMap"}, {"all"});
     preamble.insert(preamble.end(), containers.begin(), containers.end());
     for (const RuntimeHelper& helper : runtimeHelpers()) {
         preamble.insert(preamble.end(), helper.code.begin(), helper.code.end());
@@ -1257,6 +1299,19 @@ void requireContainerMember(const Type& type, const std::string& memberName) {
         requireContainerMember(listType, "push_back");
     } else if (isDequeType(type) && memberName == "to_list") {
         requireContainerMember(Type(PrimitiveType::List, type.subtypes), "ctor_iterator");
+    } else if (isHeapType(type) && memberName == "to_list") {
+        const Type listType(PrimitiveType::List, type.subtypes);
+        requireContainerMember(listType, "ctor_default");
+        requireContainerMember(listType, "reserve");
+        requireContainerMember(listType, "push_back");
+    }
+    if ((memberName == "compare_eq" || memberName == "compare_ne") &&
+        (isCollectionType(type) || isPairType(type))) {
+        for (const Type& subtype : type.subtypes) {
+            if (isCollectionType(subtype) || isPairType(subtype)) {
+                requireContainerMember(subtype, memberName);
+            }
+        }
     }
     if ((isSetType(type) || isMapType(type)) && !type.subtypes.empty() &&
         (isCollectionType(type.subtypes[0]) || isPairType(type.subtypes[0]))) {
@@ -1302,10 +1357,23 @@ void requireCopyHelpersForType(const Type& type) {
         requireRuntimeHelper("CPPPCopyQueue");
     } else if (isDequeType(type)) {
         requireRuntimeHelper("CPPPCopyDeque");
+    } else if (isHeapType(type)) {
+        requireRuntimeHelper("CPPPCopyHeap");
+        requireContainerMember(type, "ctor_default");
+        requireContainerMember(type, "raw_items");
+        requireContainerMember(type, "push");
     } else if (isSetType(type)) {
         requireRuntimeHelper("CPPPCopySet");
+        requireContainerMember(type, "ctor_default");
+        requireContainerMember(type, "begin_const");
+        requireContainerMember(type, "end_const");
+        requireContainerMember(type, "insert_one");
     } else if (isMapType(type)) {
         requireRuntimeHelper("CPPPCopyMap");
+        requireContainerMember(type, "ctor_default");
+        requireContainerMember(type, "begin_const");
+        requireContainerMember(type, "end_const");
+        requireContainerMember(type, "index_mut");
     } else if (isStructType(type)) {
         requireRuntimeHelper("CPPPCopyStruct");
     }
@@ -1326,6 +1394,9 @@ void requirePrintHelpersForType(const Type& type) {
         requireRuntimeHelper("CPPPPrintValueQueue");
     } else if (isDequeType(type)) {
         requireRuntimeHelper("CPPPPrintValueDeque");
+    } else if (isHeapType(type)) {
+        requireRuntimeHelper("CPPPPrintValueHeap");
+        requireContainerMember(type, "raw_items");
     } else if (isSetType(type)) {
         requireRuntimeHelper("CPPPPrintValueSet");
     } else if (isMapType(type)) {
@@ -1409,6 +1480,7 @@ std::vector<std::string> typeSupportPreambleForSubmit(
             if (line.find("CPPPStack<") != std::string::npos) helperTypes.insert("CPPPStack");
             if (line.find("CPPPQueue<") != std::string::npos) helperTypes.insert("CPPPQueue");
             if (line.find("CPPPDeque<") != std::string::npos) helperTypes.insert("CPPPDeque");
+            if (line.find("CPPPHeap<") != std::string::npos) helperTypes.insert("CPPPHeap");
             if (line.find("CPPPSet<") != std::string::npos) helperTypes.insert("CPPPSet");
             if (line.find("CPPPMap<") != std::string::npos) helperTypes.insert("CPPPMap");
         }

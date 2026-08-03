@@ -789,7 +789,7 @@ unclosed bracket in list index
       |
       = help: add `]` to close the delimiter
 
-len() expects a List, Set, or Map value
+len() expects a List, Heap, Set, or Map value
   len(...) only accepts ordered collection expressions.
 
   Example:
@@ -797,7 +797,7 @@ len() expects a List, Set, or Map value
     print(len(x));
 
   Diagnostic:
-    error: len() expects a List, Set, or Map value
+    error: len() expects a List, Heap, Set, or Map value
      --> example.cppp:2:7
       |
     2 | print(len(x));
@@ -4632,3 +4632,75 @@ comparator runtime error
 
   Diagnostic:
     error: runtime error: division by zero
+
+Heaps
+-----
+
+heap class requires a comparator
+  A class has no default heap order. Provide `bool(Class, Class)`.
+
+  Example:
+    class Point { int x; }
+    Heap<Point> values;
+
+  Diagnostic:
+    error: default cannot compare values of type Point; provide bool(Point, Point) instead
+
+heap push type mismatch
+  `push` must receive the Heap element type.
+
+  Example:
+    Heap<int> values;
+    values.push("bad");
+
+  Diagnostic:
+    error: cannot push string to Heap<int>
+
+heap conversion from incompatible List element type
+  `Heap(list)` preserves and checks the List element type.
+
+  Example:
+    List<string> words = ["x"];
+    Heap<int> values = Heap(words);
+
+  Diagnostic:
+    error: cannot cast Heap<string> to Heap<int>
+
+heap constructor requires a List
+  `Heap(value)` is only a conversion from a List.
+
+  Example:
+    Heap<int> values = Heap(7);
+
+  Diagnostic:
+    error: cannot cast int to Heap
+
+heap conversion target mismatch
+  An explicitly heapified List still must match the destination Heap type.
+
+  Example:
+    List<int> source = [1];
+    Heap<string> values = Heap(source);
+
+  Diagnostic:
+    error: cannot cast Heap<int> to Heap<string>
+
+pop from empty heap
+  `pop()` on an empty Heap is a runtime error.
+
+  Example:
+    Heap<int> empty;
+    empty.pop();
+
+  Diagnostic:
+    error: runtime error: cannot pop empty Heap
+
+top from empty heap
+  `top()` on an empty Heap is a runtime error.
+
+  Example:
+    Heap<int> empty;
+    empty.top();
+
+  Diagnostic:
+    error: runtime error: cannot take top of empty Heap

@@ -119,6 +119,9 @@ ComparatorEmitResult emitComparator(
                 sourceLines);
             return {};
         }
+        if (isCollectionType(itemType) || isPairType(itemType)) {
+            requireContainerMember(itemType, descending ? "compare_gt" : "compare_lt");
+        }
         return {true, "[](" + cppType + " const& a, " + cppType + " const& b) { return a " + (descending ? ">" : "<") + " b; }"};
     };
 
@@ -153,7 +156,8 @@ ComparatorEmitResult emitComparator(
                 recordSourceError(inputFile, lineNumber, comparatorColumn, "field '" + fieldName + "' of " + itemType.name + " is not comparable", sourceLines);
                 return {};
             }
-            return {true, "[](const " + cppType + "& a, const " + cppType + "& b) { return a." + fieldName + " < b." + fieldName + "; }"};
+            const std::string access = isClassType(itemType) ? "->" : ".";
+            return {true, "[](const " + cppType + "& a, const " + cppType + "& b) { return a" + access + fieldName + " < b" + access + fieldName + "; }"};
         }
 
         const ExpressionEmitResult index = emitExpression(inputFile, lineNumber, selector, comparatorColumn + 8, sourceLines, declaredVariables);

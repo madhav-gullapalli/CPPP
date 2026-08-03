@@ -61,6 +61,10 @@ std::string cppTypeForExpressionType(const Type& type) {
             return type.subtypes.size() == 1
                 ? "CPPPDeque<" + cppTypeForExpressionType(type.subtypes[0]) + ">"
                 : "";
+        case PrimitiveType::Heap:
+            return type.subtypes.size() == 1
+                ? "CPPPHeap<" + cppTypeForExpressionType(type.subtypes[0]) + ">"
+                : "";
         case PrimitiveType::Set:
             if (type.subtypes.size() == 1) {
                 return "CPPPSet<" + cppTypeForExpressionType(type.subtypes[0]) + ">";
@@ -342,12 +346,16 @@ private:
             if (isLinearDataStructureType(from)) {
                 return Type(PrimitiveType::List, {from.subtypes[0]});
             }
+            if (isHeapType(from)) {
+                return Type(PrimitiveType::List, {from.subtypes[0]});
+            }
             return PrimitiveType::Unknown;
         }
 
         if ((requested.primitive == PrimitiveType::Stack ||
              requested.primitive == PrimitiveType::Queue ||
-             requested.primitive == PrimitiveType::Deque) &&
+             requested.primitive == PrimitiveType::Deque ||
+             requested.primitive == PrimitiveType::Heap) &&
             requested.subtypes.empty()) {
             if (isListType(from)) {
                 return Type(requested.primitive, {from.subtypes[0]});
@@ -690,6 +698,19 @@ private:
             return false;
         }
 
+        if (isHeapType(expr.targetType) && isFunctionType(expr.operand->inferredType)) {
+            const Type& comparator = expr.operand->inferredType;
+            const Type& elementType = expr.targetType.subtypes[0];
+            if (comparator.subtypes.size() != 3 || comparator.subtypes[0] != PrimitiveType::Bool ||
+                comparator.subtypes[1] != elementType || comparator.subtypes[2] != elementType) {
+                report(expr.sourceColumn, "Heap comparator must have type bool(" + cpppTypeName(elementType) + ", " + cpppTypeName(elementType) + ")");
+                return false;
+            }
+            expr.inferredType = expr.targetType;
+            expr.explicitCast = true;
+            return true;
+        }
+
         const Type targetType = resolvedCastTarget(expr.operand->inferredType, expr.targetType);
         if (targetType == PrimitiveType::Unknown ||
             !canExplicitlyCastType(expr.operand->inferredType, targetType)) {
@@ -755,7 +776,7 @@ private:
                 return false;
             }
             if (!isCollectionType(expr.arguments[0]->inferredType)) {
-                report(expr.sourceColumn, "len() expects a List, Set, or Map value");
+                report(expr.sourceColumn, "len() expects a List, Heap, Set, or Map value");
                 return false;
             }
             expr.inferredType = PrimitiveType::Int;
@@ -774,6 +795,32 @@ private:
             }
             expr.inferredType = expr.arguments[0]->inferredType;
             return true;
+        }
+
+        if (expr.receiver && isHeapType(expr.receiver->inferredType)) {
+            const Type elementType = expr.receiver->inferredType.subtypes[0];
+            if (expr.callee == "top" || expr.callee == "pop") {
+                if (!expr.arguments.empty()) {
+                    report(expr.sourceColumn, expr.callee + "() does not take arguments");
+                    return false;
+                }
+                expr.inferredType = elementType;
+                return true;
+            }
+            if (expr.callee == "push") {
+                if (expr.arguments.size() != 1) {
+                    report(expr.sourceColumn, "push() expects exactly one value");
+                    return false;
+                }
+                if (!expr.arguments[0]->explicitCast && !isImplicitlyConvertible(expr.arguments[0]->inferredType, elementType)) {
+                    report(expr.arguments[0]->sourceColumn, "cannot push " + cpppTypeName(expr.arguments[0]->inferredType) + " to " + cpppTypeName(expr.receiver->inferredType));
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Void;
+                return true;
+            }
+            reportNameSuggestion(expr.sourceColumn, expr.sourceSpan, cpppTypeName(expr.receiver->inferredType) + " has no method '" + expr.callee + "'", expr.callee, {"push", "pop", "top"});
+            return false;
         }
 
         if (expr.receiver && isLinearDataStructureType(expr.receiver->inferredType)) {
@@ -1489,6 +1536,10 @@ private:
 
     std::string generateCast(const CastExpr& expr) const {
         const std::string operand = generate(*expr.operand);
+        if (isHeapType(expr.targetType) && isFunctionType(expr.operand->inferredType)) {
+            requireContainerMember(expr.targetType, "ctor_default");
+            return cppTypeForType(expr.targetType) + "(" + operand + ")";
+        }
         if (isStringType(expr.operand->inferredType)) {
             if (expr.targetType == PrimitiveType::Bool) {
                 requireRuntimeHelper("CPPPStringToBool");
@@ -1816,6 +1867,22 @@ private:
         if (expr.callee == "copy") {
             requireCopyHelpersForType(expr.arguments[0]->inferredType);
             return "CPPPCopy(" + generate(*expr.arguments[0]) + ")";
+        }
+
+        if (expr.receiver && isHeapType(expr.receiver->inferredType)) {
+            const std::string receiver = generate(*expr.receiver);
+            const Type heapType = expr.receiver->inferredType;
+            if (expr.callee == "top" || expr.callee == "pop") {
+                const std::string method = expr.callee == "pop" ? "pop_value" : "top";
+                requireContainerMember(heapType, method);
+                return "(" + receiver + ")." + method + "(" + std::to_string(lineNumber) + ", " + std::to_string(expr.sourceColumn) + ")";
+            }
+            std::string value = generate(*expr.arguments[0]);
+            if (expr.arguments[0]->inferredType != heapType.subtypes[0]) {
+                value = castExpressionTo(value, expr.arguments[0]->inferredType, heapType.subtypes[0]);
+            }
+            requireContainerMember(heapType, "push");
+            return "(" + receiver + ").push(" + value + ")";
         }
 
         if (expr.receiver && isLinearDataStructureType(expr.receiver->inferredType)) {

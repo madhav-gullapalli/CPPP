@@ -411,6 +411,10 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     if (isCollectionType(fieldType) || isPairType(fieldType)) {
                         requireContainerMember(fieldType, "compare_eq");
                     }
+                    if (isHeapType(fieldType)) {
+                        requireContainerMember(fieldType, "to_list");
+                        requireContainerMember(Type(PrimitiveType::List, fieldType.subtypes), "compare_eq");
+                    }
                     equal += fieldName + " == other." + fieldName;
                 }
             }

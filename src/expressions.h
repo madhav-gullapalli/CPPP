@@ -31,6 +31,7 @@ enum class PrimitiveType {
     Stack,
     Queue,
     Deque,
+    Heap,
     Set,
     Map,
     Pair,
@@ -122,6 +123,7 @@ bool isListType(const Type& type);
 bool isStackType(const Type& type);
 bool isQueueType(const Type& type);
 bool isDequeType(const Type& type);
+bool isHeapType(const Type& type);
 bool isLinearDataStructureType(const Type& type);
 bool isRangeType(const Type& type);
 bool isSetType(const Type& type);

@@ -237,6 +237,11 @@ TypeInfo typeInfoFor(const Type& type) {
             : TypeInfo{"CPPPDeque<" + subtypeInfo.cppType + ">", "{}"};
     }
 
+    if (isHeapType(type)) {
+        const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
+        return subtypeInfo.cppType.empty() ? TypeInfo{"", ""} : TypeInfo{"CPPPHeap<" + subtypeInfo.cppType + ">", "{}"};
+    }
+
     if (isSetType(type)) {
         const TypeInfo subtypeInfo = typeInfoFor(type.subtypes[0]);
         if (subtypeInfo.cppType.empty()) {
@@ -1434,7 +1439,7 @@ TypeEmitResult emitTypeDeclaration(
         ++tokenIndex;
 
         if (tokens[tokenIndex].kind == TokenKind::LeftParen) {
-            if (isSetType(targetType) || isMapType(targetType)) {
+            if (isSetType(targetType) || isMapType(targetType) || isHeapType(targetType)) {
                 if (variables.size() != 1) {
                     recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn), "a collection comparator can declare only one variable", sourceLines);
                     rememberInvalidVariables(declaredVariables, variables);
@@ -1582,7 +1587,7 @@ TypeEmitResult emitTypeDeclaration(
     }
 
     std::string emittedValue = sizedInitializer.empty() ? typeInfo.defaultValue : sizedInitializer;
-    if (sizedInitializer.empty() && (isSetType(targetType) || isMapType(targetType))) {
+    if (sizedInitializer.empty() && (isSetType(targetType) || isMapType(targetType) || isHeapType(targetType))) {
         const ComparatorEmitResult comparator = emitCollectionComparator(
             inputFile, lineNumber, "", statementStartColumn, targetType.subtypes[0], sourceLines, declaredVariables
         );
@@ -1590,7 +1595,11 @@ TypeEmitResult emitTypeDeclaration(
             rememberInvalidVariables(declaredVariables, variables);
             return {true, false, "", {}};
         }
-        if (assignedValue.empty()) {
+        if (isHeapType(targetType) &&
+            (isCollectionType(targetType.subtypes[0]) || isPairType(targetType.subtypes[0]))) {
+            requireContainerMember(targetType.subtypes[0], "compare_gt");
+        }
+        if (assignedValue.empty() && !isHeapType(targetType)) {
             emittedValue = typeInfo.cppType + "(" + comparator.expression + ")";
         }
     }
@@ -1799,11 +1808,11 @@ TypeEmitResult emitTypeDeclaration(
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
-        } else if (isSetType(targetType) || isMapType(targetType) || isPairType(targetType) ||
+        } else if (isSetType(targetType) || isMapType(targetType) || isHeapType(targetType) || isPairType(targetType) ||
                    isLinearDataStructureType(targetType)) {
             const bool isSet = isSetType(targetType);
             const bool isMap = isMapType(targetType);
-            const bool isLinear = isLinearDataStructureType(targetType);
+            const bool isLinear = isLinearDataStructureType(targetType) || isHeapType(targetType);
             const std::string typeLabel = isSet ? "Set" : (isMap ? "Map" :
                 (isLinear ? cpppTypeName(Type(targetType.primitive)) : "Pair"));
             const std::string literalHint = isSet

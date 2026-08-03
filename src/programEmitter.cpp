@@ -106,6 +106,7 @@ std::set<std::string> requiredSubmitContainerTypes(
             if (line.text.find("CPPPStack<") != std::string::npos) types.insert("CPPPStack");
             if (line.text.find("CPPPQueue<") != std::string::npos) types.insert("CPPPQueue");
             if (line.text.find("CPPPDeque<") != std::string::npos) types.insert("CPPPDeque");
+            if (line.text.find("CPPPHeap<") != std::string::npos) types.insert("CPPPHeap");
             if (line.text.find("CPPPSet<") != std::string::npos) types.insert("CPPPSet");
             if (line.text.find("CPPPMap<") != std::string::npos) types.insert("CPPPMap");
         }
@@ -125,7 +126,7 @@ std::set<std::string> requiredSubmitContainerMembers(
         for (const GeneratedLine& line : lines) {
             if (!line.submitOwnerKey.empty() && reachableOwners.count(line.submitOwnerKey) == 0) continue;
             const std::vector<std::string> types = {
-                "CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPSet", "CPPPMap"
+                "CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPHeap", "CPPPSet", "CPPPMap"
             };
             for (const std::string& type : types) {
                 if (line.text.find(type + "<") == std::string::npos) continue;
