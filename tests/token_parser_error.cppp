@@ -1,0 +1,5 @@
+int total = 1;
+if (total + ) {
+    total++;
+}
+print(total);

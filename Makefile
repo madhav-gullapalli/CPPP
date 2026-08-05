@@ -1,5 +1,6 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -pedantic
+PYTHON ?= python3
 
 BUILD_DIR := build
 SRC_DIR := src
@@ -57,7 +58,7 @@ $(SRC_DIR)/typesCppp.h
 INPUT ?= in.cppp
 PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
-.PHONY: all tokens transpile compile run submit subrun test clean
+.PHONY: all tokens transpile compile run submit subrun test codegen-freeze codegen-freeze-record clean
 
 all: $(COMPILER)
 
@@ -88,6 +89,12 @@ subrun: $(COMPILER)
 
 test: $(COMPILER)
 	bash tests/regression.sh
+
+codegen-freeze: $(COMPILER)
+	$(PYTHON) tests/codegen_freeze.py check --skip-build
+
+codegen-freeze-record: $(COMPILER)
+	$(PYTHON) tests/codegen_freeze.py record --skip-build
 
 clean:
 	$(RM_RF)

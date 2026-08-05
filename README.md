@@ -95,6 +95,27 @@ Windows equivalents:
 
 `--run` keeps extra runtime checks and CP++-style runtime diagnostics. `--submit` prunes unused support and whitespace-minifies the generated contest C++. Add `--readable` after `--submit` to inspect the same pruned program without compaction. The Make equivalents are `make submit INPUT=in.cppp READABLE=1` and `make subrun INPUT=in.cppp READABLE=1`.
 
+## Local Codegen Freeze
+
+Before changing the AST or lowering pipeline, record the current generated C++
+for every example in `correct.txt`:
+
+```sh
+make codegen-freeze-record
+```
+
+Use the standalone freeze suite for local migration testing:
+
+```sh
+make codegen-freeze
+```
+
+The baseline is stored in the ignored `tests/codegen_snapshots/` directory. The
+check transpiles all `correct.txt` examples and compares the generated C++
+byte-for-byte. Record a new baseline only after reviewing an intentional codegen
+change. This suite is separate from `make test` and CI, and it does not snapshot
+`errors.txt`.
+
 ## A Small Example
 
 ```cpp

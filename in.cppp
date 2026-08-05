@@ -1,6 +1,2 @@
-int f(int x){
-    return x;
-}
-List<int> L = input(4);
-print(L[f(0)]);
-print(L[f(-1)]);
+string x = "hi";
+x -= 4;

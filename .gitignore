@@ -1,4 +1,6 @@
 tests/tmp/
+tests/codegen_snapshots/
+tests/codegen_snapshots.new/
 tests/**/*.cpp
 build/
 tests/build/
