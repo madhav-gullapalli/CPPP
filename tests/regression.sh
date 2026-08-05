@@ -43,7 +43,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=27
+TOTAL_STEPS=28
 CURRENT_STEP=0
 
 progress() {
@@ -340,6 +340,18 @@ exotic_lvalues_error_case="$(stage_case "$TEST_DIR/exotic_lvalues_error.cppp")"
 run_failure "$exotic_lvalues_error_case" "$LOG_DIR/exotic_lvalues_error.log" "invalid nested indexed lvalue should fail"
 assert_contains "$LOG_DIR/exotic_lvalues_error.log" "list index must be int" "nested indexed lvalue diagnostic"
 pass "nested indexed lvalues preserve index type diagnostics"
+
+progress "run-mode input safety"
+input_safety_case="$(stage_case "$TEST_DIR/input_safety.cppp")"
+printf '4\n1 3 5 7\n' | "$COMPILER" --cppp "$input_safety_case" --run >"$LOG_DIR/input_safety.log" 2>&1 || fail "valid typed input program runs"
+assert_contains "$LOG_DIR/input_safety.log" "2" "typed input binary search output"
+input_safety_negative_case="$(stage_case "$TEST_DIR/input_safety_negative.cppp")"
+if "$COMPILER" --cppp "$input_safety_negative_case" --run >"$LOG_DIR/input_safety_negative.log" 2>&1; then fail "negative List input size should fail"; fi
+assert_contains "$LOG_DIR/input_safety_negative.log" "input() List size cannot be negative" "negative List input diagnostic"
+input_safety_malformed_case="$(stage_case "$TEST_DIR/input_safety_malformed.cppp")"
+if printf '1 x 3\n' | "$COMPILER" --cppp "$input_safety_malformed_case" --run >"$LOG_DIR/input_safety_malformed.log" 2>&1; then fail "malformed List input should fail"; fi
+assert_contains "$LOG_DIR/input_safety_malformed.log" "List contains a value of the wrong type" "malformed List input diagnostic"
+pass "run-mode input rejects malformed values and sizes"
 
 catalog_failed=0
 

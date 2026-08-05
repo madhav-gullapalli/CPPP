@@ -726,7 +726,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {
             "CPPPInputBool",
             {
-                "bool CPPPInputBool() { bool value; cin >> value; return value; }",
+                "bool CPPPInputBool() { bool value; if (!(cin >> value)) throw runtime_error(\"invalid input: expected bool\"); return value; }",
                 ""
             },
             {},
@@ -735,7 +735,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {
             "CPPPInputChar",
             {
-                "CPPPChar CPPPInputChar() { CPPPChar value; cin >> value; return value; }",
+                "CPPPChar CPPPInputChar() { CPPPChar value; if (!(cin >> value)) throw runtime_error(\"invalid input: expected char\"); return value; }",
                 ""
             },
             {"CPPPCharInput"},
@@ -744,7 +744,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {
             "CPPPInputInt",
             {
-                "long long CPPPInputInt() { long long value; cin >> value; return value; }",
+                "long long CPPPInputInt() { long long value; if (!(cin >> value)) throw runtime_error(\"invalid input: expected int\"); return value; }",
                 ""
             },
             {},
@@ -753,7 +753,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {
             "CPPPInputFloat",
             {
-                "long double CPPPInputFloat() { long double value; cin >> value; return value; }",
+                "long double CPPPInputFloat() { long double value; if (!(cin >> value)) throw runtime_error(\"invalid input: expected float\"); return value; }",
                 ""
             },
             {},
@@ -764,7 +764,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {
                 "CPPPList<CPPPChar> CPPPInputString() {",
                 "    string value;",
-                "    cin >> value;",
+                "    if (!(cin >> value)) throw runtime_error(\"invalid input: expected string\");",
                 "    CPPPList<CPPPChar> result;",
                 "    result.reserve(value.size());",
                 "    for (char ch : value) {",
@@ -781,6 +781,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             "CPPPInputStringCount",
             {
                 "CPPPList<CPPPChar> CPPPInputString(long long count) {",
+                "    if (count < 0) throw runtime_error(\"input() character count cannot be negative\");",
                 "    string value;",
                 "    value.reserve(static_cast<size_t>(max(0LL, count)));",
                 "    cin >> ws;",
@@ -809,6 +810,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "template <typename Reader>",
                 "auto CPPPInputList(long long count, Reader reader) {",
                 "    using Value = decltype(reader());",
+                "    if (count < 0) throw runtime_error(\"input() List size cannot be negative\");",
                 "    vector<Value> values;",
                 "    for (long long i = 0; i < count; ++i) {",
                 "        values.push_back(reader());",
@@ -833,6 +835,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "    while (stream >> value) {",
                 "        values.push_back(value);",
                 "    }",
+                "    if (!stream.eof()) throw runtime_error(\"invalid input: List contains a value of the wrong type\");",
                 "    return values;",
                 "}",
                 ""

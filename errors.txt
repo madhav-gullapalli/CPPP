@@ -4704,3 +4704,22 @@ top from empty heap
 
   Diagnostic:
     error: runtime error: cannot take top of empty Heap
+
+invalid runtime input
+  In `--run`, input type mismatches report a CP++ runtime error instead of
+  silently leaving a default value behind.
+
+  Example:
+    int value = input();
+
+  Diagnostic:
+    error: runtime error: invalid input: expected int
+
+negative List input size
+  A counted List input cannot have a negative size.
+
+  Example:
+    List<int> values = input(-1);
+
+  Diagnostic:
+    error: runtime error: input() List size cannot be negative

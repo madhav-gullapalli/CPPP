@@ -1,0 +1,9 @@
+int n = input();
+List<int> values = input();
+int lo = 0;
+int hi = len(values);
+while (lo < hi) {
+    int middle = (lo + hi) / 2;
+    if (values[middle] < n) { lo = middle + 1; } else { hi = middle; }
+}
+print(lo);

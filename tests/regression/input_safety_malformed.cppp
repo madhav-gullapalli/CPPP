@@ -1,0 +1,2 @@
+List<int> values = input();
+print(values);

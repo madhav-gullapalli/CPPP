@@ -17,6 +17,12 @@ bool& expressionRuntimeChecksEnabled() {
     return enabled;
 }
 
+std::string inputWithSourceLocation(const std::string& expression, int line, int column) {
+    if (!expressionRuntimeChecksEnabled()) return expression;
+    return "([&]() { try { return " + expression + "; } catch (const runtime_error& error) { throw runtime_error(\"" +
+        std::to_string(line) + ":" + std::to_string(column) + ":\" + string(error.what())); } }())";
+}
+
 const std::map<std::string, FunctionSignature>*& declaredFunctionsForExpressions() {
     static const std::map<std::string, FunctionSignature>* functions = nullptr;
     return functions;
@@ -946,7 +952,7 @@ bool emitInputCallForType(
 
     if (isStringType(targetType)) {
         if (arguments.empty()) {
-            emittedExpression = inputFunctionForType(targetType);
+            emittedExpression = inputWithSourceLocation(inputFunctionForType(targetType), lineNumber, inputColumn);
             return true;
         }
         if (arguments.size() != 1) {
@@ -982,7 +988,7 @@ bool emitInputCallForType(
             emittedSize = castExpressionTo(emittedSize, expression.type, PrimitiveType::Int);
         }
         requireRuntimeHelper("CPPPInputStringCount");
-        emittedExpression = "CPPPInputString(" + emittedSize + ")";
+        emittedExpression = inputWithSourceLocation("CPPPInputString(" + emittedSize + ")", lineNumber, inputColumn);
         return true;
     }
 
@@ -992,7 +998,7 @@ bool emitInputCallForType(
             return false;
         }
 
-        emittedExpression = inputFunctionForType(targetType);
+        emittedExpression = inputWithSourceLocation(inputFunctionForType(targetType), lineNumber, inputColumn);
         return true;
     }
 
@@ -1005,7 +1011,7 @@ bool emitInputCallForType(
                 return false;
             }
             requireRuntimeHelper("CPPPInputListLine");
-            emittedExpression = "CPPPInputListLine<" + elementCppType + ">()";
+            emittedExpression = inputWithSourceLocation("CPPPInputListLine<" + elementCppType + ">()", lineNumber, inputColumn);
             return true;
         }
 
@@ -1061,7 +1067,7 @@ bool emitInputCallForType(
         dimensions.push_back(emittedSize);
     }
 
-    emittedExpression = emitListInputExpression(targetType, dimensions, 0);
+    emittedExpression = inputWithSourceLocation(emitListInputExpression(targetType, dimensions, 0), lineNumber, inputColumn);
     if (emittedExpression.empty()) {
         recordSourceError(inputFile, lineNumber, arguments[0].column, "List input sizes must leave at most one final line-shaped List dimension", sourceLines);
         return false;
