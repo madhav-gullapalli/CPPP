@@ -5,8 +5,8 @@
  *
  * The current flow is:
  * source text
- *   -> splitSourceFragments(...)
- *   -> compileSourceFragments(...)
+ *   -> TokenStream
+ *   -> compileTokenStream(...)
  *   -> generatedTopLevelLines / generatedFunctionLines / generatedMainLines
  *   -> emitTranslatedProgram(...)
  *
@@ -39,15 +39,21 @@ struct SourceFragment {
     int lineNumber = 0;
     int startColumn = 1;
     std::string text;
+    std::string codeText;
+    std::string commentText;
     int endLineNumber = 0;
     int endColumn = 1;
     SourceSpan sourceSpan;
+    // Rebased view of canonical source tokens for this logical statement.
+    // The final token is always EndOfFile for compatibility with parsers.
+    std::vector<Token> tokens;
 
     SourceFragment() = default;
     SourceFragment(int lineNumber, int startColumn, std::string text) :
         lineNumber(lineNumber),
         startColumn(startColumn),
         text(std::move(text)),
+        codeText(this->text),
         endLineNumber(lineNumber),
         endColumn(startColumn) {}
 };

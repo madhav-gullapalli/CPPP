@@ -1,0 +1,7 @@
+void invalid(copy int value){
+    print(value);
+}
+
+void oldSyntax(deep List<int> values){
+    print(values);
+}

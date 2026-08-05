@@ -1,0 +1,12 @@
+void unusedWork() {
+    List<int> ignored = [9];
+    ignored.reverse();
+    Map<int, int> alsoUnused;
+}
+
+List<int> values = [1, 2];
+values.add(3);
+Set<int> seen = {2};
+seen.add(3);
+Pair<int, int> point = (4, 9);
+print(len(values), 3 in seen, point[0], values == [1, 2, 3]);

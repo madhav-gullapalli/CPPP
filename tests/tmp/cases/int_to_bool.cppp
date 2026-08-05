@@ -1,3 +1,0 @@
-int x = input();
-bool ok = (bool)x;
-print(ok);

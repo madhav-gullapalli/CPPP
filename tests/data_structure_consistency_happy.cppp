@@ -1,0 +1,24 @@
+Heap<int> heap(greater);
+heap.push(1); heap.push(2);
+Heap<int> heapCopy = copy(heap);
+heapCopy.push(3);
+Set<int> orderedSet(greater);
+orderedSet.add(1); orderedSet.add(2);
+Set<int> setCopy = copy(orderedSet);
+setCopy.add(3);
+Map<int, int> orderedMap(greater);
+orderedMap[1] = 1; orderedMap[2] = 2;
+Map<int, int> mapCopy = copy(orderedMap);
+mapCopy[3] = 3;
+List<int> list; Stack<int> stack; Queue<int> queue; Deque<int> deque;
+Heap<int> emptyHeap; Set<int> emptySet; Map<int, int> emptyMap;
+Pair<int, int> pair = (0, 0);
+int flags = 0;
+if (list) { flags += 1; } if (stack) { flags += 2; } if (queue) { flags += 4; }
+if (deque) { flags += 8; } if (emptyHeap) { flags += 16; } if (emptySet) { flags += 32; }
+if (emptyMap) { flags += 64; }
+list.add(1); stack.add(1); queue.add(1); deque.addFront(1);
+if (list) { flags += 1; } if (stack) { flags += 2; } if (queue) { flags += 4; }
+if (deque) { flags += 8; } if (heap) { flags += 16; } if (orderedSet) { flags += 32; }
+if (orderedMap) { flags += 64; } if (pair) { flags += 128; }
+print(heapCopy, setCopy, mapCopy, flags);

@@ -1,0 +1,6 @@
+List<int> values = [1, 2]; // this comment remains inspectable
+string label = "values // ready";
+values.add(3);
+if (len(values) == 3) {
+    print(label, values);
+}

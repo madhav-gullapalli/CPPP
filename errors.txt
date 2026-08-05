@@ -2953,6 +2953,33 @@ integer overflow
 Whitespace-insensitive parsing
 ------------------------------
 
+canonical whole-source token stream
+  CP++ tokenizes the complete source file once before statement parsing. Every
+  token keeps its original line, column, and byte offsets; comments and block
+  braces are represented explicitly rather than discovered by later rescans.
+
+  Example:
+    int total = 0;
+    List<int> values = [1, 2, 3]; // one canonical comment token
+    for (int value in values) {
+        total += value;
+    }
+    print(total);
+
+unrecognized source token
+  A character that is not part of CP++ syntax is rejected by the canonical
+  tokenizer before statement parsing continues.
+
+  Example:
+    int value = 1;
+    if (value > 0) {
+        @;
+    }
+    print(value);
+
+  Diagnostic:
+    error: unrecognized token '@'
+
 lexer whitespace
   The lexer skips whitespace and does not emit whitespace tokens. Parser
   decisions should be made from tokens, not from the amount of space between

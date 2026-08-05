@@ -19,10 +19,76 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace {
+std::string readSourceText(
+    std::istream& input,
+    std::map<int, std::string>& sourceLines
+) {
+    std::string source;
+    std::string line;
+    int lineNumber = 0;
+    while (std::getline(input, line)) {
+        ++lineNumber;
+        sourceLines[lineNumber] = line;
+        if (lineNumber > 1) {
+            source += '\n';
+        }
+        source += line;
+    }
+    if (sourceLines.empty()) {
+        sourceLines[1] = "";
+    }
+    return source;
+}
+
+std::string jsonString(const std::string& text) {
+    std::ostringstream escaped;
+    escaped << '"';
+    for (unsigned char ch : text) {
+        switch (ch) {
+            case '"': escaped << "\\\""; break;
+            case '\\': escaped << "\\\\"; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            default:
+                if (ch < 0x20) {
+                    escaped << "\\u"
+                            << std::hex << std::setw(4) << std::setfill('0')
+                            << static_cast<int>(ch)
+                            << std::dec << std::setfill(' ');
+                } else {
+                    escaped << static_cast<char>(ch);
+                }
+                break;
+        }
+    }
+    escaped << '"';
+    return escaped.str();
+}
+
+void printTokenStream(const TokenStream& stream) {
+    for (const Token& token : stream.tokens) {
+        std::cout
+            << "{\"kind\":" << jsonString(tokenKindName(token.kind))
+            << ",\"text\":" << jsonString(token.text)
+            << ",\"line\":" << token.span.startLine
+            << ",\"column\":" << token.span.startColumn
+            << ",\"endLine\":" << token.span.endLine
+            << ",\"endColumn\":" << token.span.endColumn
+            << ",\"startOffset\":" << token.span.startOffset
+            << ",\"endOffset\":" << token.span.endOffset
+            << "}\n";
+    }
+}
+
 // trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
@@ -145,10 +211,10 @@ void pruneSubmitLoopHelpers(CompileContext& context) {
 }
 
 // Keep the driver flow linear on purpose:
-// raw file -> SourceFragment list -> generated line buffers -> emitted C++.
+// raw file -> canonical TokenStream -> statement lowering -> generated C++.
 int runCompilerDriver(int argc, char* argv[]) {
     if ((argc < 3 || argc > 5) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--compile|--run|--submit [--readable]]\n";
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--compile|--run|--submit [--readable]]\n";
         return 1;
     }
     clearRecordedSourceErrors();
@@ -156,10 +222,11 @@ int runCompilerDriver(int argc, char* argv[]) {
 
     const bool hasAction = argc >= 4;
     const std::string action = hasAction ? std::string(argv[3]) : "";
+    const bool shouldPrintTokens = action == "--tokens";
     const bool shouldCompile = action == "--compile" || action == "--run" || action == "--submit";
     const bool shouldRun = action == "--run";
     const bool shouldSubmit = action == "--submit";
-    if (hasAction && !shouldCompile) {
+    if (hasAction && !shouldCompile && !shouldPrintTokens) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
         return 1;
     }
@@ -199,11 +266,24 @@ int runCompilerDriver(int argc, char* argv[]) {
 
     // This is the shared state object for every later compiler stage.
     CompileContext context(options);
-    setDeclaredFunctionsForExpressions(&context.declaredFunctions);
-    compileSourceFragments(
-        context,
-        splitSourceFragments(input, context.sourceLines, options.inputFile)
+    const std::string source = readSourceText(input, context.sourceLines);
+    const int lastLine = context.sourceLines.rbegin()->first;
+    const int lastColumn = static_cast<int>(context.sourceLines.rbegin()->second.size());
+    const SourceSpan sourceSpan = sourceSpanForRange(
+        options.inputFile,
+        context.sourceLines,
+        1,
+        1,
+        lastLine,
+        lastColumn
     );
+    const TokenStream tokenStream = tokenizeSource(source, sourceSpan);
+    if (shouldPrintTokens) {
+        printTokenStream(tokenStream);
+        return 0;
+    }
+    setDeclaredFunctionsForExpressions(&context.declaredFunctions);
+    compileTokenStream(context, tokenStream);
 
     if (context.blockDepth > 0) {
         recordSourceError(options.inputFile, context.sourceLines.empty() ? 1 : context.sourceLines.rbegin()->first, 1, "unclosed block", context.sourceLines);

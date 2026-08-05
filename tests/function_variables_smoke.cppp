@@ -1,0 +1,10 @@
+int failDirect(int value){
+    List<int> empty;
+    return empty[value];
+}
+int failIndirect(int value){
+    return 10 / value;
+}
+int(int) operation = failIndirect;
+print(failDirect(0));
+print(operation(0));

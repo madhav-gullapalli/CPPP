@@ -75,6 +75,7 @@ Direct compiler usage:
 
 ```sh
 build/cppp --cppp in.cppp
+build/cppp --cppp in.cppp --tokens
 build/cppp --cppp in.cppp --compile
 build/cppp --cppp in.cppp --run
 build/cppp --cppp in.cppp --submit
@@ -85,6 +86,7 @@ Windows equivalents:
 
 ```sh
 .\build\cppp.exe --cppp in.cppp
+.\build\cppp.exe --cppp in.cppp --tokens
 .\build\cppp.exe --cppp in.cppp --compile
 .\build\cppp.exe --cppp in.cppp --run
 .\build\cppp.exe --cppp in.cppp --submit

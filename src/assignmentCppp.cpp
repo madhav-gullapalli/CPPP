@@ -80,11 +80,11 @@ bool parseAssignmentStructure(
             --parenDepth;
             continue;
         }
-        if (token.kind == TokenKind::Unknown && token.text == "{") {
+        if (token.kind == TokenKind::LeftBrace) {
             ++braceDepth;
             continue;
         }
-        if (token.kind == TokenKind::Unknown && token.text == "}") {
+        if (token.kind == TokenKind::RightBrace) {
             --braceDepth;
             continue;
         }
@@ -133,9 +133,13 @@ AssignmentEmitResult emitAssignmentStatement(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
-    bool emitRuntimeChecks
+    bool emitRuntimeChecks,
+    const std::vector<Token>* sourceTokens
 ) {
-    const std::vector<Token> tokens = tokenize(statementBody);
+    const std::vector<Token> scannedTokens = sourceTokens == nullptr
+        ? tokenize(statementBody)
+        : std::vector<Token>{};
+    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
     if (tokens.size() < 3) {
         return {false, true, "", {}};
     }
@@ -239,9 +243,9 @@ AssignmentEmitResult emitAssignmentStatement(
                 ++bracketDepth;
             } else if (token.kind == TokenKind::RightBracket) {
                 --bracketDepth;
-            } else if (token.kind == TokenKind::Unknown && token.text == "{") {
+            } else if (token.kind == TokenKind::LeftBrace) {
                 ++braceDepth;
-            } else if (token.kind == TokenKind::Unknown && token.text == "}") {
+            } else if (token.kind == TokenKind::RightBrace) {
                 --braceDepth;
             } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
                 expressions.push_back(expressionText.substr(segmentStart, static_cast<size_t>(token.span.startColumn - 1) - segmentStart));

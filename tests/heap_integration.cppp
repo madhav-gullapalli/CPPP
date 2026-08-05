@@ -1,0 +1,66 @@
+List<Pair<int, int>> dijkstra(List<List<Pair<int, int>>> adj, List<int> visited) {
+    List<int> distance(len(adj));
+    for (int i = 0; i < len(distance); i++) {
+        distance[i] = 1000000;
+    }
+    distance[0] = 0;
+    Heap<Pair<int, int>> pending;
+    pending.push((0, 0));
+    while (len(pending) > 0) {
+        Pair<int, int> current = pending.pop();
+        int node = current[1];
+        if (visited[node]) {
+            continue;
+        }
+        visited[node] = 1;
+        for (Pair<int, int> edge in adj[node]) {
+            int next = edge[1];
+            int candidate = current[0] + edge[0];
+            if (candidate < distance[next]) {
+                distance[next] = candidate;
+                pending.push((candidate, next));
+            }
+        }
+    }
+    List<Pair<int, int>> result;
+    for (int i = 0; i < len(distance); i++) {
+        result.add((distance[i], i));
+    }
+    return result;
+}
+
+class MedianStream {
+    Heap<int> top;
+    Heap<int> bottom(greater);
+    void add(int x) {
+        if (len(top) == 0 || x <= top.top()) {
+            top.push(x);
+        } else {
+            bottom.push(x);
+        }
+        if (len(top) > len(bottom) + 1) {
+            bottom.push(top.pop());
+        }
+        if (len(bottom) > len(top)) {
+            top.push(bottom.pop());
+        }
+    }
+    float getMedian() {
+        if (len(top) > len(bottom)) {
+            return top.top();
+        }
+        return float(top.top() + bottom.top()) / 2;
+    }
+}
+
+List<List<Pair<int, int>>> graph = [[(4, 1), (1, 2)], [(1, 3)], [(2, 1), (5, 3)], []];
+List<int> seen(4);
+print(dijkstra(graph, seen), dijkstra(graph, seen));
+Heap<int> small;
+Heap<int> large(greater);
+MedianStream stream = MedianStream(small, large);
+stream.add(5);
+stream.add(1);
+stream.add(9);
+stream.add(3);
+print(stream.getMedian());

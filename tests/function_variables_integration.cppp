@@ -1,0 +1,49 @@
+int firstFind(int low, int high, bool(int) check){
+    while (low < high) {
+        int middle = low + (high - low) / 2;
+        if (check(middle)) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    return low;
+}
+bool atLeastFive(int value){ return value >= 5; }
+bool atLeastTen(int value){ return value >= 10; }
+bool atLeast(int threshold, int value){ return value >= threshold; }
+int larger(int left, int right){ return max(left, right); }
+class SegTree {
+    List<int> backing;
+    int(int, int) operation;
+    int sentinel;
+    void add(int value, int position){
+        position += len(backing) / 2;
+        backing[position] = value;
+        while (position > 1) {
+            position /= 2;
+            backing[position] = operation(backing[position * 2], backing[position * 2 + 1]);
+        }
+    }
+    int query(int left, int right){
+        int result = sentinel;
+        left += len(backing) / 2;
+        right += len(backing) / 2;
+        while (left < right) {
+            if (left % 2 == 1) { result = operation(result, backing[left]); left++; }
+            if (right % 2 == 1) { right--; result = operation(result, backing[right]); }
+            left /= 2;
+            right /= 2;
+        }
+        return result;
+    }
+}
+bool(int) twelve = atLeast(12);
+print(firstFind(0, 20, atLeastFive), firstFind(0, 20, atLeastTen), firstFind(0, 20, twelve));
+List<int> storage(8);
+SegTree tree = SegTree(storage, larger, -1000000);
+tree.add(3, 0);
+tree.add(8, 1);
+tree.add(5, 2);
+tree.add(2, 3);
+print(tree.query(0, 4), tree.query(2, 4));

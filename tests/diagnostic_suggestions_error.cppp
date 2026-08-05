@@ -1,0 +1,19 @@
+class Counter {
+    int value;
+    void increment() {
+        value++;
+    }
+}
+int doubleValue(int value) {
+    return value * 2;
+}
+int count = 3;
+print(coutn);
+print(dubleValue(count));
+Counter counter = Counter(4);
+counter.incremnt();
+print(counter.vlaue);
+Counetr other;
+pritn(count);
+int extra = 1 2;
+int broken = (count + 3;

@@ -1,0 +1,6 @@
+List<int> zero();
+List<int> tooDeep(1, 2);
+List<Set<int>> setDepth(1, 3);
+Queue<int> queue(5);
+List<int> fractional(1.3);
+List<List<int>> mismatched(2, 3));

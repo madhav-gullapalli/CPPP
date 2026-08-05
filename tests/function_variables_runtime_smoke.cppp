@@ -1,0 +1,5 @@
+int fail(int value){
+    return 10 / value;
+}
+int(int) operation = fail;
+print(operation(0));

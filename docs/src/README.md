@@ -13,11 +13,11 @@ right module.
 The compiler pipeline today is:
 
 1. `src/cppp.cpp` calls `runCompilerDriver(...)`.
-2. `src/compilerDriver.cpp` validates CLI options, opens the input file, and
-   creates one `CompileContext`.
-3. `src/sourceSplitter.cpp` converts raw text into `SourceFragment` records and
-   saves original source lines for diagnostics.
-4. `src/statementCompiler.cpp` walks those fragments and performs most lowering,
+2. `src/compilerDriver.cpp` validates CLI options, opens the input file, creates
+   one `CompileContext`, and tokenizes the complete source once.
+3. `src/sourceSplitter.cpp` groups the canonical `TokenStream` into token-backed
+   logical statement views for the current parser.
+4. `src/statementCompiler.cpp` consumes that stream and performs most lowering,
    using helper modules for expressions, types, assignments, print, lists,
    functions, and control-flow headers.
 5. `src/programEmitter.cpp` turns the generated line buffers in
@@ -48,14 +48,14 @@ where source mapping, symbol tables, block/function state, and generated output
 buffers live.
 
 ## [src/tokenizer.cpp](../../src/tokenizer.cpp) and [src/tokenizer.h](../../src/tokenizer.h)
-These files implement tokenization for expressions and syntax helpers. Any
-change to keywords, operators, literal lexing, or token classification usually
-starts here.
+These files implement the canonical whole-source `TokenStream`, token kinds,
+literal/comment lexing, byte offsets, and source spans. The `--tokens` driver
+mode prints this stream for inspection and snapshot tests.
 
 ## [src/sourceSplitter.cpp](../../src/sourceSplitter.cpp) and [src/sourceSplitter.h](../../src/sourceSplitter.h)
-This is the first stage after file I/O. It preserves original source lines for
-diagnostics, splits raw text into statement-sized fragments, merges continuation
-lines, and keeps comments/brace boundaries in a form later stages can consume.
+This stage groups an already-tokenized file into statement-sized compatibility
+views. It handles top-level terminators, continuation lines, comments, and block
+braces without scanning raw source again.
 
 ## [src/statementParser.cpp](../../src/statementParser.cpp) and [src/statementParser.h](../../src/statementParser.h)
 These files classify logical statements into a small statement AST. They are
@@ -105,8 +105,9 @@ This module provides emitted runtime support and type-emission machinery used by
 the generated C++ program.
 
 ## [src/statementCompiler.cpp](../../src/statementCompiler.cpp) and [src/statementCompiler.h](../../src/statementCompiler.h)
-This is the central lowering stage. It iterates through `SourceFragment`
-records, tracks block nesting and scope, recognizes functions/control flow, and
+This is the central lowering stage. It receives the canonical `TokenStream`,
+iterates through its temporary statement views, tracks block nesting and scope,
+recognizes functions/control flow, and
 routes specialized work to the expression, assignment, list, print, and type
 helpers before queueing generated C++ lines into `CompileContext`.
 
@@ -139,13 +140,12 @@ helper machinery for list operations.
   mode does not need.
 
 ### `src/sourceSplitter.cpp`
-- `splitSourceFragments(...)` is the splitter entry point.
-- `splitSemicolonStatements(...)` breaks physical lines into statement-like
-  pieces.
-- `mergeContinuationFragments(...)` rejoins multi-line logical statements.
+- `splitTokenStream(...)` groups canonical tokens into statement views.
+- `splitPhysicalFragments(...)` handles token-level boundaries.
+- `mergeLogicalFragments(...)` rejoins multi-line logical statements.
 
 ### `src/statementCompiler.cpp`
-- `compileSourceFragments(...)` is the main statement-lowering loop.
+- `compileTokenStream(...)` is the main statement-lowering loop.
 - `emitConditionHeader(...)` lowers analyzed `if`/`while` conditions.
 - `emitForPart(...)` lowers pieces of classic `for (init; cond; iter)` loops.
 

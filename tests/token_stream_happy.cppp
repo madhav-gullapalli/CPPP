@@ -1,0 +1,6 @@
+int total = 0;
+List<int> values = [1, 2, 3]; // comments are canonical tokens too
+for (int value in values) {
+    total += value;
+}
+print(total);

@@ -46,7 +46,8 @@ ParsedFunctionHeader parseFunctionHeader(
     int lineNumber,
     const std::string& statementBody,
     int statementColumn,
-    const std::map<int, std::string>& sourceLines
+    const std::map<int, std::string>& sourceLines,
+    const std::vector<Token>* sourceTokens = nullptr
 );
 
 // functionParameterTypesDescription implements the functionParameterTypesDescription behavior for the functions.h module.

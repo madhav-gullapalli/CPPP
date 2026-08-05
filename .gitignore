@@ -1,9 +1,17 @@
 tests/tmp/
 tests/**/*.cpp
 build/
+tests/build/
+tests/*/build/
 CPPlusPlus_*
 tmp_*
 *.log
+*.compile.log
+*.run.log
+*.dSYM/
+/in
+/in.dSYM/
+.DS_Store
 prompt*
 NUL
 .vscode/

@@ -28,7 +28,8 @@ PrintEmitResult emitPrintStatement(
     const std::string& statementBody,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>* sourceTokens = nullptr
 );
 
 PrintEmitResult emitDescribeStatement(
@@ -37,5 +38,6 @@ PrintEmitResult emitDescribeStatement(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>* sourceTokens = nullptr
 );

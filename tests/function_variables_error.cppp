@@ -1,0 +1,17 @@
+int add(int left, int right){
+    return left + right;
+}
+int consume(copy List<int> values){
+    return len(values);
+}
+float(int, int) wrongReturn = add;
+int(int) wrongCount = add;
+int(int, float) wrongParameter = add;
+int(int) fullyEvaluated = add(1, 2);
+int() ordinaryValue = 7;
+int(List<int>) losesCopy = consume;
+print(add + add);
+print(add < add);
+print(!add);
+print(add[0]);
+add++;

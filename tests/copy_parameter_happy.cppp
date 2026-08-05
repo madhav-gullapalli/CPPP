@@ -1,0 +1,12 @@
+void update(copy List<int> independent, List<int> alias){
+    independent.add(99);
+    alias.add(7);
+    print(independent, alias);
+}
+
+List<int> values = [1, 2];
+update(values, values);
+print(values);
+var clone = copy(values);
+clone.add(8);
+print(clone, values);

@@ -277,6 +277,7 @@
   "unknown_class_method": "error: class Point has no method 'shfit'\n --> <source>:8:7\n  |\n8 | point.shfit();\n  |       ^~~~~\n  |\n  = help: did you mean 'shift'?",
   "unknown_struct_comparison_field": "error: struct Point has no field 'y'; did you mean 'x'?\n --> <source>:3:13\n  |\n3 | values.sort(compare(\"y\"));\n  |             ^~~~~~~",
   "unmatched_closing_brace": "error: unmatched closing brace\n --> <source>:1:1\n  |\n1 | }\n  | ^",
+  "unrecognized_source_token": "error: unrecognized token '@'\n --> <source>:3:5\n  |\n3 |     @;\n  |     ^\n  |\n  = help: remove it or replace it with a valid CP++ token",
   "unsupported_statement": "error: unsupported statement\n --> <source>:1:1\n  |\n1 | pritn(1);\n  | ^~~~~\n  |\n  = help: did you mean 'print'?",
   "unsupported_type_pair_void_int": "error: unsupported type Pair<void, int>\n --> <source>:1:1\n  |\n1 | Pair<void, int> point;\n  | ^~~~",
   "unterminated_char_literal": "error: unterminated char literal\n --> <source>:1:10\n  |\n1 | char c = 'B;\n  |          ^~~\n  |\n  = help: add a closing `'`",

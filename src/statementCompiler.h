@@ -3,9 +3,8 @@
  *
  * Main statement-lowering stage.
  *
- * This stage consumes SourceFragment records, recognizes statement/control-flow
- * forms, updates scope state, and queues generated C++ lines into
- * CompileContext.
+ * This stage consumes the canonical whole-file TokenStream, derives temporary
+ * statement views, updates scope state, and queues generated C++ lines.
  */
 
 #pragma once
@@ -14,6 +13,6 @@
 
 #include <vector>
 
-// Lowers the logical source fragments produced by sourceSplitter into generated
-// C++ while updating the shared CompileContext.
-void compileSourceFragments(CompileContext& context, const std::vector<SourceFragment>& sourceFragments);
+// Lowers a canonical source token stream into generated C++ while updating the
+// shared CompileContext.
+void compileTokenStream(CompileContext& context, const TokenStream& tokenStream);

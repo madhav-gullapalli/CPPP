@@ -861,9 +861,9 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
             ++bracketDepth;
         } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
             --bracketDepth;
-        } else if (token.kind == TokenKind::Unknown && token.text == "{") {
+        } else if (token.kind == TokenKind::LeftBrace) {
             ++braceDepth;
-        } else if (token.kind == TokenKind::Unknown && token.text == "}" && braceDepth > 0) {
+        } else if (token.kind == TokenKind::RightBrace && braceDepth > 0) {
             --braceDepth;
         } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
             const std::string rawArgument = content.substr(argumentStartIndex, static_cast<size_t>(token.span.startColumn - 1) - argumentStartIndex);

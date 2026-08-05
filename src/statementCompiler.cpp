@@ -83,6 +83,26 @@ bool isNamedCallStatement(const std::vector<Token>& tokens, const std::string& n
         tokens[1].kind == TokenKind::LeftParen;
 }
 
+std::vector<Token> withoutTrailingSemicolon(const std::vector<Token>& tokens) {
+    std::vector<Token> statementTokens;
+    statementTokens.reserve(tokens.size());
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::EndOfFile) {
+            break;
+        }
+        statementTokens.push_back(token);
+    }
+    if (!statementTokens.empty() && statementTokens.back().kind == TokenKind::Semicolon) {
+        statementTokens.pop_back();
+    }
+
+    Token eof = tokens.empty() ? Token{} : tokens.back();
+    eof.kind = TokenKind::EndOfFile;
+    eof.text.clear();
+    statementTokens.push_back(std::move(eof));
+    return statementTokens;
+}
+
 // isBuiltinCallName returns whether the supplied input satisfies the relevant condition.
 bool isBuiltinCallName(const std::string& name) {
     return name == "print" ||
@@ -224,11 +244,12 @@ bool needsRangeRuntimeHelperForType(const Type& type) {
 }
 }
 
-void compileSourceFragments(CompileContext& context, const std::vector<SourceFragment>& sourceFragments) {
+void compileTokenStream(CompileContext& context, const TokenStream& tokenStream) {
     setDeclaredStructsForExpressions(&context.declaredStructs);
     setDeclaredClassNamesForExpressions(&context.declaredClassNames);
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
+    const std::vector<SourceFragment> sourceFragments = splitTokenStream(tokenStream);
     for (const SourceFragment& fragment : sourceFragments) {
         const std::string requirementOwner = !context.currentStructMethodName.empty()
             ? "method:" + context.currentStructName + "." + context.currentStructMethodName
@@ -238,11 +259,9 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         setRuntimeRequirementOwner(requirementOwner);
         const int lineNumber = fragment.lineNumber;
         const std::string& line = fragment.text;
-        const size_t commentStart = findLineCommentStart(line);
-        const std::string commentText = commentStart == std::string::npos ? "" : trim(line.substr(commentStart));
+        const std::string& commentText = fragment.commentText;
         const bool hasComment = !commentText.empty();
-        const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
-        const std::string statement = trim(codeText);
+        const std::string statement = trim(fragment.codeText);
 
         if (statement.empty()) {
             if (hasComment) {
@@ -261,16 +280,18 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const int statementStartColumn = fragment.startColumn;
-        const SourceSpan statementSpan = sourceSpanForColumns(
-            context.options.inputFile,
-            context.sourceLines,
-            lineNumber,
-            statementStartColumn,
-            statementStartColumn + static_cast<int>(statement.size()) - 1
-        );
-        const std::vector<Token> lexicalTokens = tokenize(statement, statementSpan);
+        const std::vector<Token>& lexicalTokens = fragment.tokens;
         bool hasLexicalError = false;
         for (const Token& token : lexicalTokens) {
+            if (token.kind == TokenKind::Unknown) {
+                Diagnostic diagnostic;
+                diagnostic.message = "unrecognized token '" + token.text + "'";
+                diagnostic.labels.push_back({token.sourceSpan, "", true});
+                diagnostic.helps.push_back("remove it or replace it with a valid CP++ token");
+                recordDiagnostic(std::move(diagnostic));
+                hasLexicalError = true;
+                break;
+            }
             if ((token.kind != TokenKind::String && token.kind != TokenKind::Char) ||
                 (token.text.size() >= 2 && token.text.front() == token.text.back())) {
                 continue;
@@ -315,7 +336,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         if (!context.inStruct && context.blockDepth == 0) {
-            const std::vector<Token> structTokens = tokenize(statement);
+            const std::vector<Token>& structTokens = lexicalTokens;
             if (structTokens.size() >= 4 && structTokens[0].kind == TokenKind::Identifier &&
                 (structTokens[0].text == "struct" || structTokens[0].text == "class")) {
                 const bool isClass = structTokens[0].text == "class";
@@ -469,7 +490,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                     lineNumber,
                     trim(statement.substr(0, methodBrace + 1)),
                     statementStartColumn,
-                    context.sourceLines
+                    context.sourceLines,
+                    &lexicalTokens
                 );
                 if (methodHeader.matched && methodHeader.ok) {
                     if (context.declaredStructMethods[context.currentStructName].count(methodHeader.signature.name) != 0) {
@@ -498,6 +520,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 fieldStatement.pop_back();
                 fieldStatement = trim(fieldStatement);
             }
+            const std::vector<Token> fieldTokens = withoutTrailingSemicolon(lexicalTokens);
             const TypeEmitResult fieldResult = emitTypeDeclaration(
                 context.options.inputFile,
                 lineNumber,
@@ -505,7 +528,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 fieldStatement,
                 statementStartColumn,
                 context.sourceLines,
-                fieldNames
+                fieldNames,
+                &fieldTokens
             );
             if (fieldResult.matched) {
                 if (!fieldResult.ok) {
@@ -543,7 +567,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
                 lineNumber,
                 trim(statement.substr(0, functionBrace + 1)),
                 statementStartColumn,
-                context.sourceLines
+                context.sourceLines,
+                &lexicalTokens
             );
             if (functionHeader.matched) {
                 if (!functionHeader.ok) {
@@ -1330,7 +1355,7 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const std::string statementBody = trim(statement.substr(0, statement.size() - 1));
-        const std::vector<Token> statementTokens = tokenize(statementBody);
+        const std::vector<Token> statementTokens = withoutTrailingSemicolon(lexicalTokens);
         if (statementBody == "break") {
             const std::string breakFlagName = context.nearestLoopBreakFlag();
             if (breakFlagName.empty()) {
@@ -1426,7 +1451,16 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         const std::map<std::string, Type> declarationsBefore = context.declaredVariables;
-        const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, statementBody, statementStartColumn, context.sourceLines, context.declaredVariables);
+        const TypeEmitResult typeResult = emitTypeDeclaration(
+            context.options.inputFile,
+            lineNumber,
+            line,
+            statementBody,
+            statementStartColumn,
+            context.sourceLines,
+            context.declaredVariables,
+            &statementTokens
+        );
         if (typeResult.matched) {
             // Invalid declarations reserve their names to suppress cascaded errors.  They
             // still belong to the enclosing lexical block and must leave scope with it.
@@ -1457,7 +1491,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             context.sourceLines,
             context.declaredVariables,
             context.declaredFunctions,
-            !context.options.shouldSubmit
+            !context.options.shouldSubmit,
+            &statementTokens
         );
         if (assignmentResult.matched) {
             if (!assignmentResult.ok) {
@@ -1478,7 +1513,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             statementBody,
             context.sourceLines,
             context.declaredVariables,
-            !context.options.shouldSubmit
+            !context.options.shouldSubmit,
+            &statementTokens
         );
         if (listResult.matched) {
             if (!listResult.ok) {
@@ -1494,7 +1530,15 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
         }
 
         if (isNamedCallStatement(statementTokens, "describe")) {
-            const PrintEmitResult describeResult = emitDescribeStatement(context.options.inputFile, lineNumber, line, statementBody, context.sourceLines, context.declaredVariables);
+            const PrintEmitResult describeResult = emitDescribeStatement(
+                context.options.inputFile,
+                lineNumber,
+                line,
+                statementBody,
+                context.sourceLines,
+                context.declaredVariables,
+                &statementTokens
+            );
             if (!describeResult.ok) {
                 continue;
             }
@@ -1532,7 +1576,8 @@ void compileSourceFragments(CompileContext& context, const std::vector<SourceFra
             statementBody,
             statementStartColumn,
             context.sourceLines,
-            context.declaredVariables
+            context.declaredVariables,
+            &statementTokens
         );
         if (isNamedCallStatement(statementTokens, "print")) {
             if (!printResult.ok) {

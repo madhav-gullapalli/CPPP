@@ -1,29 +1,18 @@
 /*
  * sourceSplitter.h
  *
- * First compiler stage after file I/O.
+ * Token-to-statement compatibility stage.
  *
- * This module does not fully parse CP++; it normalizes raw source text into
- * SourceFragment records that later stages can lower more easily while still
- * preserving the original source lines for diagnostics.
+ * This module does not rescan source text. It groups the canonical file token
+ * stream into logical SourceFragment views for the existing statement parser.
  */
 
 #pragma once
 
 #include "compileContext.h"
 
-#include <istream>
-#include <map>
 #include <string>
 #include <vector>
 
-// Finds the first `//` that is not inside a string or character literal.
-size_t findLineCommentStart(const std::string& text);
-
-// Splits the raw source file into logical statement fragments and records the
-// original line text for later source-mapped diagnostics.
-std::vector<SourceFragment> splitSourceFragments(
-    std::istream& input,
-    std::map<int, std::string>& sourceLines,
-    const std::string& sourceFile
-);
+// Groups a canonical whole-file token stream into logical statement views.
+std::vector<SourceFragment> splitTokenStream(const TokenStream& tokenStream);

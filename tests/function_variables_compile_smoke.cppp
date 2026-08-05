@@ -1,0 +1,9 @@
+int failDirect(){
+    return "bad";
+}
+int failIndirect(){
+    return "also bad";
+}
+int() operation = failIndirect;
+print(failDirect());
+print(operation());

@@ -1,0 +1,14 @@
+class Point {
+    int x;
+}
+Heap<Point> points;
+Heap<int> values;
+values.push("bad");
+List<string> words = ["x"];
+Heap<int> numbers = Heap(words);
+Heap<int> alsoBad = Heap(7);
+List<int> source = [1];
+Heap<string> text = Heap(source);
+Heap<int> empty;
+empty.pop();
+empty.top();

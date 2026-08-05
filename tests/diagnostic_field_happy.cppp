@@ -1,0 +1,5 @@
+class Point {
+    int x;
+}
+Point p = Point(7);
+print(p.x);

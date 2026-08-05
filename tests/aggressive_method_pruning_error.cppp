@@ -1,0 +1,6 @@
+void addBadValue() {
+    List<int> values = [1, 2];
+    values.add("three");
+    print(values);
+}
+addBadValue();

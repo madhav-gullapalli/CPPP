@@ -124,7 +124,7 @@ bool shouldParseAsExpression(const std::vector<Token>& tokens) {
             token.kind == TokenKind::LeftParen ||
             token.kind == TokenKind::RightParen ||
             (token.kind == TokenKind::Operator && token.text == ":") ||
-            (token.kind == TokenKind::Unknown && (token.text == "{" || token.text == "}"))) {
+            token.kind == TokenKind::LeftBrace || token.kind == TokenKind::RightBrace) {
             return true;
         }
     }
@@ -913,9 +913,9 @@ std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
             ++bracketDepth;
         } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
             --bracketDepth;
-        } else if (token.kind == TokenKind::Unknown && token.text == "{") {
+        } else if (token.kind == TokenKind::LeftBrace) {
             ++braceDepth;
-        } else if (token.kind == TokenKind::Unknown && token.text == "}" && braceDepth > 0) {
+        } else if (token.kind == TokenKind::RightBrace && braceDepth > 0) {
             --braceDepth;
         } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
             std::string value = trim(text.substr(startIndex, static_cast<size_t>(token.span.startColumn - 1) - startIndex));
@@ -1151,12 +1151,16 @@ TypeEmitResult emitTypeDeclaration(
     const std::string& statementBody,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
-    std::map<std::string, Type>& declaredVariables
+    std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>* sourceTokens
 ) {
     (void)sourceLine;
     const auto sourceColumn = [statementStartColumn](int tokenColumn) { return statementStartColumn + tokenColumn - 1; };
 
-    const std::vector<Token> tokens = tokenize(statementBody);
+    const std::vector<Token> scannedTokens = sourceTokens == nullptr
+        ? tokenize(statementBody)
+        : std::vector<Token>{};
+    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
         return {false, true, "", {}};
     }
@@ -1821,10 +1825,8 @@ TypeEmitResult emitTypeDeclaration(
 
             if ((isSet || isMap) &&
                 valueTokens.size() > 2 &&
-                valueTokens[0].kind == TokenKind::Unknown &&
-                valueTokens[0].text == "{" &&
-                valueTokens[1].kind == TokenKind::Unknown &&
-                valueTokens[1].text == "}") {
+                valueTokens[0].kind == TokenKind::LeftBrace &&
+                valueTokens[1].kind == TokenKind::RightBrace) {
                 emittedValue = typeInfo.defaultValue;
             } else if ((isSet || isMap) &&
                        valueTokens.size() > 1 &&

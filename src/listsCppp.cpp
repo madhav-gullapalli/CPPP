@@ -998,9 +998,13 @@ ListEmitResult emitListStatement(
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
-    bool emitRuntimeChecks
+    bool emitRuntimeChecks,
+    const std::vector<Token>* sourceTokens
 ) {
-    const std::vector<Token> tokens = tokenize(statementBody);
+    const std::vector<Token> scannedTokens = sourceTokens == nullptr
+        ? tokenize(statementBody)
+        : std::vector<Token>{};
+    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
     if (tokens.size() < 6 ||
         tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
         tokens.back().kind != TokenKind::EndOfFile) {

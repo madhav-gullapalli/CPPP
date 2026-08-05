@@ -31,5 +31,6 @@ AssignmentEmitResult emitAssignmentStatement(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
-    bool emitRuntimeChecks = false
+    bool emitRuntimeChecks = false,
+    const std::vector<Token>* sourceTokens = nullptr
 );

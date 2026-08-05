@@ -1,2 +1,0 @@
-tests/tmp/cases/list_literal_error.cppp:1:24: error: cannot implicitly convert float to int in list literal
-List<int> values = [1, 2.5];

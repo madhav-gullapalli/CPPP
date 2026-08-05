@@ -1,0 +1,14 @@
+int notBool(int a, int b) {
+    return a < b;
+}
+
+bool wrongArity(int a) {
+    return true;
+}
+
+List<int> values = [2, 1];
+values.sort(missing);
+values.sort(notBool);
+values.sort(wrongArity);
+values.sort(compare("field"));
+Set<int> bad(compare());

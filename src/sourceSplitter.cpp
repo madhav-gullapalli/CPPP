@@ -1,420 +1,372 @@
 /*
  * sourceSplitter.cpp
  *
- * Splits source text into statement fragments and handles continuation and semicolon behavior.
- * This file is part of the CP++ transpiler and is documented here for
- * maintainability and onboarding.
+ * Groups the canonical whole-file token stream into logical statements for
+ * the legacy statement lowering pass. This is deliberately token-driven: raw
+ * the complete source file is scanned exactly once by tokenizer.cpp.
  */
 
 #include "sourceSplitter.h"
 
-#include <cctype>
+#include <algorithm>
+#include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
-// trim removes surrounding whitespace from a string.
-std::string trim(const std::string& text) {
-    const size_t start = text.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) {
-        return "";
+struct PhysicalFragment {
+    std::vector<Token> codeTokens;
+    bool terminatesStatement = false;
+    bool hasComment = false;
+    Token comment;
+};
+
+struct LogicalFragment {
+    std::vector<Token> codeTokens;
+    bool hasComment = false;
+    Token comment;
+};
+
+bool isLiteralBraceContext(const std::vector<Token>& tokens) {
+    if (tokens.empty()) {
+        return false;
     }
-
-    const size_t end = text.find_last_not_of(" \t\r\n");
-    return text.substr(start, end - start + 1);
+    const Token& previous = tokens.back();
+    if (previous.kind == TokenKind::RightParen) {
+        return false;
+    }
+    if (previous.kind == TokenKind::LeftParen ||
+        previous.kind == TokenKind::LeftBracket ||
+        previous.kind == TokenKind::LeftBrace ||
+        previous.kind == TokenKind::Comma ||
+        previous.kind == TokenKind::Equals) {
+        return true;
+    }
+    if (previous.kind == TokenKind::Identifier && previous.text == "return") {
+        return true;
+    }
+    return previous.kind == TokenKind::Operator && previous.text != ".";
 }
 
-// firstCodeColumn implements the firstCodeColumn behavior for the sourceSplitter.cpp module.
-int firstCodeColumn(const std::string& text) {
-    const size_t first = text.find_first_not_of(" \t\r\n");
-    return static_cast<int>((first == std::string::npos ? 0 : first) + 1);
+bool isUnterminatedQuotedToken(const Token& token) {
+    if (token.kind != TokenKind::String && token.kind != TokenKind::Char) {
+        return false;
+    }
+    return token.text.size() < 2 || token.text.front() != token.text.back();
 }
 
-bool isLiteralBraceContext(const std::string& text, size_t braceIndex) {
-    if (braceIndex == 0) {
+bool containsUnterminatedQuotedToken(const std::vector<Token>& tokens) {
+    return std::any_of(tokens.begin(), tokens.end(), isUnterminatedQuotedToken);
+}
+
+bool looksLikeCompleteBareCall(const std::vector<Token>& tokens) {
+    if (tokens.size() < 3 ||
+        tokens.front().kind != TokenKind::Identifier ||
+        tokens[1].kind != TokenKind::LeftParen ||
+        tokens.back().kind != TokenKind::RightParen) {
         return false;
     }
 
-    size_t index = braceIndex;
-    while (index > 0) {
-        --index;
-        if (text[index] == ' ' || text[index] == '\t' || text[index] == '\r' || text[index] == '\n') {
-            continue;
+    int depth = 0;
+    for (size_t index = 1; index < tokens.size(); ++index) {
+        if (tokens[index].kind == TokenKind::LeftParen) {
+            ++depth;
+        } else if (tokens[index].kind == TokenKind::RightParen) {
+            --depth;
+            if (depth == 0 && index + 1 != tokens.size()) {
+                return false;
+            }
+            if (depth < 0) {
+                return false;
+            }
         }
-
-        const char ch = text[index];
-        if (ch == ')') {
-            return false;
-        }
-
-        return ch == '=' || ch == ',' || ch == ':' || ch == '(' || ch == '[' ||
-            ch == '{' || ch == '+' || ch == '-' || ch == '*' || ch == '/' ||
-            ch == '%' || ch == '<' || ch == '>' || ch == '&' || ch == '|' ||
-            ch == '^' || ch == '!';
     }
-
-    return false;
+    return depth == 0;
 }
 
-// splitSemicolonStatements splits the input into smaller logical pieces.
-std::vector<SourceFragment> splitSemicolonStatements(const std::string& line, int lineNumber) {
-    const size_t commentStart = findLineCommentStart(line);
-    const std::string codeText = commentStart == std::string::npos ? line : line.substr(0, commentStart);
-    const std::string commentText = commentStart == std::string::npos ? "" : line.substr(commentStart);
-    std::vector<SourceFragment> fragments;
-    bool inString = false;
-    bool inChar = false;
-    bool escaped = false;
+std::vector<PhysicalFragment> splitPhysicalFragments(const TokenStream& stream) {
+    std::vector<PhysicalFragment> fragments;
+    PhysicalFragment current;
     int parenDepth = 0;
+    int bracketDepth = 0;
     int literalBraceDepth = 0;
-    size_t start = 0;
+    int currentLine = 0;
 
-    for (size_t i = 0; i < codeText.size(); ++i) {
-        const char ch = codeText[i];
-        if (escaped) {
-            escaped = false;
+    const auto flush = [&](bool terminates) {
+        if (current.codeTokens.empty() && !current.hasComment) {
+            return;
+        }
+        current.terminatesStatement = terminates;
+        fragments.push_back(std::move(current));
+        current = PhysicalFragment{};
+        currentLine = 0;
+    };
+
+    for (const Token& token : stream.tokens) {
+        if (token.kind == TokenKind::EndOfFile) {
+            break;
+        }
+
+        if (currentLine != 0 && token.span.startLine > currentLine) {
+            flush(false);
+        }
+        currentLine = std::max(currentLine, token.span.endLine);
+
+        if (token.kind == TokenKind::LineComment) {
+            current.hasComment = true;
+            current.comment = token;
+            flush(false);
             continue;
         }
-        if ((inString || inChar) && ch == '\\') {
-            escaped = true;
-            continue;
-        }
-        if (!inChar && ch == '"') {
-            inString = !inString;
-            continue;
-        }
-        if (!inString && ch == '\'') {
-            inChar = !inChar;
-            continue;
-        }
-        if (!inString && !inChar && ch == '(') {
+
+        if (token.kind == TokenKind::LeftParen) {
+            current.codeTokens.push_back(token);
             ++parenDepth;
             continue;
         }
-        if (!inString && !inChar && ch == ')' && parenDepth > 0) {
-            --parenDepth;
+        if (token.kind == TokenKind::RightParen) {
+            current.codeTokens.push_back(token);
+            if (parenDepth > 0) {
+                --parenDepth;
+            }
             continue;
         }
-        if (!inString && !inChar && ch == '{') {
-            if (literalBraceDepth > 0 || isLiteralBraceContext(codeText, i)) {
+        if (token.kind == TokenKind::LeftBracket) {
+            current.codeTokens.push_back(token);
+            ++bracketDepth;
+            continue;
+        }
+        if (token.kind == TokenKind::RightBracket) {
+            current.codeTokens.push_back(token);
+            if (bracketDepth > 0) {
+                --bracketDepth;
+            }
+            continue;
+        }
+        if (token.kind == TokenKind::LeftBrace) {
+            if (literalBraceDepth > 0 || isLiteralBraceContext(current.codeTokens)) {
+                current.codeTokens.push_back(token);
                 ++literalBraceDepth;
-                continue;
+            } else if (parenDepth == 0 && bracketDepth == 0) {
+                current.codeTokens.push_back(token);
+                flush(true);
+            } else {
+                current.codeTokens.push_back(token);
+                ++literalBraceDepth;
             }
-        }
-        if (!inString && !inChar && ch == '{' && parenDepth == 0 && literalBraceDepth == 0) {
-            const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start + 1);
-            fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
-            start = i + 1;
             continue;
         }
-        if (!inString && !inChar && ch == '}' && literalBraceDepth > 0) {
-            --literalBraceDepth;
-            continue;
-        }
-        if (!inString && !inChar && ch == '}' && parenDepth == 0 && literalBraceDepth == 0) {
-            if (i > start) {
-                const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start);
-                fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
+        if (token.kind == TokenKind::RightBrace) {
+            if (literalBraceDepth > 0) {
+                current.codeTokens.push_back(token);
+                --literalBraceDepth;
+            } else if (parenDepth == 0 && bracketDepth == 0) {
+                flush(false);
+                current.codeTokens.push_back(token);
+                flush(true);
+            } else {
+                current.codeTokens.push_back(token);
             }
-            const std::string fragment = std::string(i, ' ') + codeText.substr(i, 1);
-            fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
-            start = i + 1;
             continue;
         }
-        if (!inString && !inChar && ch == ';' && parenDepth == 0 && literalBraceDepth == 0) {
-            const std::string fragment = std::string(start, ' ') + codeText.substr(start, i - start + 1);
-            fragments.push_back({lineNumber, firstCodeColumn(fragment), fragment});
-            start = i + 1;
-        }
-    }
 
-    std::string remainder = start < codeText.size() ? std::string(start, ' ') + codeText.substr(start) : "";
-    if (!commentText.empty()) {
-        if (trim(remainder).empty()) {
-            remainder = std::string(commentStart, ' ') + commentText;
-        } else {
-            remainder += commentText;
+        current.codeTokens.push_back(token);
+        if (token.kind == TokenKind::Semicolon &&
+            parenDepth == 0 && bracketDepth == 0 && literalBraceDepth == 0) {
+            flush(true);
         }
     }
-    if (!trim(remainder).empty() || fragments.empty()) {
-        fragments.push_back({lineNumber, firstCodeColumn(remainder), remainder});
-    }
-    for (SourceFragment& fragment : fragments) {
-        fragment.endLineNumber = lineNumber;
-        const size_t lastCode = fragment.text.find_last_not_of(" \t\r\n");
-        fragment.endColumn = static_cast<int>(
-            lastCode == std::string::npos ? fragment.startColumn : lastCode + 1
-        );
-    }
+    flush(false);
     return fragments;
 }
 
-// fragmentTerminatesStatement implements the fragmentTerminatesStatement behavior for the sourceSplitter.cpp module.
-bool fragmentTerminatesStatement(const std::string& text) {
-    const std::string trimmed = trim(text);
-    if (trimmed.empty()) {
-        return false;
-    }
+std::vector<LogicalFragment> mergeLogicalFragments(
+    const std::vector<PhysicalFragment>& physicalFragments
+) {
+    std::vector<LogicalFragment> merged;
+    LogicalFragment pending;
 
-    const char last = trimmed.back();
-    return last == ';' || last == '{' || last == '}';
-}
-
-bool hasUnterminatedQuotedLiteral(const std::string& text) {
-    bool inString = false;
-    bool inChar = false;
-    bool escaped = false;
-    for (char ch : text) {
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
-        if ((inString || inChar) && ch == '\\') {
-            escaped = true;
-            continue;
-        }
-        if (!inChar && ch == '"') {
-            inString = !inString;
-            continue;
-        }
-        if (!inString && ch == '\'') {
-            inChar = !inChar;
-        }
-    }
-    return inString || inChar;
-}
-
-// unmatchedParenthesisDepth implements the unmatchedParenthesisDepth behavior for the sourceSplitter.cpp module.
-int unmatchedParenthesisDepth(const std::string& text) {
-    int parenDepth = 0;
-    bool inString = false;
-    bool inChar = false;
-    bool escaped = false;
-
-    for (char ch : text) {
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
-
-        if ((inString || inChar) && ch == '\\') {
-            escaped = true;
-            continue;
-        }
-
-        if (!inChar && ch == '"') {
-            inString = !inString;
-            continue;
-        }
-
-        if (!inString && ch == '\'') {
-            inChar = !inChar;
-            continue;
-        }
-
-        if (inString || inChar) {
-            continue;
-        }
-
-        if (ch == '(') {
-            ++parenDepth;
-        } else if (ch == ')' && parenDepth > 0) {
-            --parenDepth;
-        }
-    }
-
-    return parenDepth;
-}
-
-bool looksLikeCompleteBareCall(const std::string& text) {
-    const std::string trimmed = trim(text);
-    if (trimmed.empty() || trimmed.back() != ')') {
-        return false;
-    }
-
-    size_t index = 0;
-    if (!std::isalpha(static_cast<unsigned char>(trimmed[index])) &&
-        trimmed[index] != '_') {
-        return false;
-    }
-    while (index < trimmed.size() &&
-           (std::isalnum(static_cast<unsigned char>(trimmed[index])) ||
-            trimmed[index] == '_')) {
-        ++index;
-    }
-    while (index < trimmed.size() &&
-           std::isspace(static_cast<unsigned char>(trimmed[index]))) {
-        ++index;
-    }
-    return index < trimmed.size() &&
-        trimmed[index] == '(' &&
-        unmatchedParenthesisDepth(trimmed) == 0;
-}
-
-// mergeContinuationFragments implements the mergeContinuationFragments behavior for the sourceSplitter.cpp module.
-std::vector<SourceFragment> mergeContinuationFragments(const std::vector<SourceFragment>& fragments) {
-    std::vector<SourceFragment> merged;
-    SourceFragment pending{0, 1, ""};
-    std::string pendingComment;
-
-    const auto flushPending = [&]() {
-        if (trim(pending.text).empty() && pendingComment.empty()) {
-            pending = {0, 1, ""};
+    const auto flush = [&]() {
+        if (pending.codeTokens.empty() && !pending.hasComment) {
             return;
         }
-
-        std::string text = trim(pending.text);
-        if (!pendingComment.empty()) {
-            if (!text.empty()) {
-                text += " ";
-            }
-            text += pendingComment;
-        }
-
-        SourceFragment mergedFragment{
-            pending.lineNumber,
-            pending.startColumn,
-            text
-        };
-        mergedFragment.endLineNumber = pending.endLineNumber;
-        mergedFragment.endColumn = pending.endColumn;
-        merged.push_back(std::move(mergedFragment));
-        pending = {0, 1, ""};
-        pendingComment.clear();
+        merged.push_back(std::move(pending));
+        pending = LogicalFragment{};
     };
 
-    for (const SourceFragment& fragment : fragments) {
-        const size_t commentStart = findLineCommentStart(fragment.text);
-        const std::string codePart = commentStart == std::string::npos ? fragment.text : fragment.text.substr(0, commentStart);
-        const std::string commentPart = commentStart == std::string::npos ? "" : trim(fragment.text.substr(commentStart));
-        const std::string trimmedCode = trim(codePart);
-
-        if (trimmedCode.empty()) {
-            if (!commentPart.empty()) {
-                if (trim(pending.text).empty()) {
-                    SourceFragment commentFragment = fragment;
-                    commentFragment.text = commentPart;
-                    merged.push_back(std::move(commentFragment));
+    for (const PhysicalFragment& fragment : physicalFragments) {
+        if (fragment.codeTokens.empty()) {
+            if (fragment.hasComment) {
+                if (pending.codeTokens.empty()) {
+                    LogicalFragment commentOnly;
+                    commentOnly.hasComment = true;
+                    commentOnly.comment = fragment.comment;
+                    merged.push_back(std::move(commentOnly));
                 } else {
-                    pendingComment = commentPart;
+                    pending.hasComment = true;
+                    pending.comment = fragment.comment;
                 }
             }
             continue;
         }
 
-        if (pending.lineNumber == 0) {
-            pending.lineNumber = fragment.lineNumber;
-            pending.startColumn = fragment.startColumn;
-            pending.text = trimmedCode;
-            pending.endLineNumber = fragment.endLineNumber;
-            pending.endColumn = fragment.endColumn;
-        } else {
-            pending.text += " " + trimmedCode;
-            pending.endLineNumber = fragment.endLineNumber;
-            pending.endColumn = fragment.endColumn;
+        pending.codeTokens.insert(
+            pending.codeTokens.end(),
+            fragment.codeTokens.begin(),
+            fragment.codeTokens.end()
+        );
+        if (fragment.hasComment) {
+            pending.hasComment = true;
+            pending.comment = fragment.comment;
         }
 
-        if (!commentPart.empty()) {
-            pendingComment = commentPart;
-        }
-
-        if (hasUnterminatedQuotedLiteral(codePart) ||
-            (fragmentTerminatesStatement(codePart) && unmatchedParenthesisDepth(pending.text) == 0) ||
-            looksLikeCompleteBareCall(pending.text)) {
-            flushPending();
+        if (fragment.terminatesStatement ||
+            containsUnterminatedQuotedToken(fragment.codeTokens) ||
+            looksLikeCompleteBareCall(pending.codeTokens)) {
+            flush();
         }
     }
+    flush();
 
-    flushPending();
-    return merged;
-}
-
-// attachDetachedOpeningBraces implements the attachDetachedOpeningBraces behavior for the sourceSplitter.cpp module.
-std::vector<SourceFragment> attachDetachedOpeningBraces(const std::vector<SourceFragment>& fragments) {
-    std::vector<SourceFragment> attached;
-    for (const SourceFragment& fragment : fragments) {
-        if (trim(fragment.text) == "{" && !attached.empty()) {
-            attached.back().text += " {";
-            attached.back().endLineNumber = fragment.endLineNumber;
-            attached.back().endColumn = fragment.endColumn;
+    std::vector<LogicalFragment> attached;
+    for (LogicalFragment& fragment : merged) {
+        if (fragment.codeTokens.size() == 1 &&
+            fragment.codeTokens[0].kind == TokenKind::LeftBrace &&
+            !fragment.hasComment &&
+            !attached.empty()) {
+            attached.back().codeTokens.push_back(fragment.codeTokens[0]);
             continue;
         }
-
-        attached.push_back(fragment);
+        attached.push_back(std::move(fragment));
     }
-
     return attached;
 }
-}
 
-// findLineCommentStart implements the findLineCommentStart behavior for the sourceSplitter.cpp module.
-size_t findLineCommentStart(const std::string& text) {
-    bool inString = false;
-    bool inChar = false;
-    bool escaped = false;
-
-    for (size_t i = 0; i + 1 < text.size(); ++i) {
-        const char ch = text[i];
-
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
-
-        if ((inString || inChar) && ch == '\\') {
-            escaped = true;
-            continue;
-        }
-
-        if (!inChar && ch == '"') {
-            inString = !inString;
-            continue;
-        }
-
-        if (!inString && ch == '\'') {
-            inChar = !inChar;
-            continue;
-        }
-
-        if (!inString && !inChar && ch == '/' && text[i + 1] == '/') {
-            return i;
-        }
-    }
-
-    return std::string::npos;
-}
-
-// splitSourceFragments splits the input into smaller logical pieces.
-std::vector<SourceFragment> splitSourceFragments(
-    std::istream& input,
-    std::map<int, std::string>& sourceLines,
-    const std::string& sourceFile
+std::string gapBetween(
+    const TokenStream& stream,
+    const Token& previous,
+    const Token& next
 ) {
-    std::vector<SourceFragment> sourceFragments;
-    std::string rawLine;
-    int rawLineNumber = 0;
-    while (std::getline(input, rawLine)) {
-        ++rawLineNumber;
-        sourceLines[rawLineNumber] = rawLine;
-        for (const SourceFragment& fragment : splitSemicolonStatements(rawLine, rawLineNumber)) {
-            sourceFragments.push_back(fragment);
+    if (previous.span.endLine != next.span.startLine ||
+        next.span.startOffset < previous.span.endOffset ||
+        previous.span.endOffset > stream.source.size()) {
+        return " ";
+    }
+    const size_t end = std::min(next.span.startOffset, stream.source.size());
+    return stream.source.substr(previous.span.endOffset, end - previous.span.endOffset);
+}
+
+SourceSpan insertionAfter(const TokenStream& stream, const Token* token) {
+    if (token != nullptr && token->sourceSpan.valid()) {
+        return {
+            token->sourceSpan.source,
+            token->sourceSpan.endOffset,
+            token->sourceSpan.endOffset
+        };
+    }
+    if (stream.sourceSpan.valid()) {
+        return {
+            stream.sourceSpan.source,
+            stream.sourceSpan.startOffset,
+            stream.sourceSpan.startOffset
+        };
+    }
+    return {};
+}
+
+SourceFragment renderFragment(
+    const TokenStream& stream,
+    const LogicalFragment& logical
+) {
+    SourceFragment fragment;
+    std::string codeText;
+    const Token* previous = nullptr;
+
+    for (const Token& canonical : logical.codeTokens) {
+        if (previous != nullptr) {
+            codeText += gapBetween(stream, *previous, canonical);
         }
+        const size_t localStart = codeText.size();
+        codeText += canonical.text;
+        Token local = canonical;
+        local.span = {
+            1,
+            static_cast<int>(localStart + 1),
+            1,
+            static_cast<int>(codeText.size()),
+            localStart,
+            codeText.size()
+        };
+        fragment.tokens.push_back(std::move(local));
+        previous = &canonical;
     }
 
-    std::vector<SourceFragment> fragments =
-        attachDetachedOpeningBraces(mergeContinuationFragments(sourceFragments));
-    for (SourceFragment& fragment : fragments) {
-        const int endLine = fragment.endLineNumber == 0
-            ? fragment.lineNumber
-            : fragment.endLineNumber;
-        fragment.sourceSpan = sourceSpanForRange(
-            sourceFile,
-            sourceLines,
-            fragment.lineNumber,
-            fragment.startColumn,
-            endLine,
-            fragment.endColumn
-        );
+    const Token* lastCode = logical.codeTokens.empty() ? nullptr : &logical.codeTokens.back();
+    const size_t eofOffset = codeText.size();
+    fragment.tokens.push_back({
+        TokenKind::EndOfFile,
+        "",
+        {1, static_cast<int>(eofOffset + 1), 1, static_cast<int>(eofOffset + 1), eofOffset, eofOffset},
+        insertionAfter(stream, lastCode)
+    });
+
+    fragment.codeText = codeText;
+    fragment.text = codeText;
+    if (logical.hasComment) {
+        fragment.commentText = logical.comment.text;
+        if (!fragment.text.empty()) {
+            fragment.text += " ";
+        }
+        fragment.text += logical.comment.text;
+    }
+
+    const Token* first = !logical.codeTokens.empty()
+        ? &logical.codeTokens.front()
+        : (logical.hasComment ? &logical.comment : nullptr);
+    const Token* last = logical.hasComment
+        ? &logical.comment
+        : (!logical.codeTokens.empty() ? &logical.codeTokens.back() : nullptr);
+    if (first != nullptr) {
+        fragment.lineNumber = first->span.startLine;
+        fragment.startColumn = first->span.startColumn;
+    }
+    if (last != nullptr) {
+        fragment.endLineNumber = last->span.endLine;
+        fragment.endColumn = last->span.endColumn;
+    }
+
+    size_t spanStart = std::numeric_limits<size_t>::max();
+    size_t spanEnd = 0;
+    SourceId source;
+    const auto includeSpan = [&](const Token& token) {
+        if (!token.sourceSpan.valid()) {
+            return;
+        }
+        source = token.sourceSpan.source;
+        spanStart = std::min(spanStart, token.sourceSpan.startOffset);
+        spanEnd = std::max(spanEnd, token.sourceSpan.endOffset);
+    };
+    for (const Token& token : logical.codeTokens) {
+        includeSpan(token);
+    }
+    if (logical.hasComment) {
+        includeSpan(logical.comment);
+    }
+    if (source.value != 0 && spanStart != std::numeric_limits<size_t>::max()) {
+        fragment.sourceSpan = {source, spanStart, spanEnd};
+    }
+    return fragment;
+}
+}
+
+std::vector<SourceFragment> splitTokenStream(const TokenStream& tokenStream) {
+    const std::vector<PhysicalFragment> physical = splitPhysicalFragments(tokenStream);
+    const std::vector<LogicalFragment> logical = mergeLogicalFragments(physical);
+    std::vector<SourceFragment> fragments;
+    fragments.reserve(logical.size());
+    for (const LogicalFragment& fragment : logical) {
+        fragments.push_back(renderFragment(tokenStream, fragment));
     }
     return fragments;
 }

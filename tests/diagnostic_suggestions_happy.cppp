@@ -1,0 +1,13 @@
+class Counter {
+    int value;
+    void increment() {
+        value++;
+    }
+}
+int doubleValue(int value) {
+    return value * 2;
+}
+Counter counter = Counter(4);
+counter.increment();
+int count = 3;
+print(doubleValue(count), counter.value);

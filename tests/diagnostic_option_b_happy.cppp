@@ -1,0 +1,4 @@
+int count = 2;
+rep(count) {
+    print("ok");
+}

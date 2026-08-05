@@ -48,5 +48,6 @@ ListEmitResult emitListStatement(
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
-    bool emitRuntimeChecks
+    bool emitRuntimeChecks,
+    const std::vector<Token>* sourceTokens = nullptr
 );

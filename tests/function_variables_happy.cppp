@@ -1,0 +1,43 @@
+int add(int left, int right){
+    return left + right;
+}
+int addThree(int first, int second, int third){
+    return first + second + third;
+}
+int fortyTwo(){
+    return 42;
+}
+int invoke(int() operation){
+    return operation();
+}
+int consume(copy List<int> values){
+    values.add(9);
+    return len(values);
+}
+class Calculator {
+    int(int, int) operation;
+    int apply(int left, int right){
+        return operation(left, right);
+    }
+}
+int() answer = fortyTwo;
+int(int, int) operation = add;
+var alias = operation;
+int(int) addFive = operation(5);
+int(int) anotherAddFive = operation(5);
+int(int, int) addFiveAnd = addThree(5);
+int(int) nested = addFiveAnd(7);
+int(int, int) anotherAddFiveAnd = addThree(5);
+int(int) nestedAgain = anotherAddFiveAnd(7);
+var addSeven = add(7);
+int(List<int>) total = sum;
+int(int, int, int, int) minimum = min;
+int(copy List<int>) noCopy = consume;
+int(copy List<int>) copyMarked = consume;
+int(deep List<int>) deepMarked = consume;
+List<int> values = [1, 2];
+Calculator calculator = Calculator(operation);
+print(invoke(answer), alias(3, 4), addFive(8), addSeven(6));
+print(total(values), minimum(9, 2, 7, 4), calculator.apply(10, 5));
+print(operation == alias, addFive == addFive, addFive == anotherAddFive, nested == nestedAgain, noCopy(values), len(values));
+print(copyMarked(values), deepMarked(values), len(values));

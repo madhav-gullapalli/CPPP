@@ -1,0 +1,20 @@
+Heap<int> values;
+for (int i = 20; i > 0; i--) {
+    values.push(i);
+}
+print(values, len(values), values.top());
+rep(10) {
+    values.pop();
+}
+print(values, len(values), values.top());
+List<int> source = [7, 2, 5, 1];
+Heap<int> heapified = Heap(source);
+List<int> ordered = List(heapified);
+Heap<int> largest(greater);
+largest.push(2);
+largest.push(7);
+largest.push(5);
+Heap<int> alias = largest;
+Heap<int> independent = copy(largest);
+alias.pop();
+print(heapified, ordered, largest, independent);

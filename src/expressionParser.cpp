@@ -2948,7 +2948,7 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
 std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
     const Token& leftBrace = peek();
     ++current;
-    if (check(TokenKind::Unknown, "}")) {
+    if (check(TokenKind::RightBrace, "}")) {
         report(leftBrace, "empty set or map literal needs a declared type");
         ok = false;
         return nullptr;
@@ -2961,9 +2961,9 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
         if (token.kind == TokenKind::EndOfFile) {
             break;
         }
-        if (token.kind == TokenKind::Unknown && token.text == "{") {
+        if (token.kind == TokenKind::LeftBrace) {
             ++braceDepth;
-        } else if (token.kind == TokenKind::Unknown && token.text == "}") {
+        } else if (token.kind == TokenKind::RightBrace) {
             --braceDepth;
             if (braceDepth == 0) {
                 break;
@@ -3041,11 +3041,11 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
             }
             continue;
         }
-        if (token.kind == TokenKind::Unknown && token.text == "{") {
+        if (token.kind == TokenKind::LeftBrace) {
             ++nestedBraceDepth;
             continue;
         }
-        if (token.kind == TokenKind::Unknown && token.text == "}") {
+        if (token.kind == TokenKind::RightBrace) {
             if (nestedBraceDepth > 0) {
                 --nestedBraceDepth;
             }
@@ -3309,7 +3309,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
         }
         return std::make_unique<ListLiteralExpr>(std::move(elements), absoluteColumn(leftBracket), leftBracket.sourceSpan);
     }
-    if (check(TokenKind::Unknown, "{")) {
+    if (check(TokenKind::LeftBrace, "{")) {
         return parseBraceLiteral(ok);
     }
     if (match(TokenKind::LeftParen)) {

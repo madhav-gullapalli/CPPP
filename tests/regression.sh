@@ -353,6 +353,19 @@ if printf '1 x 3\n' | "$COMPILER" --cppp "$input_safety_malformed_case" --run >"
 assert_contains "$LOG_DIR/input_safety_malformed.log" "List contains a value of the wrong type" "malformed List input diagnostic"
 pass "run-mode input rejects malformed values and sizes"
 
+progress "canonical whole-source tokenizer"
+token_stream_happy_case="$(stage_case "tests/token_stream_happy.cppp")"
+run_program_ok "$token_stream_happy_case" "$LOG_DIR/token_stream_happy.log" "token stream happy path runs"
+assert_contains "$LOG_DIR/token_stream_happy.log" "6" "token stream happy path output"
+token_stream_error_case="$(stage_case "tests/token_stream_error.cppp")"
+run_failure "$token_stream_error_case" "$LOG_DIR/token_stream_error.log" "unknown source token is rejected"
+assert_contains "$LOG_DIR/token_stream_error.log" "unrecognized token '@'" "unknown source token diagnostic"
+if "$PYTHON_CMD" tests/tokenizer_catalog_test.py; then
+    pass "98 tokenizer catalog cases and 13 exact stream snapshots pass"
+else
+    fail "canonical tokenizer catalog coverage"
+fi
+
 catalog_failed=0
 
 progress "correct.txt catalog coverage"

@@ -85,7 +85,7 @@ Token makeToken(
     return {
         kind,
         text,
-        {startLine, startColumn, endLine, endColumn},
+        {startLine, startColumn, endLine, endColumn, startOffset, endOffset},
         canonicalSpan
     };
 }
@@ -169,7 +169,7 @@ Token scanQuoted(Scanner& scanner, TokenKind kind) {
     std::string text(1, quote);
     bool escaped = false;
 
-    while (!scanner.atEnd()) {
+    while (!scanner.atEnd() && scanner.peek() != '\n') {
         const char ch = scanner.advance();
         text += ch;
 
@@ -179,14 +179,33 @@ Token scanQuoted(Scanner& scanner, TokenKind kind) {
             escaped = true;
         } else if (ch == quote) {
             break;
-        } else if (ch == '\n') {
-            break;
         }
     }
 
     return makeToken(
         scanner,
         kind,
+        text,
+        startLine,
+        startColumn,
+        scanner.line,
+        scanner.column - 1,
+        startOffset,
+        scanner.index
+    );
+}
+
+Token scanLineComment(Scanner& scanner) {
+    const size_t startOffset = scanner.index;
+    const int startLine = scanner.line;
+    const int startColumn = scanner.column;
+    std::string text;
+    while (!scanner.atEnd() && scanner.peek() != '\n') {
+        text += scanner.advance();
+    }
+    return makeToken(
+        scanner,
+        TokenKind::LineComment,
         text,
         startLine,
         startColumn,
@@ -236,6 +255,11 @@ std::vector<Token> tokenize(const std::string& source, SourceSpan sourceSpan) {
 
         if (ch == '\'') {
             tokens.push_back(scanQuoted(scanner, TokenKind::Char));
+            continue;
+        }
+
+        if (ch == '/' && scanner.peekNext() == '/') {
+            tokens.push_back(scanLineComment(scanner));
             continue;
         }
 
@@ -306,6 +330,12 @@ std::vector<Token> tokenize(const std::string& source, SourceSpan sourceSpan) {
             case ']':
                 kind = TokenKind::RightBracket;
                 break;
+            case '{':
+                kind = TokenKind::LeftBrace;
+                break;
+            case '}':
+                kind = TokenKind::RightBrace;
+                break;
             case ',':
                 kind = TokenKind::Comma;
                 break;
@@ -362,6 +392,10 @@ std::vector<Token> tokenize(const std::string& source, SourceSpan sourceSpan) {
     return tokens;
 }
 
+TokenStream tokenizeSource(const std::string& source, SourceSpan sourceSpan) {
+    return {source, sourceSpan, tokenize(source, sourceSpan)};
+}
+
 // tokenKindName implements the tokenKindName behavior for the tokenizer.cpp module.
 std::string tokenKindName(TokenKind kind) {
     switch (kind) {
@@ -387,6 +421,10 @@ std::string tokenKindName(TokenKind kind) {
             return "LeftBracket";
         case TokenKind::RightBracket:
             return "RightBracket";
+        case TokenKind::LeftBrace:
+            return "LeftBrace";
+        case TokenKind::RightBrace:
+            return "RightBrace";
         case TokenKind::Comma:
             return "Comma";
         case TokenKind::Semicolon:
@@ -395,6 +433,8 @@ std::string tokenKindName(TokenKind kind) {
             return "Equals";
         case TokenKind::Operator:
             return "Operator";
+        case TokenKind::LineComment:
+            return "LineComment";
         case TokenKind::Unknown:
             return "Unknown";
         case TokenKind::EndOfFile:

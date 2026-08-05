@@ -22,6 +22,13 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: Good for inspecting lowered C++.
 - Complexity: proportional to source size
 
+### Token stream
+
+- Syntax: `build/cppp --cppp file.cppp --tokens`
+- What it does: Prints the canonical whole-file token stream as one JSON object per line, including each token's kind, text, source coordinates, and byte offsets.
+- Notes: This is a compiler inspection/testing mode and does not generate C++. The Make equivalent is `make tokens INPUT=file.cppp`.
+- Complexity: proportional to source size
+
 ### Run mode
 
 - Syntax: `build/cppp --cppp file.cppp --run`

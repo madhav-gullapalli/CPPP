@@ -57,7 +57,7 @@ $(SRC_DIR)/typesCppp.h
 INPUT ?= in.cppp
 PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
-.PHONY: all transpile compile run submit subrun test clean
+.PHONY: all tokens transpile compile run submit subrun test clean
 
 all: $(COMPILER)
 
@@ -69,6 +69,9 @@ $(COMPILER): $(SOURCES) $(HEADERS) | $(BUILD_DIR)
 
 transpile: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)"
+
+tokens: $(COMPILER)
+	"$(COMPILER)" --cppp "$(INPUT)" --tokens
 
 compile: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)" --compile

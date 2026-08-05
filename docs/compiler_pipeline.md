@@ -19,19 +19,24 @@ the code path is:
 1. [`src/cppp.cpp`](../src/cppp.cpp) calls `runCompilerDriver(...)`.
 2. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) validates CLI mode and
    builds `CompileOptions`.
-3. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) opens the input file
-   and creates one `CompileContext`.
-4. [`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) reads raw source and
-   returns `vector<SourceFragment>`.
-5. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) walks those
-   fragments and fills the generated-output buffers inside `CompileContext`.
+3. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) reads and registers the
+   complete source file, creates one `CompileContext`, and asks
+   [`src/tokenizer.cpp`](../src/tokenizer.cpp) for one canonical `TokenStream`.
+4. [`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) groups that stream into
+   token-backed logical statement views without rescanning source text.
+5. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes the
+   stream through `compileTokenStream(...)` and fills the generated-output
+   buffers inside `CompileContext`.
 6. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns those buffers
-   into one generated `.cpp` file.
-7. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) optionally invokes
+   into one readable generated C++ translation unit.
+7. Compact `--submit` passes the complete unit through
+   [`src/submitPostProcessor.cpp`](../src/submitPostProcessor.cpp); `--readable`
+   skips this pass.
+8. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) optionally invokes
    `g++`, prints compile diagnostics if that fails, and optionally runs the
    produced executable.
 
-Most implementation details hang off one of those seven steps.
+Most implementation details hang off one of those eight steps.
 
 ## Stage 1: CLI Entry
 
@@ -46,7 +51,7 @@ Practical takeaway: if you want to understand real compiler behavior, skip
 [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) owns the overall workflow.
 It decides:
 
-- which mode is active: transpile only, compile, run, or submit
+- which mode is active: token inspection, transpile only, compile, run, or submit
 - where the generated `.cpp` should be written
 - where the compiled executable should live
 - whether expression/runtime checks should stay enabled
@@ -56,7 +61,7 @@ Important driver responsibilities:
 - clear stale diagnostic/runtime-helper state before each invocation
 - populate `CompileOptions`
 - create the shared `CompileContext`
-- call the splitter and lowering stages in order
+- construct the canonical token stream and call lowering
 - emit the final C++ file
 - optionally call `g++`
 - optionally execute the produced binary
@@ -65,32 +70,40 @@ Important driver responsibilities:
 loop helper artifacts that are useful during richer lowering but unnecessary in
 the final contest-style output.
 
-## Stage 3: Source Splitting
+## Stage 3: Canonical Tokenization and Statement Views
 
-[`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) is the first true compiler
-stage after file I/O. It does not perform semantic analysis. Its job is to make
-later lowering simpler by normalizing raw text into `SourceFragment` records.
+[`src/tokenizer.cpp`](../src/tokenizer.cpp) scans the complete source file once.
+The resulting `TokenStream` owns the normalized source text and an ordered token
+sequence ending in exactly one `EndOfFile` token. Every token records its kind,
+text, line/column range, byte offsets, and canonical diagnostic `SourceSpan`.
+
+Whitespace is trivia and is not emitted. Line comments and block braces are
+explicit tokens. The `--tokens` mode prints this representation as JSON lines.
+
+[`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) then groups tokens into
+temporary `SourceFragment` compatibility views. It does not lex raw text.
 
 `SourceFragment` carries:
 
 - the original source line number
 - the original starting column
-- the text for one logical statement fragment
+- a rebased token view ending in `EndOfFile`
+- compatibility text reconstructed from those tokens for legacy lowerers
+- the canonical source span
 
 Key splitter responsibilities:
 
-- preserve original source lines in `CompileContext::sourceLines`
-- split one physical line into multiple fragments at top-level `;`, `{`, and `}`
-- avoid splitting inside strings, chars, or parenthesized expressions
+- group at top-level `;` and block-brace tokens
+- avoid grouping boundaries inside literals and nested delimiters
 - merge continuation lines back into one logical statement
 - preserve comments in a form later stages can still emit or diagnose cleanly
 
 ## Stage 4: Statement Lowering
 
 [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) is the center of
-the transpiler. `compileSourceFragments(...)` iterates through each
-`SourceFragment` and decides what kind of statement it is and how it should be
-lowered.
+the transpiler. `compileTokenStream(...)` accepts the canonical stream, obtains
+its logical token views, and decides what kind of statement each view represents
+and how it should be lowered.
 
 This stage is responsible for:
 
@@ -112,12 +125,12 @@ The file relies on helper modules for specific domains:
 - [`src/functions.cpp`](../src/functions.cpp) for function metadata
 
 Practical rule: if a source feature feels statement-shaped, start in
-`compileSourceFragments(...)` and follow the branch it takes.
+`compileTokenStream(...)` and follow the branch it takes.
 
 ## Stage 5: Shared State via `CompileContext`
 
 [`src/compileContext.h`](../src/compileContext.h) defines the data shared across
-stages. It is the glue between splitting, lowering, and final emission.
+stages. It is the glue between token-backed statement lowering and final emission.
 
 The most important `CompileContext` fields are:
 
@@ -176,6 +189,13 @@ It emits, in order:
 7. queued generated main-body lines
 8. optional runtime error translation wrapper for `--run`
 
+Emission itself always produces ordinary readable C++. Compact submit mode
+buffers that complete translation unit and then passes it through
+[`src/submitPostProcessor.cpp`](../src/submitPostProcessor.cpp). This keeps
+whitespace compaction separate from parsing, lowering, reachability, helper
+pruning, and serialization. `--submit --readable` changes only this final
+post-processing decision.
+
 ## Stage 8: Native Compile and Run
 
 After emission, [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) may:
@@ -219,6 +239,7 @@ The easiest way to keep the codebase straight is this:
 - helper modules own specialized subproblems
 - `CompileContext` is the shared memory between stages
 - `programEmitter.cpp` owns final file serialization
+- `submitPostProcessor.cpp` owns optional submit-only lexical compaction
 
 If you keep that model in mind, most of the compiler becomes much easier to
 navigate.

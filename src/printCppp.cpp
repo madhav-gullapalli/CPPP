@@ -264,9 +264,13 @@ bool parseCallArguments(
     const std::string& unclosedMessage,
     const std::map<int, std::string>& sourceLines,
     std::string& argumentsText,
-    int& argumentsStartColumn
+    int& argumentsStartColumn,
+    const std::vector<Token>* sourceTokens
 ) {
-    const std::vector<Token> statementTokens = tokenize(statementBody);
+    const std::vector<Token> scannedTokens = sourceTokens == nullptr
+        ? tokenize(statementBody)
+        : std::vector<Token>{};
+    const std::vector<Token>& statementTokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
     if (statementTokens.size() < 2 ||
         statementTokens[0].kind != TokenKind::Identifier ||
         statementTokens[0].text != functionName ||
@@ -326,7 +330,8 @@ PrintEmitResult emitPrintStatement(
     const std::string& statementBody,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>* sourceTokens
 ) {
     const auto reportUnterminatedString = [&](const Token& token, int baseColumn) {
         const int startColumn = baseColumn + token.span.startColumn - 1;
@@ -359,7 +364,12 @@ PrintEmitResult emitPrintStatement(
         recordDiagnostic(std::move(diagnostic));
     };
 
-    const std::vector<Token> statementTokens = tokenize(statementBody);
+    const std::vector<Token> scannedStatementTokens = sourceTokens == nullptr
+        ? tokenize(statementBody)
+        : std::vector<Token>{};
+    const std::vector<Token>& statementTokens = sourceTokens == nullptr
+        ? scannedStatementTokens
+        : *sourceTokens;
     if (statementTokens.size() >= 2 &&
         statementTokens[0].kind == TokenKind::Identifier &&
         statementTokens[0].text == "print" &&
@@ -374,7 +384,7 @@ PrintEmitResult emitPrintStatement(
 
     std::string printArguments;
     int argumentsStartColumn = 1;
-    if (!parseCallArguments(inputFile, lineNumber, statementBody, statementStartColumn, "print", "unclosed parenthesis in print", sourceLines, printArguments, argumentsStartColumn)) {
+    if (!parseCallArguments(inputFile, lineNumber, statementBody, statementStartColumn, "print", "unclosed parenthesis in print", sourceLines, printArguments, argumentsStartColumn, sourceTokens)) {
         return {false, "", {}};
     }
 
@@ -630,7 +640,8 @@ PrintEmitResult emitDescribeStatement(
     const std::string& sourceLine,
     const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
+    const std::map<std::string, Type>& declaredVariables,
+    const std::vector<Token>* sourceTokens
 ) {
     const size_t statementColumn = sourceLine.find(statementBody);
     const int statementStartColumn = static_cast<int>(
@@ -638,7 +649,7 @@ PrintEmitResult emitDescribeStatement(
     );
     std::string describeArgument;
     int argumentStartColumn = 1;
-    if (!parseCallArguments(inputFile, lineNumber, statementBody, statementStartColumn, "describe", "unclosed parenthesis in describe", sourceLines, describeArgument, argumentStartColumn)) {
+    if (!parseCallArguments(inputFile, lineNumber, statementBody, statementStartColumn, "describe", "unclosed parenthesis in describe", sourceLines, describeArgument, argumentStartColumn, sourceTokens)) {
         return {false, "", {}};
     }
 
