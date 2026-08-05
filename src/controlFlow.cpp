@@ -187,6 +187,9 @@ ForEachParseResult parseForEachHeader(const std::vector<Token>& sourceTokens) {
     const std::vector<Token> tokens = codeTokens(sourceTokens);
     ForEachParseResult result;
     if (tokens.empty() || tokens[0].text != "for") return result;
+    for (size_t index = 2; index < tokens.size(); ++index) {
+        if (tokens[index].kind == TokenKind::Semicolon) return result;
+    }
     result.matched = true;
     if (tokens.size() < 4 || tokens[1].kind != TokenKind::LeftParen || tokens.back().kind != TokenKind::LeftBrace) {
         result.errorOffset = tokens[0].span.endOffset;
@@ -199,10 +202,6 @@ ForEachParseResult parseForEachHeader(const std::vector<Token>& sourceTokens) {
         result.message = "for-in loop must use syntax for (T x in list) or for (var x in list)";
         return result;
     }
-    for (size_t index = 2; index < rightParen; ++index) {
-        if (tokens[index].kind == TokenKind::Semicolon) { result.matched = false; return result; }
-    }
-
     size_t variableIndex = 0;
     if (tokens[2].text == "var") {
         result.header.usesVar = true;

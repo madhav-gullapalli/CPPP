@@ -99,6 +99,18 @@ std::vector<Token> withoutTrailingSemicolon(const std::vector<Token>& tokens) {
     Token eof = tokens.empty() ? Token{} : tokens.back();
     eof.kind = TokenKind::EndOfFile;
     eof.text.clear();
+    if (!statementTokens.empty()) {
+        const Token& last = statementTokens.back();
+        eof.span.startLine = last.span.endLine;
+        eof.span.endLine = last.span.endLine;
+        eof.span.startColumn = last.span.endColumn + 1;
+        eof.span.endColumn = eof.span.startColumn;
+        eof.span.startOffset = last.span.endOffset;
+        eof.span.endOffset = last.span.endOffset;
+        eof.sourceSpan = last.sourceSpan.valid()
+            ? SourceSpan{last.sourceSpan.source, last.sourceSpan.endOffset, last.sourceSpan.endOffset}
+            : SourceSpan{};
+    }
     statementTokens.push_back(std::move(eof));
     return statementTokens;
 }

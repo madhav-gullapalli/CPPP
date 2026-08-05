@@ -101,7 +101,7 @@ ComparatorEmitResult emitComparator(
     if (tokens.size() == 1 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "default") return defaultComparator(false);
     if (tokens.size() == 1 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "greater") return defaultComparator(true);
 
-    if (tokens.size() >= 4 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "compare" &&
+    if (tokens.size() >= 3 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "compare" &&
         tokens[1].kind == TokenKind::LeftParen && tokens.back().kind == TokenKind::RightParen) {
         const std::vector<Token> selectorTokens = tokenRange(tokens, 2, tokens.size() - 1);
         if (selectorTokens.empty()) {
