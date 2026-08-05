@@ -2424,6 +2424,41 @@ ExpressionParser::ExpressionParser(
         )
     )) {}
 
+ExpressionParser::ExpressionParser(
+    const std::string& inputFile,
+    int lineNumber,
+    const std::vector<Token>& expressionTokens,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
+    bool emitRuntimeChecks
+) :
+    inputFile(inputFile),
+    lineNumber(lineNumber),
+    expressionColumn(expressionColumn),
+    sourceLines(sourceLines),
+    declaredVariables(declaredVariables),
+    declaredFunctions(declaredFunctions),
+    emitRuntimeChecks(emitRuntimeChecks),
+    tokens(expressionTokens) {
+    if (tokens.empty() || tokens.back().kind != TokenKind::EndOfFile) {
+        SourceSpan endSpan;
+        int endColumn = expressionColumn;
+        if (!tokens.empty()) {
+            endColumn = tokens.back().span.endColumn + 1;
+            if (tokens.back().sourceSpan.valid()) {
+                endSpan = {
+                    tokens.back().sourceSpan.source,
+                    tokens.back().sourceSpan.endOffset,
+                    tokens.back().sourceSpan.endOffset
+                };
+            }
+        }
+        tokens.push_back({TokenKind::EndOfFile, "", {1, endColumn, 1, endColumn, 0, 0}, endSpan});
+    }
+}
+
 ExpressionEmitResult ExpressionParser::parse() {
     for (const Token& token : tokens) {
         if (isUnterminatedQuotedToken(token)) {

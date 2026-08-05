@@ -12,6 +12,9 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
+
+#include "tokenizer.h"
 
 // Parsed payload of `if (...)`, `while (...)`, or `else if (...)`.
 struct ConditionHeader {
@@ -71,9 +74,15 @@ bool parseForHeader(const std::string& statement, ForHeader& header);
 
 // Detailed helpers preserve user-facing diagnostics and exact source offsets.
 ForEachParseResult parseForEachHeader(const std::string& statement);
+ForEachParseResult parseForEachHeader(const std::vector<Token>& tokens);
 ConditionParseResult parseConditionHeaderDetailed(const std::string& statement, const std::string& keyword, const std::string& syntaxName);
+ConditionParseResult parseConditionHeaderDetailed(const std::vector<Token>& tokens, const std::string& keyword, const std::string& syntaxName);
 ConditionParseResult parseElseIfHeaderDetailed(const std::string& statement);
+ConditionParseResult parseElseIfHeaderDetailed(const std::vector<Token>& tokens);
 ForParseResult parseForHeaderDetailed(const std::string& statement);
+ForParseResult parseForHeaderDetailed(const std::vector<Token>& tokens);
 bool parseElseHeader(const std::string& statement);
+bool parseElseHeader(const std::vector<Token>& tokens);
 bool parseNobreakHeader(const std::string& statement);
+bool parseNobreakHeader(const std::vector<Token>& tokens);
 bool parseElseIfHeader(const std::string& statement, ConditionHeader& header);

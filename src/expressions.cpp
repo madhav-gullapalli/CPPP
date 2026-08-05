@@ -1101,6 +1101,30 @@ ExpressionEmitResult emitExpression(
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,
+    const std::vector<Token>& expressionTokens,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks
+) {
+    static const std::map<std::string, FunctionSignature> emptyFunctions;
+    const std::map<std::string, FunctionSignature>* declaredFunctions = declaredFunctionsForExpressions();
+    ExpressionParser parser(
+        inputFile,
+        lineNumber,
+        expressionTokens,
+        expressionColumn,
+        sourceLines,
+        declaredVariables,
+        declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions,
+        emitRuntimeChecks || expressionRuntimeChecksEnabled()
+    );
+    return parser.parse();
+}
+
+ExpressionEmitResult emitExpression(
+    const std::string& inputFile,
+    int lineNumber,
     const std::string& expressionText,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,

@@ -9,9 +9,11 @@
 #pragma once
 
 #include "stmtAst.h"
+#include "tokenizer.h"
 
 #include <memory>
 #include <string>
+#include <vector>
 
 // StatementParseResult implements the StatementParseResult behavior for the statementParser.h module.
 struct StatementParseResult {
@@ -36,5 +38,6 @@ struct StatementParseResult {
     std::unique_ptr<Stmt> statement;
 };
 
-// parseStatementAst parses statementsast for the compiler pipeline.
-StatementParseResult parseStatementAst(const std::string& statement, int sourceColumn = 1);
+// Parses a logical statement from the canonical file token stream. The token
+// vector must end with EndOfFile, as SourceFragment::tokens does.
+StatementParseResult parseStatementAst(const std::vector<Token>& tokens, int sourceColumn = 1);

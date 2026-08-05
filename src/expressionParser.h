@@ -25,6 +25,16 @@ public:
         const std::map<std::string, FunctionSignature>& declaredFunctions,
         bool emitRuntimeChecks
     );
+    ExpressionParser(
+        const std::string& inputFile,
+        int lineNumber,
+        const std::vector<Token>& expressionTokens,
+        int expressionColumn,
+        const std::map<int, std::string>& sourceLines,
+        const std::map<std::string, Type>& declaredVariables,
+        const std::map<std::string, FunctionSignature>& declaredFunctions,
+        bool emitRuntimeChecks
+    );
 
 // parse parses  for the compiler pipeline.
     ExpressionEmitResult parse();
@@ -33,7 +43,7 @@ public:
 private:
     const std::string& inputFile;
     int lineNumber;
-    const std::string& expressionText;
+    std::string expressionText;
     int expressionColumn;
     const std::map<int, std::string>& sourceLines;
     const std::map<std::string, Type>& declaredVariables;

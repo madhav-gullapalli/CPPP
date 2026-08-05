@@ -202,6 +202,16 @@ ExpressionEmitResult emitExpression(
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,
+    const std::vector<Token>& expressionTokens,
+    int expressionColumn,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    bool emitRuntimeChecks = false
+);
+
+ExpressionEmitResult emitExpression(
+    const std::string& inputFile,
+    int lineNumber,
     const std::string& expressionText,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,

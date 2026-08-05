@@ -165,6 +165,152 @@ ConditionParseResult makeConditionError(size_t errorOffset, const std::string& m
     result.message = message;
     return result;
 }
+
+std::vector<Token> codeTokens(const std::vector<Token>& tokens) {
+    std::vector<Token> result;
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::EndOfFile || token.kind == TokenKind::LineComment) break;
+        result.push_back(token);
+    }
+    return result;
+}
+
+std::string tokenRangeText(const std::vector<Token>& tokens, size_t begin, size_t end) {
+    if (begin >= end || end > tokens.size()) return "";
+    std::string result;
+    size_t previousEnd = tokens[begin].span.startOffset;
+    for (size_t index = begin; index < end; ++index) {
+        const Token& token = tokens[index];
+        if (token.span.startOffset > previousEnd) {
+            result.append(token.span.startOffset - previousEnd, ' ');
+        }
+        result += token.text;
+        previousEnd = token.span.endOffset;
+    }
+    return result;
+}
+
+size_t offsetOf(const std::vector<Token>& tokens, size_t index, size_t fallback = 0) {
+    return index < tokens.size() ? tokens[index].span.startOffset : fallback;
+}
+
+size_t findMatchingRightParen(const std::vector<Token>& tokens, size_t leftParen) {
+    int depth = 0;
+    for (size_t index = leftParen; index < tokens.size(); ++index) {
+        if (tokens[index].kind == TokenKind::LeftParen) ++depth;
+        if (tokens[index].kind == TokenKind::RightParen && --depth == 0) return index;
+    }
+    return tokens.size();
+}
+}
+
+ConditionParseResult parseConditionHeaderDetailed(
+    const std::vector<Token>& sourceTokens,
+    const std::string& keyword,
+    const std::string& syntaxName
+) {
+    const std::vector<Token> tokens = codeTokens(sourceTokens);
+    ConditionParseResult result;
+    if (tokens.empty() || tokens[0].kind != TokenKind::Identifier || tokens[0].text != keyword) return result;
+    result.matched = true;
+    if (tokens.back().kind != TokenKind::LeftBrace) return makeConditionError(tokens[0].span.endOffset, "missing '{' after " + syntaxName);
+    if (tokens.size() < 2 || tokens[1].kind != TokenKind::LeftParen) return makeConditionError(tokens[0].span.endOffset, "expected '(' after " + syntaxName);
+    const size_t rightParen = findMatchingRightParen(tokens, 1);
+    if (rightParen == tokens.size()) return makeConditionError(tokens[1].span.endOffset, "unclosed parenthesis in " + syntaxName);
+    if (rightParen + 1 != tokens.size() - 1) return makeConditionError(tokens[rightParen].span.endOffset, "expected '{' after " + syntaxName + " condition");
+    result.ok = true;
+    result.header.conditionOffset = rightParen == 2 ? tokens[1].span.endOffset : offsetOf(tokens, 2);
+    result.header.condition = tokenRangeText(tokens, 2, rightParen);
+    return result;
+}
+
+ConditionParseResult parseElseIfHeaderDetailed(const std::vector<Token>& sourceTokens) {
+    const std::vector<Token> tokens = codeTokens(sourceTokens);
+    ConditionParseResult result;
+    if (tokens.empty() || tokens[0].kind != TokenKind::Identifier || tokens[0].text != "else") return result;
+    if (tokens.size() < 2 || tokens[1].kind != TokenKind::Identifier || tokens[1].text != "if") return result;
+    std::vector<Token> nested(tokens.begin() + 1, tokens.end());
+    result = parseConditionHeaderDetailed(nested, "if", "else if");
+    result.matched = true;
+    return result;
+}
+
+ForParseResult parseForHeaderDetailed(const std::vector<Token>& sourceTokens) {
+    const std::vector<Token> tokens = codeTokens(sourceTokens);
+    ForParseResult result;
+    if (tokens.empty() || tokens[0].kind != TokenKind::Identifier || tokens[0].text != "for") return result;
+    result.matched = true;
+    if (tokens.back().kind != TokenKind::LeftBrace) { result.errorOffset = tokens[0].span.endOffset; result.message = "missing '{' after for loop"; return result; }
+    if (tokens.size() < 2 || tokens[1].kind != TokenKind::LeftParen) { result.errorOffset = tokens[0].span.endOffset; result.message = "expected '(' after for"; return result; }
+    const size_t rightParen = findMatchingRightParen(tokens, 1);
+    if (rightParen == tokens.size()) { result.errorOffset = tokens[1].span.endOffset; result.message = "unclosed parenthesis in for"; return result; }
+    if (rightParen + 1 != tokens.size() - 1) { result.errorOffset = tokens[rightParen].span.endOffset; result.message = "expected '{' after for header"; return result; }
+    std::vector<size_t> semicolons;
+    int depth = 0;
+    for (size_t index = 2; index < rightParen; ++index) {
+        if (tokens[index].kind == TokenKind::LeftParen || tokens[index].kind == TokenKind::LeftBracket) ++depth;
+        else if (tokens[index].kind == TokenKind::RightParen || tokens[index].kind == TokenKind::RightBracket) --depth;
+        else if (tokens[index].kind == TokenKind::Semicolon && depth == 0) semicolons.push_back(index);
+    }
+    if (semicolons.size() != 2) { result.errorOffset = tokens[1].span.endOffset; result.message = "for loop must use syntax for (init; condition; step)"; return result; }
+    result.ok = true;
+    const size_t first = semicolons[0], second = semicolons[1];
+    result.header.initializerOffset = first == 2 ? tokens[1].span.endOffset : offsetOf(tokens, 2);
+    result.header.initializer = tokenRangeText(tokens, 2, first);
+    result.header.conditionOffset = second == first + 1 ? tokens[first].span.endOffset : offsetOf(tokens, first + 1);
+    result.header.condition = tokenRangeText(tokens, first + 1, second);
+    result.header.iterationOffset = rightParen == second + 1 ? tokens[second].span.endOffset : offsetOf(tokens, second + 1);
+    result.header.iteration = tokenRangeText(tokens, second + 1, rightParen);
+    return result;
+}
+
+ForEachParseResult parseForEachHeader(const std::vector<Token>& sourceTokens) {
+    const std::vector<Token> tokens = codeTokens(sourceTokens);
+    ForEachParseResult result;
+    if (tokens.empty() || tokens[0].kind != TokenKind::Identifier || tokens[0].text != "for") return result;
+    result.matched = true;
+    if (tokens.size() < 4 || tokens[1].kind != TokenKind::LeftParen || tokens.back().kind != TokenKind::LeftBrace) {
+        result.errorOffset = tokens[0].span.endOffset;
+        result.message = "for-in loop must use syntax for (T x in list) or for (var x in list)";
+        return result;
+    }
+    const size_t rightParen = findMatchingRightParen(tokens, 1);
+    if (rightParen == tokens.size() || rightParen + 1 != tokens.size() - 1) {
+        result.errorOffset = tokens[1].span.endOffset;
+        result.message = "for-in loop must use syntax for (T x in list) or for (var x in list)";
+        return result;
+    }
+    for (size_t index = 2; index < rightParen; ++index) if (tokens[index].kind == TokenKind::Semicolon) { result.matched = false; return result; }
+    size_t variableIndex = 0;
+    if (tokens[2].kind == TokenKind::Identifier && tokens[2].text == "var") {
+        result.header.usesVar = true; variableIndex = 3;
+    } else {
+        const TypeTokenParseResult type = parseTypeTokenSequence(tokens, 2);
+        if (!type.matched) { result.errorOffset = offsetOf(tokens, 2); result.message = "for-in loop must start with a type or var and variable like for (int x in list)"; return result; }
+        if (!type.ok) { result.ok = true; result.header.declaration = tokenRangeText(tokens, 2, rightParen); result.header.declarationOffset = offsetOf(tokens, 2); return result; }
+        variableIndex = type.nextTokenIndex;
+    }
+    if (variableIndex >= rightParen || tokens[variableIndex].kind != TokenKind::Identifier || tokens[variableIndex].text == "in") { result.errorOffset = offsetOf(tokens, variableIndex, tokens[1].span.endOffset); result.message = "expected loop variable before 'in'"; return result; }
+    if (variableIndex + 1 >= rightParen || tokens[variableIndex + 1].kind != TokenKind::Identifier || tokens[variableIndex + 1].text != "in") { result.errorOffset = offsetOf(tokens, variableIndex + 1, tokens[variableIndex].span.endOffset); result.message = "expected 'in' after loop variable"; return result; }
+    if (variableIndex + 2 >= rightParen) { result.errorOffset = tokens[variableIndex + 1].span.endOffset; result.message = "expected List expression after 'in'"; return result; }
+    result.ok = true;
+    result.header.declarationOffset = offsetOf(tokens, 2);
+    result.header.declaration = tokenRangeText(tokens, 2, variableIndex + 1);
+    result.header.variableName = tokens[variableIndex].text;
+    result.header.variableOffset = tokens[variableIndex].span.startOffset;
+    result.header.iterableOffset = tokens[variableIndex + 2].span.startOffset;
+    result.header.iterable = tokenRangeText(tokens, variableIndex + 2, rightParen);
+    return result;
+}
+
+bool parseElseHeader(const std::vector<Token>& sourceTokens) {
+    const std::vector<Token> tokens = codeTokens(sourceTokens);
+    return tokens.size() == 2 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "else" && tokens[1].kind == TokenKind::LeftBrace;
+}
+
+bool parseNobreakHeader(const std::vector<Token>& sourceTokens) {
+    const std::vector<Token> tokens = codeTokens(sourceTokens);
+    return tokens.size() == 2 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "nobreak" && tokens[1].kind == TokenKind::LeftBrace;
 }
 
 // parseConditionHeader parses conditionheaders for the compiler pipeline.

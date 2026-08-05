@@ -2957,6 +2957,9 @@ canonical whole-source token stream
   CP++ tokenizes the complete source file once before statement parsing. Every
   token keeps its original line, column, and byte offsets; comments and block
   braces are represented explicitly rather than discovered by later rescans.
+  Statement parsing receives the canonical fragment token view, and control-flow
+  expressions are passed to the expression parser as token slices without a
+  second lexical scan.
 
   Example:
     int total = 0;

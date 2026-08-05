@@ -103,6 +103,30 @@ std::vector<Token> withoutTrailingSemicolon(const std::vector<Token>& tokens) {
     return statementTokens;
 }
 
+std::vector<Token> tokenSlice(
+    const std::vector<Token>& tokens,
+    size_t startOffset,
+    size_t textLength
+) {
+    std::vector<Token> result;
+    const size_t endOffset = startOffset + textLength;
+    for (const Token& sourceToken : tokens) {
+        if (sourceToken.kind == TokenKind::EndOfFile) {
+            break;
+        }
+        if (sourceToken.span.startOffset < startOffset || sourceToken.span.endOffset > endOffset) {
+            continue;
+        }
+        Token token = sourceToken;
+        token.span.startOffset -= startOffset;
+        token.span.endOffset -= startOffset;
+        token.span.startColumn -= static_cast<int>(startOffset);
+        token.span.endColumn -= static_cast<int>(startOffset);
+        result.push_back(std::move(token));
+    }
+    return result;
+}
+
 // isBuiltinCallName returns whether the supplied input satisfies the relevant condition.
 bool isBuiltinCallName(const std::string& name) {
     return name == "print" ||
@@ -330,7 +354,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             continue;
         }
 
-        StatementParseResult parsed = parseStatementAst(statement, statementStartColumn);
+        StatementParseResult parsed = parseStatementAst(lexicalTokens, statementStartColumn);
         if (parsed.statement) {
             parsed.statement->sourceSpan = fragment.sourceSpan;
         }
@@ -617,7 +641,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult condition = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                header.condition,
+                tokenSlice(lexicalTokens, conditionOffset, header.condition.size()),
                 statementStartColumn + static_cast<int>(conditionOffset),
                 context.sourceLines,
                 context.declaredVariables
@@ -693,7 +717,11 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult expression = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                part,
+                tokenSlice(
+                    lexicalTokens,
+                    static_cast<size_t>(partColumn - statementStartColumn),
+                    part.size()
+                ),
                 partColumn,
                 context.sourceLines,
                 context.declaredVariables
@@ -974,7 +1002,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult iterable = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                forEachHeader.iterable,
+                tokenSlice(lexicalTokens, forEachHeader.iterableOffset, forEachHeader.iterable.size()),
                 statementStartColumn + static_cast<int>(forEachHeader.iterableOffset),
                 context.sourceLines,
                 context.declaredVariables
@@ -1139,7 +1167,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 const ExpressionEmitResult condition = emitExpression(
                     context.options.inputFile,
                     lineNumber,
-                    forHeader.condition,
+                    tokenSlice(lexicalTokens, forHeader.conditionOffset, forHeader.condition.size()),
                     statementStartColumn + static_cast<int>(forHeader.conditionOffset),
                     context.sourceLines,
                     context.declaredVariables
@@ -1224,7 +1252,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult count = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                header.condition,
+                tokenSlice(lexicalTokens, header.conditionOffset, header.condition.size()),
                 statementStartColumn + static_cast<int>(header.conditionOffset),
                 context.sourceLines,
                 context.declaredVariables
@@ -1414,7 +1442,11 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult returnExpression = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                returnExpressionText,
+                tokenSlice(
+                    lexicalTokens,
+                    static_cast<size_t>(returnExpressionColumn + 1 - statementStartColumn),
+                    returnExpressionText.size()
+                ),
                 returnExpressionColumn + 1,
                 context.sourceLines,
                 context.declaredVariables
@@ -1557,7 +1589,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult expression = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                statementBody,
+                statementTokens,
                 statementStartColumn,
                 context.sourceLines,
                 context.declaredVariables
@@ -1617,7 +1649,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         const ExpressionEmitResult expressionStatement = emitExpression(
             context.options.inputFile,
             lineNumber,
-            statementBody,
+            statementTokens,
             statementStartColumn,
             context.sourceLines,
             context.declaredVariables
