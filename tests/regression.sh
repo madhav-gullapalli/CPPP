@@ -43,7 +43,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=27
+TOTAL_STEPS=28
 CURRENT_STEP=0
 
 progress() {
@@ -367,6 +367,13 @@ else
 fi
 
 catalog_failed=0
+
+progress "correct.txt catalog coverage"
+if "$PYTHON_CMD" tests/errors_coverage.py correct.txt; then
+    pass "correct.txt documented examples are covered"
+else
+    catalog_failed=1
+fi
 
 progress "errors.txt catalog coverage"
 if "$PYTHON_CMD" tests/errors_coverage.py errors.txt; then
