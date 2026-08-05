@@ -37,9 +37,9 @@ struct RawStmt : Stmt {
 
 // CloseBraceStmt implements the CloseBraceStmt behavior for the stmtAst.h module.
 struct CloseBraceStmt : Stmt {
-    std::string trailingText;
+    std::vector<Token> trailingTokens;
 
-    CloseBraceStmt(std::string trailingText, int sourceColumn) : trailingText(std::move(trailingText)) {
+    CloseBraceStmt(std::vector<Token> trailingTokens, int sourceColumn) : trailingTokens(std::move(trailingTokens)) {
         this->sourceColumn = sourceColumn;
     }
 };

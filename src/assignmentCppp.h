@@ -27,10 +27,9 @@ AssignmentEmitResult emitAssignmentStatement(
     const std::string& inputFile,
     int lineNumber,
     int statementColumn,
-    const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
-    bool emitRuntimeChecks = false,
-    const std::vector<Token>* sourceTokens = nullptr
+    bool emitRuntimeChecks,
+    const std::vector<Token>& sourceTokens
 );

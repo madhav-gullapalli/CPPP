@@ -11,85 +11,57 @@
 #include "tokenizer.h"
 
 namespace {
-// trim removes surrounding whitespace from a string.
-std::string trim(const std::string& text) {
-    const size_t start = text.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) {
-        return "";
-    }
-
-    const size_t end = text.find_last_not_of(" \t\r\n");
-    return text.substr(start, end - start + 1);
-}
-
 // ListArgument handles list-specific behavior for the compiler or runtime.
 struct ListArgument {
-    std::string text;
+    std::vector<Token> tokens;
     int column;
 };
 
-// splitListArguments splits the input into smaller logical pieces.
-std::vector<ListArgument> splitListArguments(const std::string& text, int startColumn) {
-    std::vector<ListArgument> arguments;
-    const std::vector<Token> tokens = tokenize(text);
-    int parenDepth = 0;
-    int bracketDepth = 0;
-    size_t argumentStartIndex = 0;
-    int argumentStartColumn = startColumn;
-
-    for (const Token& token : tokens) {
-        if (token.kind == TokenKind::EndOfFile) {
-            break;
-        }
-
-        if (token.kind == TokenKind::LeftParen) {
-            ++parenDepth;
-        } else if (token.kind == TokenKind::RightParen && parenDepth > 0) {
-            --parenDepth;
-        } else if (token.kind == TokenKind::LeftBracket) {
-            ++bracketDepth;
-        } else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) {
-            --bracketDepth;
-        } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
-            const size_t endIndex = static_cast<size_t>(token.span.startColumn - 1);
-            const std::string rawArgument = text.substr(argumentStartIndex, endIndex - argumentStartIndex);
-            const std::string argumentText = trim(rawArgument);
-            const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
-            arguments.push_back({
-                argumentText,
-                trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart)
-            });
-            argumentStartIndex = static_cast<size_t>(token.span.endColumn);
-            argumentStartColumn = startColumn + token.span.endColumn;
-        }
-    }
-
-    const std::string rawArgument = text.substr(argumentStartIndex);
-    const std::string argumentText = trim(rawArgument);
-    const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
-    arguments.push_back({
-        argumentText,
-        trimStart == std::string::npos ? argumentStartColumn : argumentStartColumn + static_cast<int>(trimStart)
-    });
-    return arguments;
-}
-
-std::string expressionSliceForTokens(
-    const std::string& text,
+std::vector<Token> tokenRange(
     const std::vector<Token>& tokens,
     size_t startIndex,
     size_t endIndex
 ) {
-    if (startIndex >= endIndex) {
-        return "";
-    }
-
+    std::vector<Token> result;
+    if (startIndex >= endIndex || startIndex >= tokens.size()) return result;
     const int startColumn = tokens[startIndex].span.startColumn;
-    const int endColumn = tokens[endIndex - 1].span.endColumn;
-    return trim(text.substr(
-        static_cast<size_t>(startColumn - 1),
-        static_cast<size_t>(endColumn - startColumn + 1)
-    ));
+    const size_t startOffset = tokens[startIndex].span.startOffset;
+    for (size_t index = startIndex; index < endIndex && tokens[index].kind != TokenKind::EndOfFile; ++index) {
+        Token token = tokens[index];
+        token.span.startColumn -= startColumn - 1;
+        token.span.endColumn -= startColumn - 1;
+        token.span.startOffset -= startOffset;
+        token.span.endOffset -= startOffset;
+        result.push_back(std::move(token));
+    }
+    return result;
+}
+
+std::vector<ListArgument> splitListArguments(
+    const std::vector<Token>& tokens,
+    size_t begin,
+    size_t end,
+    int emptyColumn
+) {
+    std::vector<ListArgument> arguments;
+    int parenDepth = 0;
+    int bracketDepth = 0;
+    size_t argumentStart = begin;
+    for (size_t index = begin; index < end; ++index) {
+        const Token& token = tokens[index];
+        if (token.kind == TokenKind::LeftParen) ++parenDepth;
+        else if (token.kind == TokenKind::RightParen && parenDepth > 0) --parenDepth;
+        else if (token.kind == TokenKind::LeftBracket) ++bracketDepth;
+        else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) --bracketDepth;
+        else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0) {
+            const int column = argumentStart < index ? tokens[argumentStart].span.startColumn : token.span.startColumn;
+            arguments.push_back({tokenRange(tokens, argumentStart, index), column});
+            argumentStart = index + 1;
+        }
+    }
+    const int column = argumentStart < end ? tokens[argumentStart].span.startColumn : emptyColumn;
+    arguments.push_back({tokenRange(tokens, argumentStart, end), column});
+    return arguments;
 }
 
 bool supportsDefaultComparator(const Type& type) {
@@ -105,7 +77,7 @@ bool supportsDefaultComparator(const Type& type) {
 ComparatorEmitResult emitComparator(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& comparatorText,
+    const std::vector<Token>& tokens,
     int comparatorColumn,
     const Type& itemType,
     const std::map<int, std::string>& sourceLines,
@@ -125,19 +97,18 @@ ComparatorEmitResult emitComparator(
         return {true, "[](" + cppType + " const& a, " + cppType + " const& b) { return a " + (descending ? ">" : "<") + " b; }"};
     };
 
-    if (comparatorText.empty()) return defaultComparator(false);
-    if (comparatorText == "default") return defaultComparator(false);
-    if (comparatorText == "greater") return defaultComparator(true);
+    if (tokens.empty()) return defaultComparator(false);
+    if (tokens.size() == 1 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "default") return defaultComparator(false);
+    if (tokens.size() == 1 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "greater") return defaultComparator(true);
 
-    const std::vector<Token> tokens = tokenize(comparatorText);
     if (tokens.size() >= 4 && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "compare" &&
-        tokens[1].kind == TokenKind::LeftParen && tokens[tokens.size() - 2].kind == TokenKind::RightParen) {
-        const std::string selector = expressionSliceForTokens(comparatorText, tokens, 2, tokens.size() - 2);
-        if (selector.empty()) {
+        tokens[1].kind == TokenKind::LeftParen && tokens.back().kind == TokenKind::RightParen) {
+        const std::vector<Token> selectorTokens = tokenRange(tokens, 2, tokens.size() - 1);
+        if (selectorTokens.empty()) {
             recordSourceError(inputFile, lineNumber, comparatorColumn, "compare() expects an index or field name", sourceLines);
             return {};
         }
-        if (tokens[2].kind == TokenKind::String && tokens.size() == 5) {
+        if (tokens[2].kind == TokenKind::String && tokens.size() == 4) {
             if (!isStructType(itemType)) {
                 recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(field) can only order a List of structs", sourceLines);
                 return {};
@@ -160,7 +131,7 @@ ComparatorEmitResult emitComparator(
             return {true, "[](const " + cppType + "& a, const " + cppType + "& b) { return a" + access + fieldName + " < b" + access + fieldName + "; }"};
         }
 
-        const ExpressionEmitResult index = emitExpression(inputFile, lineNumber, selector, comparatorColumn + 8, sourceLines, declaredVariables);
+        const ExpressionEmitResult index = emitExpression(inputFile, lineNumber, selectorTokens, comparatorColumn + 8, sourceLines, declaredVariables);
         if (!index.ok) return {};
         if (index.type != PrimitiveType::Int) {
             recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) requires an int index", sourceLines);
@@ -174,23 +145,25 @@ ComparatorEmitResult emitComparator(
             return {true, "[__cppp_compare_index = " + index.generatedExpression + "](const " + cppType + "& a, const " + cppType + "& b) { return a[__cppp_compare_index] < b[__cppp_compare_index]; }"};
         }
         if (isPairType(itemType)) {
-            if (selector != "0" && selector != "1") {
+            if (selectorTokens.size() != 1 ||
+                (selectorTokens[0].text != "0" && selectorTokens[0].text != "1")) {
                 recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) requires index 0 or 1 for Pair values", sourceLines);
                 return {};
             }
-            const Type selected = itemType.subtypes[selector == "0" ? 0 : 1];
+            const bool first = selectorTokens[0].text == "0";
+            const Type selected = itemType.subtypes[first ? 0 : 1];
             if (!supportsDefaultComparator(selected)) {
                 recordSourceError(inputFile, lineNumber, comparatorColumn, "selected Pair value is not comparable", sourceLines);
                 return {};
             }
-            const std::string member = selector == "0" ? "first()" : "second()";
+            const std::string member = first ? "first()" : "second()";
             return {true, "[](const " + cppType + "& a, const " + cppType + "& b) { return a." + member + " < b." + member + "; }"};
         }
         recordSourceError(inputFile, lineNumber, comparatorColumn, "compare(index) can only order Lists or Pairs", sourceLines);
         return {};
     }
 
-    const ExpressionEmitResult expression = emitExpression(inputFile, lineNumber, comparatorText, comparatorColumn, sourceLines, declaredVariables);
+    const ExpressionEmitResult expression = emitExpression(inputFile, lineNumber, tokens, comparatorColumn, sourceLines, declaredVariables);
     if (!expression.ok) return {};
     const Type expected(PrimitiveType::Function, {Type(PrimitiveType::Bool), itemType, itemType});
     if (expression.type != expected) {
@@ -203,7 +176,6 @@ ComparatorEmitResult emitComparator(
 bool emitTypedListLiteralAt(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& valueText,
     int valueColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -241,7 +213,6 @@ bool emitTypedListLiteralAt(
             if (!emitTypedListLiteralAt(
                     inputFile,
                     lineNumber,
-                    valueText,
                     valueColumn,
                     sourceLines,
                     declaredVariables,
@@ -281,8 +252,8 @@ bool emitTypedListLiteralAt(
                 ++tokenIndex;
             }
 
-            const std::string elementText = expressionSliceForTokens(valueText, tokens, elementStart, tokenIndex);
-            if (elementText.empty()) {
+            const std::vector<Token> elementTokens = tokenRange(tokens, elementStart, tokenIndex);
+            if (elementTokens.empty()) {
                 recordSourceError(
                     inputFile,
                     lineNumber,
@@ -293,38 +264,10 @@ bool emitTypedListLiteralAt(
                 return false;
             }
 
-            if (isListType(elementType) && tokens[elementStart].kind == TokenKind::LeftBracket) {
-                const std::vector<Token> nestedTokens = tokenize(elementText);
-                size_t nestedTokenIndex = 0;
-                if (emitTypedListLiteralAt(
-                        inputFile,
-                        lineNumber,
-                        elementText,
-                        valueColumn + tokens[elementStart].span.startColumn - 1,
-                        sourceLines,
-                        declaredVariables,
-                        nestedTokens,
-                        nestedTokenIndex,
-                        elementType,
-                        emittedElement)) {
-                    if (nestedTokens[nestedTokenIndex].kind != TokenKind::EndOfFile) {
-                        recordSourceError(
-                            inputFile,
-                            lineNumber,
-                            valueColumn + tokens[elementStart].span.startColumn - 1 + nestedTokens[nestedTokenIndex].span.startColumn - 1,
-                            "unexpected token in list literal",
-                            sourceLines
-                        );
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else {
             const ExpressionEmitResult expression = emitExpression(
                 inputFile,
                 lineNumber,
-                elementText,
+                elementTokens,
                 valueColumn + tokens[elementStart].span.startColumn - 1,
                 sourceLines,
                 declaredVariables
@@ -347,7 +290,6 @@ bool emitTypedListLiteralAt(
             emittedElement = expression.generatedExpression;
             if (!isImplicitlyConvertible(expression.type, elementType) || expression.type != elementType) {
                 emittedElement = castExpressionTo(emittedElement, expression.type, elementType);
-            }
             }
         }
 
@@ -405,13 +347,13 @@ bool emitTypedListLiteralAt(
 ComparatorEmitResult emitCollectionComparator(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& text,
+    const std::vector<Token>& tokens,
     int column,
     const Type& itemType,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables
 ) {
-    return emitComparator(inputFile, lineNumber, text, column, itemType, sourceLines, declaredVariables);
+    return emitComparator(inputFile, lineNumber, tokens, column, itemType, sourceLines, declaredVariables);
 }
 
 // listRuntimeHelpers handles list-specific behavior for the compiler or runtime.
@@ -995,16 +937,12 @@ std::vector<RuntimeHelper> listRuntimeHelpers() {
 ListEmitResult emitListStatement(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     bool emitRuntimeChecks,
-    const std::vector<Token>* sourceTokens
+    const std::vector<Token>& sourceTokens
 ) {
-    const std::vector<Token> scannedTokens = sourceTokens == nullptr
-        ? tokenize(statementBody)
-        : std::vector<Token>{};
-    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
+    const std::vector<Token>& tokens = sourceTokens;
     if (tokens.size() < 6 ||
         tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
         tokens.back().kind != TokenKind::EndOfFile) {
@@ -1043,15 +981,15 @@ ListEmitResult emitListStatement(
         return {false, true, "", {}};
     }
 
-    const std::string receiverText = expressionSliceForTokens(statementBody, tokens, 0, dotIndex);
-    if (receiverText.empty()) {
+    const std::vector<Token> receiverTokens = tokenRange(tokens, 0, dotIndex);
+    if (receiverTokens.empty()) {
         return {false, true, "", {}};
     }
 
     const LvalueEmitResult receiver = emitLvalueExpression(
         inputFile,
         lineNumber,
-        receiverText,
+        receiverTokens,
         tokens[0].span.startColumn,
         sourceLines,
         declaredVariables,
@@ -1080,13 +1018,8 @@ ListEmitResult emitListStatement(
     }
 
     const Token& leftParen = tokens[leftParenIndex];
-    const Token& rightParen = tokens[tokens.size() - 2];
-    const std::string argumentsText = statementBody.substr(
-        static_cast<size_t>(leftParen.span.endColumn),
-        static_cast<size_t>(rightParen.span.startColumn - leftParen.span.endColumn - 1)
-    );
     const int argumentsStartColumn = leftParen.span.endColumn + 1;
-    const std::vector<ListArgument> arguments = splitListArguments(argumentsText, argumentsStartColumn);
+    const std::vector<ListArgument> arguments = splitListArguments(tokens, leftParenIndex + 1, tokens.size() - 2, argumentsStartColumn);
 
     const Type elementType = receiver.type.subtypes[0];
 
@@ -1096,7 +1029,7 @@ ListEmitResult emitListStatement(
             return {true, false, "", {}};
         }
 
-        if (isReverse && (arguments.size() != 1 || !arguments[0].text.empty())) {
+        if (isReverse && (arguments.size() != 1 || !arguments[0].tokens.empty())) {
             recordSourceError(
                 inputFile,
                 lineNumber,
@@ -1114,7 +1047,7 @@ ListEmitResult emitListStatement(
                 return {true, false, "", {}};
             }
             const ComparatorEmitResult emitted = emitComparator(
-                inputFile, lineNumber, arguments[0].text, arguments[0].column, elementType, sourceLines, declaredVariables
+                inputFile, lineNumber, arguments[0].tokens, arguments[0].column, elementType, sourceLines, declaredVariables
             );
             if (!emitted.ok) return {true, false, "", {}};
             comparator = emitted.expression;
@@ -1145,7 +1078,7 @@ ListEmitResult emitListStatement(
             return {true, false, "", {}};
         }
 
-        if (arguments.size() == 1 && arguments[0].text.empty()) {
+        if (arguments.size() == 1 && arguments[0].tokens.empty()) {
             recordSourceError(inputFile, lineNumber, argumentsStartColumn, "add() expects value or value, index", sourceLines);
             return {true, false, "", {}};
         }
@@ -1156,14 +1089,14 @@ ListEmitResult emitListStatement(
         }
 
         for (const ListArgument& argument : arguments) {
-            if (argument.text.empty()) {
+            if (argument.tokens.empty()) {
                 recordSourceError(inputFile, lineNumber, argument.column, "add() argument cannot be empty", sourceLines);
                 return {true, false, "", {}};
             }
         }
 
         std::string emittedValue;
-        const std::vector<Token> valueTokens = tokenize(arguments[0].text);
+        const std::vector<Token>& valueTokens = arguments[0].tokens;
         size_t listTokenIndex = 0;
         if (valueTokens.size() > 1 &&
             valueTokens[0].kind == TokenKind::LeftBracket &&
@@ -1171,7 +1104,6 @@ ListEmitResult emitListStatement(
             if (!emitTypedListLiteralAt(
                 inputFile,
                 lineNumber,
-                arguments[0].text,
                 arguments[0].column,
                 sourceLines,
                 declaredVariables,
@@ -1182,7 +1114,7 @@ ListEmitResult emitListStatement(
                 return {true, false, "", {}};
             }
 
-            if (valueTokens[listTokenIndex].kind != TokenKind::EndOfFile) {
+            if (listTokenIndex < valueTokens.size()) {
                 recordSourceError(
                     inputFile,
                     lineNumber,
@@ -1196,7 +1128,7 @@ ListEmitResult emitListStatement(
             const ExpressionEmitResult value = emitExpression(
                 inputFile,
                 lineNumber,
-                arguments[0].text,
+                arguments[0].tokens,
                 arguments[0].column,
                 sourceLines,
                 declaredVariables
@@ -1253,7 +1185,7 @@ ListEmitResult emitListStatement(
         const ExpressionEmitResult index = emitExpression(
             inputFile,
             lineNumber,
-            arguments[1].text,
+            arguments[1].tokens,
             arguments[1].column,
             sourceLines,
             declaredVariables
@@ -1301,7 +1233,7 @@ ListEmitResult emitListStatement(
         };
     }
 
-    if (receiverIsList && arguments.size() == 1 && arguments[0].text.empty()) {
+    if (receiverIsList && arguments.size() == 1 && arguments[0].tokens.empty()) {
         if (emitRuntimeChecks) {
             requireRuntimeHelper("CPPPListPop");
         } else {
@@ -1335,7 +1267,7 @@ ListEmitResult emitListStatement(
         return {true, false, "", {}};
     }
 
-    if (arguments[0].text.empty()) {
+    if (arguments[0].tokens.empty()) {
         recordSourceError(inputFile, lineNumber, arguments[0].column, "remove() argument cannot be empty", sourceLines);
         return {true, false, "", {}};
     }
@@ -1343,7 +1275,7 @@ ListEmitResult emitListStatement(
     const ExpressionEmitResult index = emitExpression(
         inputFile,
         lineNumber,
-        arguments[0].text,
+        arguments[0].tokens,
         arguments[0].column,
         sourceLines,
         declaredVariables

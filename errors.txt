@@ -2959,7 +2959,9 @@ canonical whole-source token stream
   braces are represented explicitly rather than discovered by later rescans.
   Statement parsing receives the canonical fragment token view, and control-flow
   expressions are passed to the expression parser as token slices without a
-  second lexical scan.
+  second lexical scan. Downstream statement, function, declaration, assignment,
+  collection, print, input, lvalue, and expression parsers accept token streams
+  only; the deprecated string parser overloads and fallback rescans are removed.
 
   Example:
     int total = 0;
@@ -2968,6 +2970,19 @@ canonical whole-source token stream
         total += value;
     }
     print(total);
+
+token-stream expression error
+  Malformed token substreams are diagnosed by the CP++ expression parser. They
+  are never passed through a second string lexer or exposed as raw C++ errors.
+
+  Example:
+    int total = 1;
+    if (total + ) {
+        total++;
+    }
+
+  Diagnostic:
+    error: expected expression
 
 unrecognized source token
   A character that is not part of CP++ syntax is rejected by the canonical

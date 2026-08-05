@@ -32,7 +32,7 @@ struct ComparatorEmitResult {
 ComparatorEmitResult emitCollectionComparator(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& text,
+    const std::vector<Token>& tokens,
     int column,
     const Type& itemType,
     const std::map<int, std::string>& sourceLines,
@@ -45,9 +45,8 @@ std::vector<RuntimeHelper> listRuntimeHelpers();
 ListEmitResult emitListStatement(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     bool emitRuntimeChecks,
-    const std::vector<Token>* sourceTokens = nullptr
+    const std::vector<Token>& sourceTokens
 );

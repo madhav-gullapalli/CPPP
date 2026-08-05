@@ -2396,37 +2396,6 @@ std::string generateMutableAccessExpression(
 ExpressionParser::ExpressionParser(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
-    int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
-    const std::map<std::string, FunctionSignature>& declaredFunctions,
-    bool emitRuntimeChecks
-) :
-    inputFile(inputFile),
-    lineNumber(lineNumber),
-    expressionText(expressionText),
-    expressionColumn(expressionColumn),
-    sourceLines(sourceLines),
-    declaredVariables(declaredVariables),
-    declaredFunctions(declaredFunctions),
-    emitRuntimeChecks(emitRuntimeChecks),
-    tokens(tokenize(
-        expressionText,
-        sourceSpanForColumns(
-            inputFile,
-            sourceLines,
-            lineNumber,
-            expressionColumn,
-            expressionText.empty()
-                ? expressionColumn - 1
-                : expressionColumn + static_cast<int>(expressionText.size()) - 1
-        )
-    )) {}
-
-ExpressionParser::ExpressionParser(
-    const std::string& inputFile,
-    int lineNumber,
     const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
@@ -2498,7 +2467,7 @@ ExpressionEmitResult ExpressionParser::parse() {
 LvalueEmitResult emitLvalueExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -2508,7 +2477,7 @@ LvalueEmitResult emitLvalueExpression(
     return emitLvalueExpression(
         inputFile,
         lineNumber,
-        expressionText,
+        expressionTokens,
         expressionColumn,
         sourceLines,
         declaredVariables,
@@ -2520,7 +2489,7 @@ LvalueEmitResult emitLvalueExpression(
 LvalueEmitResult emitLvalueExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -2530,7 +2499,7 @@ LvalueEmitResult emitLvalueExpression(
     ExpressionParser parser(
         inputFile,
         lineNumber,
-        expressionText,
+        expressionTokens,
         expressionColumn,
         sourceLines,
         declaredVariables,
@@ -2538,7 +2507,7 @@ LvalueEmitResult emitLvalueExpression(
         emitRuntimeChecks
     );
 
-    for (const Token& token : tokenize(expressionText)) {
+    for (const Token& token : expressionTokens) {
         if ((token.kind == TokenKind::String || token.kind == TokenKind::Char) &&
             (token.text.size() < 2 || token.text.front() != token.text.back())) {
             recordSourceError(
@@ -3016,28 +2985,32 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
     const size_t contentEnd = current;
     ++current;
 
-    auto sliceText = [&](size_t startIndex, size_t endIndex) -> std::string {
-        if (startIndex >= endIndex) {
-            return "";
-        }
+    auto parseSlice = [&](size_t startIndex, size_t endIndex) -> std::unique_ptr<Expr> {
+        if (startIndex >= endIndex) return nullptr;
         const int startColumn = tokens[startIndex].span.startColumn;
-        const int endColumn = tokens[endIndex - 1].span.endColumn;
-        return expressionText.substr(
-            static_cast<size_t>(startColumn - 1),
-            static_cast<size_t>(endColumn - startColumn + 1)
-        );
-    };
-
-    auto parseSlice = [&](const std::string& text, int column) -> std::unique_ptr<Expr> {
-        return parseExpressionAst(
+        const size_t startOffset = tokens[startIndex].span.startOffset;
+        std::vector<Token> slice;
+        for (size_t index = startIndex; index < endIndex; ++index) {
+            Token token = tokens[index];
+            token.span.startColumn -= startColumn - 1;
+            token.span.endColumn -= startColumn - 1;
+            token.span.startOffset -= startOffset;
+            token.span.endOffset -= startOffset;
+            slice.push_back(std::move(token));
+        }
+        ExpressionParser parser(
             inputFile,
             lineNumber,
-            text,
-            column,
+            slice,
+            expressionColumn + startColumn - 1,
             sourceLines,
             declaredVariables,
-            declaredFunctions
+            declaredFunctions,
+            emitRuntimeChecks
         );
+        bool sliceOk = true;
+        std::unique_ptr<Expr> expression = parser.parseAst(sliceOk);
+        return sliceOk ? std::move(expression) : nullptr;
     };
 
     struct EntrySlice {
@@ -3128,8 +3101,7 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
     if (!mapLiteral) {
         std::vector<std::unique_ptr<Expr>> elements;
         for (const EntrySlice& entry : entries) {
-            const std::string elementText = sliceText(entry.start, entry.end);
-            std::unique_ptr<Expr> element = parseSlice(elementText, absoluteColumn(tokens[entry.start]));
+            std::unique_ptr<Expr> element = parseSlice(entry.start, entry.end);
             if (!element) {
                 ok = false;
                 return nullptr;
@@ -3147,10 +3119,8 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
             return nullptr;
         }
 
-        const std::string keyText = sliceText(entry.start, entry.colonIndex);
-        const std::string valueText = sliceText(entry.colonIndex + 1, entry.end);
-        std::unique_ptr<Expr> key = parseSlice(keyText, absoluteColumn(tokens[entry.start]));
-        std::unique_ptr<Expr> value = parseSlice(valueText, absoluteColumn(tokens[entry.colonIndex + 1]));
+        std::unique_ptr<Expr> key = parseSlice(entry.start, entry.colonIndex);
+        std::unique_ptr<Expr> value = parseSlice(entry.colonIndex + 1, entry.end);
         if (!key || !value) {
             ok = false;
             return nullptr;

@@ -284,28 +284,45 @@ TypeInfo typeInfoFor(const Type& type) {
     return {"", ""};
 }
 
-std::string expressionSliceForTokens(
-    const std::string& text,
+std::vector<Token> tokenRange(
     const std::vector<Token>& tokens,
     size_t startIndex,
     size_t endIndex
 ) {
-    if (startIndex >= endIndex) {
-        return "";
-    }
-
+    std::vector<Token> result;
+    if (startIndex >= endIndex || startIndex >= tokens.size()) return result;
     const int startColumn = tokens[startIndex].span.startColumn;
-    const int endColumn = tokens[endIndex - 1].span.endColumn;
-    return trim(text.substr(
-        static_cast<size_t>(startColumn - 1),
-        static_cast<size_t>(endColumn - startColumn + 1)
-    ));
+    const size_t startOffset = tokens[startIndex].span.startOffset;
+    for (size_t index = startIndex; index < endIndex && index < tokens.size(); ++index) {
+        Token token = tokens[index];
+        token.span.startColumn -= startColumn - 1;
+        token.span.endColumn -= startColumn - 1;
+        token.span.startOffset -= startOffset;
+        token.span.endOffset -= startOffset;
+        result.push_back(std::move(token));
+        if (tokens[index].kind == TokenKind::EndOfFile) break;
+    }
+    return result;
+}
+
+std::string tokenText(const std::vector<Token>& tokens) {
+    if (tokens.empty()) return "";
+    std::string result;
+    size_t previousEnd = tokens.front().span.startOffset;
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::EndOfFile) break;
+        if (token.span.startOffset > previousEnd) {
+            result.append(token.span.startOffset - previousEnd, ' ');
+        }
+        result += token.text;
+        previousEnd = token.span.endOffset;
+    }
+    return result;
 }
 
 bool emitTypedListLiteralAt(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& assignedValue,
     int assignedValueColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -350,7 +367,6 @@ bool emitTypedListLiteralAt(
             if (!emitTypedListLiteralAt(
                     inputFile,
                     lineNumber,
-                    assignedValue,
                     assignedValueColumn,
                     sourceLines,
                     declaredVariables,
@@ -390,8 +406,8 @@ bool emitTypedListLiteralAt(
                 ++tokenIndex;
             }
 
-            const std::string elementText = expressionSliceForTokens(assignedValue, tokens, elementStart, tokenIndex);
-            if (elementText.empty()) {
+            const std::vector<Token> elementTokens = tokenRange(tokens, elementStart, tokenIndex);
+            if (elementTokens.empty()) {
                 recordSourceError(
                     inputFile,
                     lineNumber,
@@ -405,7 +421,7 @@ bool emitTypedListLiteralAt(
             const ExpressionEmitResult elementExpression = emitExpression(
                 inputFile,
                 lineNumber,
-                elementText,
+                elementTokens,
                 assignedValueColumn + tokens[elementStart].span.startColumn - 1,
                 sourceLines,
                 declaredVariables
@@ -812,6 +828,7 @@ bool finishExpressionAssignment(
     const std::string& inputFile,
     int lineNumber,
     const std::string& assignedValue,
+    const std::vector<Token>& assignedValueTokens,
     int assignedValueColumn,
     Type targetType,
     const std::map<int, std::string>& sourceLines,
@@ -821,7 +838,7 @@ bool finishExpressionAssignment(
     const ExpressionEmitResult expression = emitExpression(
         inputFile,
         lineNumber,
-        assignedValue,
+        assignedValueTokens,
         assignedValueColumn,
         sourceLines,
         declaredVariables
@@ -848,19 +865,17 @@ bool finishExpressionAssignment(
         expression.type != targetType &&
         !canExplicitlyCastType(expression.type, targetType)) {
         Type diagnosticSourceType = expression.type;
-        const size_t leftParen = assignedValue.find('(');
-        const size_t rightParen = assignedValue.rfind(')');
-        if (leftParen != std::string::npos && rightParen == assignedValue.size() - 1 &&
-            leftParen + 1 < rightParen) {
-            const std::string rawOperand = assignedValue.substr(leftParen + 1, rightParen - leftParen - 1);
-            const size_t operandTrim = rawOperand.find_first_not_of(" \t\r\n");
-            if (operandTrim != std::string::npos) {
-                const std::string operand = trim(rawOperand);
+        const size_t tokenCount = nonEndTokenCount(assignedValueTokens);
+        if (tokenCount >= 4 &&
+            assignedValueTokens[0].kind == TokenKind::Identifier &&
+            assignedValueTokens[1].kind == TokenKind::LeftParen &&
+            assignedValueTokens[tokenCount - 1].kind == TokenKind::RightParen) {
+                const std::vector<Token> operandTokens = tokenRange(assignedValueTokens, 2, tokenCount - 1);
                 const ExpressionEmitResult sourceExpression = emitExpression(
                     inputFile,
                     lineNumber,
-                    operand,
-                    assignedValueColumn + static_cast<int>(leftParen + 1 + operandTrim),
+                    operandTokens,
+                    assignedValueColumn + assignedValueTokens[2].span.startColumn - 1,
                     sourceLines,
                     declaredVariables
                 );
@@ -869,7 +884,6 @@ bool finishExpressionAssignment(
                      isLinearDataStructureType(targetType))) {
                     diagnosticSourceType = sourceExpression.type;
                 }
-            }
         }
         recordSourceError(
             inputFile,
@@ -889,19 +903,27 @@ bool finishExpressionAssignment(
     return true;
 }
 
-std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
+struct InitializerValue {
+    std::string text;
+    std::vector<Token> tokens;
+    int column;
+};
+
+std::vector<InitializerValue> splitTopLevelCommaValues(
     const std::string& text,
+    const std::vector<Token>& tokens,
     int startColumn
 ) {
-    std::vector<std::pair<std::string, int>> values;
-    const std::vector<Token> tokens = tokenize(text);
+    std::vector<InitializerValue> values;
     int parenDepth = 0;
     int bracketDepth = 0;
     int braceDepth = 0;
     size_t startIndex = 0;
     int valueColumn = startColumn;
 
-    for (const Token& token : tokens) {
+    size_t startToken = 0;
+    for (size_t tokenIndex = 0; tokenIndex < tokens.size(); ++tokenIndex) {
+        const Token& token = tokens[tokenIndex];
         if (token.kind == TokenKind::EndOfFile) {
             break;
         }
@@ -919,13 +941,14 @@ std::vector<std::pair<std::string, int>> splitTopLevelCommaValues(
             --braceDepth;
         } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
             std::string value = trim(text.substr(startIndex, static_cast<size_t>(token.span.startColumn - 1) - startIndex));
-            values.push_back({value, valueColumn});
+            values.push_back({value, tokenRange(tokens, startToken, tokenIndex), valueColumn});
             startIndex = static_cast<size_t>(token.span.endColumn);
+            startToken = tokenIndex + 1;
             valueColumn = startColumn + token.span.endColumn;
         }
     }
 
-    values.push_back({trim(text.substr(startIndex)), valueColumn});
+    values.push_back({trim(text.substr(startIndex)), tokenRange(tokens, startToken, nonEndTokenCount(tokens)), valueColumn});
     return values;
 }
 
@@ -935,8 +958,11 @@ bool isVarDeclaration(const std::vector<Token>& tokens) {
         tokens[0].text == "var";
 }
 
-bool isEmptyContainerLiteral(const std::string& text) {
-    return text == "[]" || text == "{}";
+bool isEmptyContainerLiteral(const std::vector<Token>& tokens) {
+    const size_t count = nonEndTokenCount(tokens);
+    return count == 2 &&
+        ((tokens[0].kind == TokenKind::LeftBracket && tokens[1].kind == TokenKind::RightBracket) ||
+         (tokens[0].kind == TokenKind::LeftBrace && tokens[1].kind == TokenKind::RightBrace));
 }
 
 void rememberInvalidVariable(
@@ -995,7 +1021,6 @@ struct ListSizeInitializerResult {
 ListSizeInitializerResult parseListSizeInitializer(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& statementBody,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -1106,12 +1131,12 @@ ListSizeInitializerResult parseListSizeInitializer(
 
     std::vector<std::string> generatedSizes;
     for (const auto& argument : arguments) {
-        const std::string expressionText = expressionSliceForTokens(statementBody, tokens, argument.first, argument.second);
+        const std::vector<Token> expressionTokens = tokenRange(tokens, argument.first, argument.second);
         const int expressionColumn = sourceColumn(tokens[argument.first].span.startColumn);
         const ExpressionEmitResult expression = emitExpression(
             inputFile,
             lineNumber,
-            expressionText,
+            expressionTokens,
             expressionColumn,
             sourceLines,
             declaredVariables
@@ -1147,20 +1172,14 @@ ListSizeInitializerResult parseListSizeInitializer(
 TypeEmitResult emitTypeDeclaration(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& sourceLine,
-    const std::string& statementBody,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     std::map<std::string, Type>& declaredVariables,
-    const std::vector<Token>* sourceTokens
+    const std::vector<Token>& sourceTokens
 ) {
-    (void)sourceLine;
     const auto sourceColumn = [statementStartColumn](int tokenColumn) { return statementStartColumn + tokenColumn - 1; };
 
-    const std::vector<Token> scannedTokens = sourceTokens == nullptr
-        ? tokenize(statementBody)
-        : std::vector<Token>{};
-    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
+    const std::vector<Token>& tokens = sourceTokens;
     if (tokens.size() < 2 || tokens[0].kind != TokenKind::Identifier) {
         return {false, true, "", {}};
     }
@@ -1251,20 +1270,16 @@ TypeEmitResult emitTypeDeclaration(
 
         const int assignedValueStartColumn = tokens[3].span.startColumn;
         const int assignedValueColumn = sourceColumn(assignedValueStartColumn);
-        int assignedValueEndColumn = tokens[3].span.endColumn;
         size_t tokenIndex = 3;
         while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
-            assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
             ++tokenIndex;
         }
 
-        const std::string assignedValue = trim(statementBody.substr(
-            static_cast<size_t>(assignedValueStartColumn - 1),
-            static_cast<size_t>(assignedValueEndColumn - assignedValueStartColumn + 1)
-        ));
+        const std::vector<Token> assignedValueTokens = tokenRange(tokens, 3, tokenIndex + 1);
+        const std::string assignedValue = tokenText(assignedValueTokens);
 
         std::vector<InputArgument> inputArguments;
-        if (parseInputCall(assignedValue, assignedValueColumn, inputArguments)) {
+        if (parseInputCall(assignedValueTokens, assignedValueColumn, inputArguments)) {
             recordSourceError(
                 inputFile,
                 lineNumber,
@@ -1276,7 +1291,7 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        if (isEmptyContainerLiteral(assignedValue)) {
+        if (isEmptyContainerLiteral(assignedValueTokens)) {
             recordSourceError(
                 inputFile,
                 lineNumber,
@@ -1291,7 +1306,7 @@ TypeEmitResult emitTypeDeclaration(
         const ExpressionEmitResult expression = emitExpression(
             inputFile,
             lineNumber,
-            assignedValue,
+            assignedValueTokens,
             assignedValueColumn,
             sourceLines,
             declaredVariables
@@ -1464,12 +1479,9 @@ TypeEmitResult emitTypeDeclaration(
                     rememberInvalidVariables(declaredVariables, variables);
                     return {true, false, "", {}};
                 }
-                const std::string comparatorText = trim(statementBody.substr(
-                    static_cast<size_t>(tokens[leftParenIndex].span.endColumn),
-                    static_cast<size_t>(tokens[tokenIndex].span.startColumn - tokens[leftParenIndex].span.endColumn - 1)
-                ));
+                const std::vector<Token> comparatorTokens = tokenRange(tokens, comparatorStart, tokenIndex);
                 const ComparatorEmitResult comparator = emitCollectionComparator(
-                    inputFile, lineNumber, comparatorText,
+                    inputFile, lineNumber, comparatorTokens,
                     sourceColumn(tokens[comparatorStart].span.startColumn), targetType.subtypes[0], sourceLines, declaredVariables
                 );
                 if (!comparator.ok) {
@@ -1501,7 +1513,6 @@ TypeEmitResult emitTypeDeclaration(
             const ListSizeInitializerResult initializer = parseListSizeInitializer(
                 inputFile,
                 lineNumber,
-                statementBody,
                 statementStartColumn,
                 sourceLines,
                 declaredVariables,
@@ -1551,6 +1562,7 @@ TypeEmitResult emitTypeDeclaration(
     }
 
     std::string assignedValue;
+    std::vector<Token> valueTokens;
     int assignedValueColumn = 1;
     if (tokens[tokenIndex].kind == TokenKind::Equals) {
         ++tokenIndex;
@@ -1568,16 +1580,13 @@ TypeEmitResult emitTypeDeclaration(
 
         const int assignedValueStartColumn = tokens[tokenIndex].span.startColumn;
         assignedValueColumn = sourceColumn(assignedValueStartColumn);
-        int assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
+        const size_t assignedValueStartIndex = tokenIndex;
         while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
-            assignedValueEndColumn = tokens[tokenIndex].span.endColumn;
             ++tokenIndex;
         }
 
-        assignedValue = trim(statementBody.substr(
-            static_cast<size_t>(assignedValueStartColumn - 1),
-            static_cast<size_t>(assignedValueEndColumn - assignedValueStartColumn + 1)
-        ));
+        valueTokens = tokenRange(tokens, assignedValueStartIndex, tokenIndex + 1);
+        assignedValue = tokenText(valueTokens);
     } else if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
         recordSourceError(
             inputFile,
@@ -1593,7 +1602,7 @@ TypeEmitResult emitTypeDeclaration(
     std::string emittedValue = sizedInitializer.empty() ? typeInfo.defaultValue : sizedInitializer;
     if (sizedInitializer.empty() && (isSetType(targetType) || isMapType(targetType) || isHeapType(targetType))) {
         const ComparatorEmitResult comparator = emitCollectionComparator(
-            inputFile, lineNumber, "", statementStartColumn, targetType.subtypes[0], sourceLines, declaredVariables
+            inputFile, lineNumber, {}, statementStartColumn, targetType.subtypes[0], sourceLines, declaredVariables
         );
         if (!comparator.ok) {
             rememberInvalidVariables(declaredVariables, variables);
@@ -1610,14 +1619,12 @@ TypeEmitResult emitTypeDeclaration(
     std::vector<std::string> perVariableValues;
     if (!assignedValue.empty()) {
         emittedValue = assignedValue;
-        const std::vector<Token> valueTokens = tokenize(assignedValue);
-
         std::vector<InputArgument> inputArguments;
-        if (parseInputCall(assignedValue, assignedValueColumn, inputArguments)) {
+        if (parseInputCall(valueTokens, assignedValueColumn, inputArguments)) {
             if (!emitInputCallForType(
                     inputFile,
                     lineNumber,
-                    assignedValue,
+                    valueTokens,
                     assignedValueColumn,
                     targetType,
                     sourceLines,
@@ -1625,8 +1632,8 @@ TypeEmitResult emitTypeDeclaration(
                     emittedValue)) {
                 return {true, false, "", {}};
             }
-        } else if (variables.size() > 1 && splitTopLevelCommaValues(assignedValue, assignedValueColumn).size() > 1) {
-            const std::vector<std::pair<std::string, int>> values = splitTopLevelCommaValues(assignedValue, assignedValueColumn);
+        } else if (variables.size() > 1 && splitTopLevelCommaValues(assignedValue, valueTokens, assignedValueColumn).size() > 1) {
+            const std::vector<InitializerValue> values = splitTopLevelCommaValues(assignedValue, valueTokens, assignedValueColumn);
             if (values.size() > 1) {
                 if (values.size() != variables.size()) {
                     recordSourceError(
@@ -1641,8 +1648,8 @@ TypeEmitResult emitTypeDeclaration(
                 }
 
                 for (const auto& value : values) {
-                    if (value.first.empty()) {
-                        recordSourceError(inputFile, lineNumber, value.second, "expected value after ','", sourceLines);
+                    if (value.text.empty()) {
+                        recordSourceError(inputFile, lineNumber, value.column, "expected value after ','", sourceLines);
                         rememberInvalidVariables(declaredVariables, variables);
                         return {true, false, "", {}};
                     }
@@ -1651,8 +1658,9 @@ TypeEmitResult emitTypeDeclaration(
                     if (!finishExpressionAssignment(
                             inputFile,
                             lineNumber,
-                            value.first,
-                            value.second,
+                            value.text,
+                            value.tokens,
+                            value.column,
                             targetType,
                             sourceLines,
                             declaredVariables,
@@ -1670,6 +1678,7 @@ TypeEmitResult emitTypeDeclaration(
                             inputFile,
                             lineNumber,
                             assignedValue,
+                            valueTokens,
                             assignedValueColumn,
                             targetType,
                             sourceLines,
@@ -1708,6 +1717,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,
@@ -1725,6 +1735,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,
@@ -1750,7 +1761,6 @@ TypeEmitResult emitTypeDeclaration(
                 if (!emitTypedListLiteralAt(
                         inputFile,
                         lineNumber,
-                        assignedValue,
                         assignedValueColumn,
                         sourceLines,
                         declaredVariables,
@@ -1780,6 +1790,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,
@@ -1793,6 +1804,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,
@@ -1845,6 +1857,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,
@@ -1869,6 +1882,7 @@ TypeEmitResult emitTypeDeclaration(
                     inputFile,
                     lineNumber,
                     assignedValue,
+                    valueTokens,
                     assignedValueColumn,
                     targetType,
                     sourceLines,
@@ -1882,6 +1896,7 @@ TypeEmitResult emitTypeDeclaration(
                     inputFile,
                     lineNumber,
                     assignedValue,
+                    valueTokens,
                     assignedValueColumn,
                     targetType,
                     sourceLines,
@@ -1895,6 +1910,7 @@ TypeEmitResult emitTypeDeclaration(
                     inputFile,
                     lineNumber,
                     assignedValue,
+                    valueTokens,
                     assignedValueColumn,
                     targetType,
                     sourceLines,
@@ -1909,6 +1925,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,
@@ -1961,6 +1978,7 @@ TypeEmitResult emitTypeDeclaration(
                         inputFile,
                         lineNumber,
                         assignedValue,
+                        valueTokens,
                         assignedValueColumn,
                         targetType,
                         sourceLines,

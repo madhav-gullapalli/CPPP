@@ -76,10 +76,8 @@ ParsedTypeResult parseDeclaredTypeTokens(
 TypeEmitResult emitTypeDeclaration(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& sourceLine,
-    const std::string& statementBody,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     std::map<std::string, Type>& declaredVariables,
-    const std::vector<Token>* sourceTokens = nullptr
+    const std::vector<Token>& sourceTokens
 );

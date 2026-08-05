@@ -48,17 +48,6 @@ const std::map<std::string, std::map<std::string, FunctionSignature>>*& declared
     return methods;
 }
 
-// trim removes surrounding whitespace from a string.
-std::string trim(const std::string& text) {
-    const size_t start = text.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) {
-        return "";
-    }
-
-    const size_t end = text.find_last_not_of(" \t\r\n");
-    return text.substr(start, end - start + 1);
-}
-
 // listDepth handles list-specific behavior for the compiler or runtime.
 int listDepth(const Type& type) {
     int depth = 0;
@@ -817,42 +806,53 @@ std::string cppTypeForInput(const Type& type) {
 
 // isInputCall returns whether the supplied input satisfies the relevant condition.
 bool isInputCall(const std::vector<Token>& tokens) {
-    return tokens.size() == 4 &&
+    const size_t end = !tokens.empty() && tokens.back().kind == TokenKind::EndOfFile
+        ? tokens.size() - 1
+        : tokens.size();
+    return end == 3 &&
         tokens[0].kind == TokenKind::Identifier &&
         tokens[0].text == "input" &&
         tokens[1].kind == TokenKind::LeftParen &&
-        tokens[2].kind == TokenKind::RightParen &&
-        tokens[3].kind == TokenKind::EndOfFile;
+        tokens[2].kind == TokenKind::RightParen;
 }
 
 // parseInputCall parses inputcall for the compiler pipeline.
-bool parseInputCall(const std::string& text, int startColumn, std::vector<InputArgument>& arguments) {
-    const std::vector<Token> tokens = tokenize(text);
-    if (tokens.size() < 4 ||
+bool parseInputCall(const std::vector<Token>& tokens, int startColumn, std::vector<InputArgument>& arguments) {
+    const size_t end = !tokens.empty() && tokens.back().kind == TokenKind::EndOfFile
+        ? tokens.size() - 1
+        : tokens.size();
+    if (end < 3 ||
         tokens[0].kind != TokenKind::Identifier ||
         tokens[0].text != "input" ||
         tokens[1].kind != TokenKind::LeftParen ||
-        tokens.back().kind != TokenKind::EndOfFile ||
-        tokens[tokens.size() - 2].kind != TokenKind::RightParen) {
+        tokens[end - 1].kind != TokenKind::RightParen) {
         return false;
     }
 
-    const int argumentsStartColumn = startColumn + tokens[1].span.endColumn;
-    const size_t contentStart = static_cast<size_t>(tokens[1].span.endColumn);
-    const size_t contentLength = static_cast<size_t>(tokens[tokens.size() - 2].span.startColumn - tokens[1].span.endColumn - 1);
-    const std::string content = text.substr(contentStart, contentLength);
-    const std::vector<Token> contentTokens = tokenize(content);
+    const auto argumentTokens = [&](size_t begin, size_t argumentEnd) {
+        std::vector<Token> result;
+        if (begin >= argumentEnd) return result;
+        const int firstColumn = tokens[begin].span.startColumn;
+        const size_t firstOffset = tokens[begin].span.startOffset;
+        for (size_t index = begin; index < argumentEnd; ++index) {
+            Token token = tokens[index];
+            token.span.startColumn -= firstColumn - 1;
+            token.span.endColumn -= firstColumn - 1;
+            token.span.startOffset -= firstOffset;
+            token.span.endOffset -= firstOffset;
+            result.push_back(std::move(token));
+        }
+        return result;
+    };
 
     int parenDepth = 0;
     int bracketDepth = 0;
     int braceDepth = 0;
-    size_t argumentStartIndex = 0;
-    int argumentColumn = argumentsStartColumn;
+    size_t argumentStartIndex = 2;
 
-    for (const Token& token : contentTokens) {
-        if (token.kind == TokenKind::EndOfFile) {
-            break;
-        }
+    const size_t rightParen = end - 1;
+    for (size_t index = 2; index < rightParen; ++index) {
+        const Token& token = tokens[index];
         if (token.kind == TokenKind::LeftParen) {
             ++parenDepth;
         } else if (token.kind == TokenKind::RightParen && parenDepth > 0) {
@@ -866,26 +866,21 @@ bool parseInputCall(const std::string& text, int startColumn, std::vector<InputA
         } else if (token.kind == TokenKind::RightBrace && braceDepth > 0) {
             --braceDepth;
         } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
-            const std::string rawArgument = content.substr(argumentStartIndex, static_cast<size_t>(token.span.startColumn - 1) - argumentStartIndex);
-            const std::string argumentText = trim(rawArgument);
-            const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
-            arguments.push_back({
-                argumentText,
-                trimStart == std::string::npos ? argumentColumn : argumentColumn + static_cast<int>(trimStart)
-            });
-            argumentStartIndex = static_cast<size_t>(token.span.endColumn);
-            argumentColumn = argumentsStartColumn + token.span.endColumn;
+            std::vector<Token> argument = argumentTokens(argumentStartIndex, index);
+            const int column = argument.empty()
+                ? startColumn + token.span.startColumn - 1
+                : startColumn + tokens[argumentStartIndex].span.startColumn - 1;
+            arguments.push_back({std::move(argument), column});
+            argumentStartIndex = index + 1;
         }
     }
 
-    const std::string rawArgument = content.substr(argumentStartIndex);
-    const std::string argumentText = trim(rawArgument);
-    if (!argumentText.empty() || !content.empty()) {
-        const size_t trimStart = rawArgument.find_first_not_of(" \t\r\n");
-        arguments.push_back({
-            argumentText,
-            trimStart == std::string::npos ? argumentColumn : argumentColumn + static_cast<int>(trimStart)
-        });
+    if (argumentStartIndex < rightParen || rightParen > 2) {
+        std::vector<Token> argument = argumentTokens(argumentStartIndex, rightParen);
+        const int column = argument.empty()
+            ? startColumn + tokens[rightParen].span.startColumn - 1
+            : startColumn + tokens[argumentStartIndex].span.startColumn - 1;
+        arguments.push_back({std::move(argument), column});
     }
 
     return true;
@@ -938,7 +933,7 @@ std::string inputFunctionForType(const Type& type) {
 bool emitInputCallForType(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& inputText,
+    const std::vector<Token>& inputTokens,
     int inputColumn,
     const Type& targetType,
     const std::map<int, std::string>& sourceLines,
@@ -946,7 +941,7 @@ bool emitInputCallForType(
     std::string& emittedExpression
 ) {
     std::vector<InputArgument> arguments;
-    if (!parseInputCall(inputText, inputColumn, arguments)) {
+    if (!parseInputCall(inputTokens, inputColumn, arguments)) {
         return false;
     }
 
@@ -961,7 +956,7 @@ bool emitInputCallForType(
         }
 
         const InputArgument& argument = arguments[0];
-        if (argument.text.empty()) {
+        if (argument.tokens.empty()) {
             recordSourceError(inputFile, lineNumber, argument.column, "input() size argument cannot be empty", sourceLines);
             return false;
         }
@@ -969,7 +964,7 @@ bool emitInputCallForType(
         const ExpressionEmitResult expression = emitExpression(
             inputFile,
             lineNumber,
-            argument.text,
+            argument.tokens,
             argument.column,
             sourceLines,
             declaredVariables
@@ -1038,7 +1033,7 @@ bool emitInputCallForType(
 
     std::vector<std::string> dimensions;
     for (const InputArgument& argument : arguments) {
-        if (argument.text.empty()) {
+        if (argument.tokens.empty()) {
             recordSourceError(inputFile, lineNumber, argument.column, "input() size argument cannot be empty", sourceLines);
             return false;
         }
@@ -1046,7 +1041,7 @@ bool emitInputCallForType(
         const ExpressionEmitResult expression = emitExpression(
             inputFile,
             lineNumber,
-            argument.text,
+            argument.tokens,
             argument.column,
             sourceLines,
             declaredVariables
@@ -1078,29 +1073,6 @@ bool emitInputCallForType(
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
-    int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
-    bool emitRuntimeChecks
-) {
-    static const std::map<std::string, FunctionSignature> emptyFunctions;
-    const std::map<std::string, FunctionSignature>* declaredFunctions = declaredFunctionsForExpressions();
-    return emitExpression(
-        inputFile,
-        lineNumber,
-        expressionText,
-        expressionColumn,
-        sourceLines,
-        declaredVariables,
-        declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions,
-        emitRuntimeChecks
-    );
-}
-
-ExpressionEmitResult emitExpression(
-    const std::string& inputFile,
-    int lineNumber,
     const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
@@ -1125,7 +1097,7 @@ ExpressionEmitResult emitExpression(
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -1135,7 +1107,7 @@ ExpressionEmitResult emitExpression(
     ExpressionParser parser(
         inputFile,
         lineNumber,
-        expressionText,
+        expressionTokens,
         expressionColumn,
         sourceLines,
         declaredVariables,
@@ -1156,7 +1128,7 @@ void setDeclaredFunctionsForExpressions(const std::map<std::string, FunctionSign
 std::unique_ptr<Expr> parseExpressionAst(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables
@@ -1166,7 +1138,7 @@ std::unique_ptr<Expr> parseExpressionAst(
     return parseExpressionAst(
         inputFile,
         lineNumber,
-        expressionText,
+        expressionTokens,
         expressionColumn,
         sourceLines,
         declaredVariables,
@@ -1177,7 +1149,7 @@ std::unique_ptr<Expr> parseExpressionAst(
 std::unique_ptr<Expr> parseExpressionAst(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -1186,7 +1158,7 @@ std::unique_ptr<Expr> parseExpressionAst(
     ExpressionParser parser(
         inputFile,
         lineNumber,
-        expressionText,
+        expressionTokens,
         expressionColumn,
         sourceLines,
         declaredVariables,

@@ -127,6 +127,21 @@ std::vector<Token> tokenSlice(
     return result;
 }
 
+std::string tokenText(const std::vector<Token>& tokens) {
+    if (tokens.empty()) return "";
+    std::string result;
+    size_t previousEnd = tokens.front().span.startOffset;
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::EndOfFile) break;
+        if (token.span.startOffset > previousEnd) {
+            result.append(token.span.startOffset - previousEnd, ' ');
+        }
+        result += token.text;
+        previousEnd = token.span.endOffset;
+    }
+    return result;
+}
+
 // isBuiltinCallName returns whether the supplied input satisfies the relevant condition.
 bool isBuiltinCallName(const std::string& name) {
     return name == "print" ||
@@ -282,7 +297,6 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 : (context.currentTopLevelFunctionName.empty() ? "" : "function:" + context.currentTopLevelFunctionName));
         setRuntimeRequirementOwner(requirementOwner);
         const int lineNumber = fragment.lineNumber;
-        const std::string& line = fragment.text;
         const std::string& commentText = fragment.commentText;
         const bool hasComment = !commentText.empty();
         const std::string statement = trim(fragment.codeText);
@@ -396,7 +410,9 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         }
 
         if (context.inStruct && !context.inFunction && parsed.kind == StatementParseResult::Kind::CloseBrace) {
-            if (!static_cast<const CloseBraceStmt&>(*parsed.statement).trailingText.empty()) {
+            const std::vector<Token>& trailingTokens =
+                static_cast<const CloseBraceStmt&>(*parsed.statement).trailingTokens;
+            if (!trailingTokens.empty() && trailingTokens[0].kind != TokenKind::EndOfFile) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unexpected text after " + std::string(context.currentStructIsClass ? "class" : "struct") + " closing brace", context.sourceLines);
             }
             if (!context.currentStructFields.empty()) {
@@ -512,10 +528,9 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 const ParsedFunctionHeader methodHeader = parseFunctionHeader(
                     context.options.inputFile,
                     lineNumber,
-                    trim(statement.substr(0, methodBrace + 1)),
                     statementStartColumn,
                     context.sourceLines,
-                    &lexicalTokens
+                    lexicalTokens
                 );
                 if (methodHeader.matched && methodHeader.ok) {
                     if (context.declaredStructMethods[context.currentStructName].count(methodHeader.signature.name) != 0) {
@@ -539,21 +554,14 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 }
             }
             std::map<std::string, Type> fieldNames;
-            std::string fieldStatement = statement;
-            if (!fieldStatement.empty() && fieldStatement.back() == ';') {
-                fieldStatement.pop_back();
-                fieldStatement = trim(fieldStatement);
-            }
             const std::vector<Token> fieldTokens = withoutTrailingSemicolon(lexicalTokens);
             const TypeEmitResult fieldResult = emitTypeDeclaration(
                 context.options.inputFile,
                 lineNumber,
-                line,
-                fieldStatement,
                 statementStartColumn,
                 context.sourceLines,
                 fieldNames,
-                &fieldTokens
+                fieldTokens
             );
             if (fieldResult.matched) {
                 if (!fieldResult.ok) {
@@ -589,10 +597,9 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ParsedFunctionHeader functionHeader = parseFunctionHeader(
                 context.options.inputFile,
                 lineNumber,
-                trim(statement.substr(0, functionBrace + 1)),
                 statementStartColumn,
                 context.sourceLines,
-                &lexicalTokens
+                lexicalTokens
             );
             if (functionHeader.matched) {
                 if (!functionHeader.ok) {
@@ -630,7 +637,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
 
         const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0, const std::string& breakFlag = std::string()) {
             const size_t conditionOffset = absoluteOffset + header.conditionOffset;
-            if (header.condition.empty()) {
+            if (header.conditionTokens.empty()) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), "expected condition", context.sourceLines);
                 ++context.blockDepth;
                 context.pushBlock(keyword, breakFlag);
@@ -641,7 +648,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult condition = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                tokenSlice(lexicalTokens, conditionOffset, header.condition.size()),
+                header.conditionTokens,
                 statementStartColumn + static_cast<int>(conditionOffset),
                 context.sourceLines,
                 context.declaredVariables
@@ -677,14 +684,15 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             return true;
         };
 
-        const auto emitForPart = [&](const std::string& part, int partColumn, bool allowDeclaration, std::string& generatedPart) {
+        const auto emitForPart = [&](const std::vector<Token>& partTokens, int partColumn, bool allowDeclaration, std::string& generatedPart) {
             generatedPart.clear();
-            if (part.empty()) {
+            if (partTokens.empty()) {
                 return true;
             }
+            const std::string part = tokenText(partTokens);
 
             if (allowDeclaration) {
-                const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, line, part, partColumn, context.sourceLines, context.declaredVariables);
+                const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, partColumn, context.sourceLines, context.declaredVariables, partTokens);
                 if (typeResult.matched) {
                     if (!typeResult.ok) {
                         return false;
@@ -699,11 +707,11 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 context.options.inputFile,
                 lineNumber,
                 partColumn,
-                part,
                 context.sourceLines,
                 context.declaredVariables,
                 context.declaredFunctions,
-                !context.options.shouldSubmit
+                !context.options.shouldSubmit,
+                partTokens
             );
             if (assignmentResult.matched) {
                 if (!assignmentResult.ok) {
@@ -717,11 +725,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult expression = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                tokenSlice(
-                    lexicalTokens,
-                    static_cast<size_t>(partColumn - statementStartColumn),
-                    part.size()
-                ),
+                    partTokens,
                 partColumn,
                 context.sourceLines,
                 context.declaredVariables
@@ -759,16 +763,17 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             context.pendingLoopElse.active = isLoopBlockKind(closedBlock);
             context.pendingLoopElse.breakFlagName = context.pendingLoopElse.active ? closedBreakFlag : "";
 
-            const std::string afterBrace = closeBrace.trailingText;
+            const std::vector<Token>& afterBraceTokens = closeBrace.trailingTokens;
+            const bool hasAfterBrace = !afterBraceTokens.empty() && afterBraceTokens[0].kind != TokenKind::EndOfFile;
             if (closingSuppressed) {
-                if (!afterBrace.empty() && afterBrace.back() == '{') {
+                if (hasAfterBrace && afterBraceTokens[afterBraceTokens.size() - 2].kind == TokenKind::LeftBrace) {
                     ++context.blockDepth;
                     context.pushBlock("suppressed");
                     ++context.suppressedBlockDepth;
                 }
                 continue;
             }
-            if (afterBrace.empty()) {
+            if (!hasAfterBrace) {
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
                 if (closedBlock == "function") {
                     context.inFunction = false;
@@ -789,7 +794,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             }
 
             if (!context.canAttachElse) {
-                if (context.pendingLoopElse.active && parseNobreakHeader(afterBrace)) {
+                if (context.pendingLoopElse.active && parseNobreakHeader(afterBraceTokens)) {
                     context.queueGeneratedLine(indentForDepth(context.blockDepth) + "} if (" + context.pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
                     ++context.blockDepth;
                     context.pushBlock("loop nobreak");
@@ -797,7 +802,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                     continue;
                 }
 
-                const bool trailingNobreak = parseNobreakHeader(afterBrace);
+                const bool trailingNobreak = parseNobreakHeader(afterBraceTokens);
                 recordSourceError(
                     context.options.inputFile,
                     lineNumber,
@@ -805,12 +810,12 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                     trailingNobreak ? "nobreak without matching loop" : "else without matching if",
                     context.sourceLines
                 );
-                if (parseElseHeader(afterBrace) || trailingNobreak) {
+                if (parseElseHeader(afterBraceTokens) || trailingNobreak) {
                     ++context.blockDepth;
                     context.pushBlock(trailingNobreak ? "loop nobreak" : "else");
                 } else {
-                    ConditionHeader recoveryHeader;
-                    if (parseElseIfHeader(afterBrace, recoveryHeader)) {
+                    const ConditionParseResult recovery = parseElseIfHeaderDetailed(afterBraceTokens);
+                    if (recovery.matched && recovery.ok) {
                         ++context.blockDepth;
                         context.pushBlock("else if");
                     }
@@ -819,7 +824,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 continue;
             }
 
-            if (parseElseHeader(afterBrace)) {
+            if (parseElseHeader(afterBraceTokens)) {
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "} else {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++context.blockDepth;
                 context.pushBlock("else");
@@ -828,10 +833,11 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 continue;
             }
 
-            ConditionHeader header;
-            if (parseElseIfHeader(afterBrace, header)) {
-                if (header.condition.empty()) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "expected condition", context.sourceLines);
+            const ConditionParseResult trailingElseIf = parseElseIfHeaderDetailed(afterBraceTokens);
+            if (trailingElseIf.matched && trailingElseIf.ok) {
+                const ConditionHeader& header = trailingElseIf.header;
+                if (header.conditionTokens.empty()) {
+                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected condition", context.sourceLines);
                     ++context.blockDepth;
                     context.pushBlock("else if");
                     context.canAttachElse = false;
@@ -842,8 +848,8 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 const ExpressionEmitResult condition = emitExpression(
                     context.options.inputFile,
                     lineNumber,
-                    header.condition,
-                    statementStartColumn + 1 + static_cast<int>(header.conditionOffset),
+                    header.conditionTokens,
+                    statementStartColumn + static_cast<int>(header.conditionOffset),
                     context.sourceLines,
                     context.declaredVariables
                 );
@@ -856,7 +862,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 }
 
                 if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + 1 + static_cast<int>(header.conditionOffset), "else if condition must be bool", context.sourceLines);
+                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "else if condition must be bool", context.sourceLines);
                     ++context.blockDepth;
                     context.pushBlock("else if");
                     context.canAttachElse = false;
@@ -878,7 +884,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             }
 
             recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + 1, "else without matching if", context.sourceLines);
-            if (parseElseHeader(afterBrace)) {
+            if (parseElseHeader(afterBraceTokens)) {
                 ++context.blockDepth;
                 context.pushBlock("else");
             }
@@ -887,7 +893,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         }
 
         if (context.pendingLoopElse.active) {
-            if (parseNobreakHeader(statement)) {
+            if (parseNobreakHeader(lexicalTokens)) {
                 context.queueGeneratedLine(indentForDepth(context.blockDepth) + "if (" + context.pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
                 ++context.blockDepth;
                 context.pushBlock("loop nobreak");
@@ -1002,7 +1008,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult iterable = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                tokenSlice(lexicalTokens, forEachHeader.iterableOffset, forEachHeader.iterable.size()),
+                forEachHeader.iterableTokens,
                 statementStartColumn + static_cast<int>(forEachHeader.iterableOffset),
                 context.sourceLines,
                 context.declaredVariables
@@ -1037,11 +1043,10 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 const TypeEmitResult declarationResult = emitTypeDeclaration(
                     context.options.inputFile,
                     lineNumber,
-                    line,
-                    forEachHeader.declaration,
                     statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
                     context.sourceLines,
-                    context.declaredVariables
+                    context.declaredVariables,
+                    forEachHeader.declarationTokens
                 );
                 if (!declarationResult.matched || !declarationResult.ok) {
                     ++context.blockDepth;
@@ -1146,7 +1151,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
                 declarationsBefore.insert(variable.first);
             }
             if (!emitForPart(
-                    forHeader.initializer,
+                    forHeader.initializerTokens,
                     statementStartColumn + static_cast<int>(forHeader.initializerOffset),
                     true,
                     generatedInitializer)) {
@@ -1163,11 +1168,11 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             }
 
             std::string generatedCondition = "true";
-            if (!forHeader.condition.empty()) {
+            if (!forHeader.conditionTokens.empty()) {
                 const ExpressionEmitResult condition = emitExpression(
                     context.options.inputFile,
                     lineNumber,
-                    tokenSlice(lexicalTokens, forHeader.conditionOffset, forHeader.condition.size()),
+                    forHeader.conditionTokens,
                     statementStartColumn + static_cast<int>(forHeader.conditionOffset),
                     context.sourceLines,
                     context.declaredVariables
@@ -1198,7 +1203,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             }
 
             if (!emitForPart(
-                    forHeader.iteration,
+                    forHeader.iterationTokens,
                     statementStartColumn + static_cast<int>(forHeader.iterationOffset),
                     false,
                     generatedIteration)) {
@@ -1240,7 +1245,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         if (repResult.matched) {
             const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
             const ConditionHeader& header = repResult.header;
-            if (header.condition.empty()) {
+            if (header.conditionTokens.empty()) {
                 recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected rep count", context.sourceLines);
                 ++context.blockDepth;
                 context.pushBlock("rep", breakFlagName);
@@ -1252,7 +1257,7 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const ExpressionEmitResult count = emitExpression(
                 context.options.inputFile,
                 lineNumber,
-                tokenSlice(lexicalTokens, header.conditionOffset, header.condition.size()),
+                header.conditionTokens,
                 statementStartColumn + static_cast<int>(header.conditionOffset),
                 context.sourceLines,
                 context.declaredVariables
@@ -1486,12 +1491,10 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         const TypeEmitResult typeResult = emitTypeDeclaration(
             context.options.inputFile,
             lineNumber,
-            line,
-            statementBody,
             statementStartColumn,
             context.sourceLines,
             context.declaredVariables,
-            &statementTokens
+            statementTokens
         );
         if (typeResult.matched) {
             // Invalid declarations reserve their names to suppress cascaded errors.  They
@@ -1519,12 +1522,11 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             context.options.inputFile,
             lineNumber,
             statementStartColumn,
-            statementBody,
             context.sourceLines,
             context.declaredVariables,
             context.declaredFunctions,
             !context.options.shouldSubmit,
-            &statementTokens
+            statementTokens
         );
         if (assignmentResult.matched) {
             if (!assignmentResult.ok) {
@@ -1542,11 +1544,10 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         const ListEmitResult listResult = emitListStatement(
             context.options.inputFile,
             lineNumber,
-            statementBody,
             context.sourceLines,
             context.declaredVariables,
             !context.options.shouldSubmit,
-            &statementTokens
+            statementTokens
         );
         if (listResult.matched) {
             if (!listResult.ok) {
@@ -1565,11 +1566,10 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
             const PrintEmitResult describeResult = emitDescribeStatement(
                 context.options.inputFile,
                 lineNumber,
-                line,
-                statementBody,
+                statementStartColumn,
                 context.sourceLines,
                 context.declaredVariables,
-                &statementTokens
+                statementTokens
             );
             if (!describeResult.ok) {
                 continue;
@@ -1605,11 +1605,10 @@ void compileTokenStream(CompileContext& context, const TokenStream& tokenStream)
         const PrintEmitResult printResult = emitPrintStatement(
             context.options.inputFile,
             lineNumber,
-            statementBody,
             statementStartColumn,
             context.sourceLines,
             context.declaredVariables,
-            &statementTokens
+            statementTokens
         );
         if (isNamedCallStatement(statementTokens, "print")) {
             if (!printResult.ok) {

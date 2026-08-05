@@ -44,10 +44,9 @@ struct ParsedFunctionHeader {
 ParsedFunctionHeader parseFunctionHeader(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& statementBody,
     int statementColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::vector<Token>* sourceTokens = nullptr
+    const std::vector<Token>& sourceTokens
 );
 
 // functionParameterTypesDescription implements the functionParameterTypesDescription behavior for the functions.h module.

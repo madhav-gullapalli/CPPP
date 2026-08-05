@@ -16,9 +16,25 @@
 namespace {
 // AssignmentTarget implements the AssignmentTarget behavior for the assignmentCppp.cpp module.
 struct AssignmentTarget {
-    std::string text;
+    std::vector<Token> tokens;
     int column = 0;
 };
+
+std::vector<Token> tokenRange(const std::vector<Token>& tokens, size_t begin, size_t end) {
+    std::vector<Token> result;
+    if (begin >= end || begin >= tokens.size()) return result;
+    const int startColumn = tokens[begin].span.startColumn;
+    const size_t startOffset = tokens[begin].span.startOffset;
+    for (size_t index = begin; index < end && tokens[index].kind != TokenKind::EndOfFile; ++index) {
+        Token token = tokens[index];
+        token.span.startColumn -= startColumn - 1;
+        token.span.endColumn -= startColumn - 1;
+        token.span.startOffset -= startOffset;
+        token.span.endOffset -= startOffset;
+        result.push_back(std::move(token));
+    }
+    return result;
+}
 
 // isCompoundAssignmentOperator returns whether the supplied input satisfies the relevant condition.
 bool isCompoundAssignmentOperator(const Token& token) {
@@ -39,17 +55,8 @@ std::string compoundOperator(const std::string& assignmentOperator) {
     return assignmentOperator.substr(0, assignmentOperator.size() - 1);
 }
 
-// statementSlice implements the statementSlice behavior for the assignmentCppp.cpp module.
-std::string statementSlice(const std::string& statementBody, int startColumn, int endColumn) {
-    return statementBody.substr(
-        static_cast<size_t>(startColumn - 1),
-        static_cast<size_t>(endColumn - startColumn + 1)
-    );
-}
-
 bool parseAssignmentStructure(
     const std::vector<Token>& tokens,
-    const std::string& statementBody,
     int statementColumn,
     std::vector<AssignmentTarget>& targets,
     size_t& operatorIndex
@@ -99,9 +106,8 @@ bool parseAssignmentStructure(
                 return false;
             }
             const int startColumn = tokens[segmentStart].span.startColumn;
-            const int endColumn = tokens[i - 1].span.endColumn;
             targets.push_back({
-                statementSlice(statementBody, startColumn, endColumn),
+                tokenRange(tokens, segmentStart, i),
                 statementColumn + startColumn - 1
             });
             segmentStart = i + 1;
@@ -116,9 +122,8 @@ bool parseAssignmentStructure(
     }
 
     const int startColumn = tokens[segmentStart].span.startColumn;
-    const int endColumn = tokens[operatorIndex - 1].span.endColumn;
     targets.push_back({
-        statementSlice(statementBody, startColumn, endColumn),
+        tokenRange(tokens, segmentStart, operatorIndex),
         statementColumn + startColumn - 1
     });
     return !targets.empty();
@@ -129,24 +134,20 @@ AssignmentEmitResult emitAssignmentStatement(
     const std::string& inputFile,
     int lineNumber,
     int statementColumn,
-    const std::string& statementBody,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
     bool emitRuntimeChecks,
-    const std::vector<Token>* sourceTokens
+    const std::vector<Token>& sourceTokens
 ) {
-    const std::vector<Token> scannedTokens = sourceTokens == nullptr
-        ? tokenize(statementBody)
-        : std::vector<Token>{};
-    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
+    const std::vector<Token>& tokens = sourceTokens;
     if (tokens.size() < 3) {
         return {false, true, "", {}};
     }
 
     std::vector<AssignmentTarget> targets;
     size_t operatorIndex = 0;
-    if (!parseAssignmentStructure(tokens, statementBody, statementColumn, targets, operatorIndex)) {
+    if (!parseAssignmentStructure(tokens, statementColumn, targets, operatorIndex)) {
         return {false, true, "", {}};
     }
 
@@ -162,12 +163,8 @@ AssignmentEmitResult emitAssignmentStatement(
     }
 
     const int expressionStartRelativeColumn = tokens[operatorIndex + 1].span.startColumn;
-    int expressionEndRelativeColumn = tokens[operatorIndex + 1].span.endColumn;
-    for (size_t i = operatorIndex + 1; i < tokens.size() && tokens[i].kind != TokenKind::EndOfFile; ++i) {
-        expressionEndRelativeColumn = tokens[i].span.endColumn;
-    }
     const int expressionColumn = statementColumn + expressionStartRelativeColumn - 1;
-    const std::string expressionText = statementSlice(statementBody, expressionStartRelativeColumn, expressionEndRelativeColumn);
+    const std::vector<Token> expressionTokens = tokenRange(tokens, operatorIndex + 1, tokens.size());
 
     std::vector<LvalueEmitResult> emittedTargets;
     emittedTargets.reserve(targets.size());
@@ -175,7 +172,7 @@ AssignmentEmitResult emitAssignmentStatement(
         const LvalueEmitResult emittedTarget = emitLvalueExpression(
             inputFile,
             lineNumber,
-            target.text,
+            target.tokens,
             target.column,
             sourceLines,
             declaredVariables,
@@ -189,7 +186,6 @@ AssignmentEmitResult emitAssignmentStatement(
     }
 
     if (targets.size() > 1) {
-        const std::vector<Token> expressionTokens = tokenize(expressionText);
         std::string inputExpression;
         std::vector<InputArgument> inputArguments;
         if (isInputCall(expressionTokens)) {
@@ -203,7 +199,7 @@ AssignmentEmitResult emitAssignmentStatement(
                 if (!emitInputCallForType(
                         inputFile,
                         lineNumber,
-                        expressionText,
+                        expressionTokens,
                         expressionColumn,
                         emittedTargets[i].type,
                         sourceLines,
@@ -224,7 +220,7 @@ AssignmentEmitResult emitAssignmentStatement(
             return {true, true, generatedStatement, ranges};
         }
 
-        std::vector<std::string> expressions;
+        std::vector<std::vector<Token>> expressions;
         std::vector<int> expressionColumns;
         int parenDepth = 0;
         int bracketDepth = 0;
@@ -248,13 +244,13 @@ AssignmentEmitResult emitAssignmentStatement(
             } else if (token.kind == TokenKind::RightBrace) {
                 --braceDepth;
             } else if (token.kind == TokenKind::Comma && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
-                expressions.push_back(expressionText.substr(segmentStart, static_cast<size_t>(token.span.startColumn - 1) - segmentStart));
+                expressions.push_back(tokenRange(expressionTokens, segmentStart, static_cast<size_t>(&token - expressionTokens.data())));
                 expressionColumns.push_back(segmentColumn);
-                segmentStart = static_cast<size_t>(token.span.endColumn);
+                segmentStart = static_cast<size_t>(&token - expressionTokens.data()) + 1;
                 segmentColumn = expressionColumn + token.span.endColumn;
             }
         }
-        expressions.push_back(expressionText.substr(segmentStart));
+        expressions.push_back(tokenRange(expressionTokens, segmentStart, expressionTokens.size()));
         expressionColumns.push_back(segmentColumn);
 
         if (expressions.size() != emittedTargets.size()) {
@@ -316,11 +312,11 @@ AssignmentEmitResult emitAssignmentStatement(
     const LvalueEmitResult& target = emittedTargets[0];
     std::string inputExpression;
     std::vector<InputArgument> inputArguments;
-    if (simpleAssignment && parseInputCall(expressionText, expressionColumn, inputArguments)) {
+    if (simpleAssignment && parseInputCall(expressionTokens, expressionColumn, inputArguments)) {
         if (!emitInputCallForType(
                 inputFile,
                 lineNumber,
-                expressionText,
+                expressionTokens,
                 expressionColumn,
                 target.type,
                 sourceLines,
@@ -346,19 +342,34 @@ AssignmentEmitResult emitAssignmentStatement(
         tokens[operatorIndex].text == "+=" &&
         target.type.primitive == PrimitiveType::List &&
         target.type.subtypes.size() == 1 &&
-        target.generatedExpression == targets[0].text;
+        targets[0].tokens.size() == 1 &&
+        targets[0].tokens[0].kind == TokenKind::Identifier &&
+        target.generatedExpression == targets[0].tokens[0].text;
 
-    const std::string combinedExpressionText =
-        compoundAssignment && !preserveCompoundListAppend
-            ? targets[0].text + " " + compoundOperator(tokens[operatorIndex].text) + " (" + expressionText + ")"
-            : expressionText;
+    std::vector<Token> combinedExpressionTokens = expressionTokens;
+    if (compoundAssignment && !preserveCompoundListAppend) {
+        combinedExpressionTokens = targets[0].tokens;
+        Token operation = tokens[operatorIndex];
+        operation.kind = TokenKind::Operator;
+        operation.text = compoundOperator(operation.text);
+        combinedExpressionTokens.push_back(operation);
+        Token leftParen = operation;
+        leftParen.kind = TokenKind::LeftParen;
+        leftParen.text = "(";
+        combinedExpressionTokens.push_back(leftParen);
+        combinedExpressionTokens.insert(combinedExpressionTokens.end(), expressionTokens.begin(), expressionTokens.end());
+        Token rightParen = expressionTokens.back();
+        rightParen.kind = TokenKind::RightParen;
+        rightParen.text = ")";
+        combinedExpressionTokens.push_back(rightParen);
+    }
     const int combinedExpressionColumn =
         compoundAssignment && !preserveCompoundListAppend ? targets[0].column : expressionColumn;
 
     const ExpressionEmitResult expression = emitExpression(
         inputFile,
         lineNumber,
-        combinedExpressionText,
+        combinedExpressionTokens,
         combinedExpressionColumn,
         sourceLines,
         declaredVariables,

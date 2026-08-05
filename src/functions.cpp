@@ -93,16 +93,12 @@ std::string functionArgumentTypesDescription(const std::vector<Type>& argumentTy
 ParsedFunctionHeader parseFunctionHeader(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& statementBody,
     int statementColumn,
     const std::map<int, std::string>& sourceLines,
-    const std::vector<Token>* sourceTokens
+    const std::vector<Token>& sourceTokens
 ) {
     ParsedFunctionHeader result;
-    const std::vector<Token> scannedTokens = sourceTokens == nullptr
-        ? tokenize(statementBody)
-        : std::vector<Token>{};
-    const std::vector<Token>& tokens = sourceTokens == nullptr ? scannedTokens : *sourceTokens;
+    const std::vector<Token>& tokens = sourceTokens;
     if (tokens.size() < 4 || tokens[0].kind != TokenKind::Identifier) {
         return result;
     }

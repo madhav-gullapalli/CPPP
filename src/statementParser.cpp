@@ -55,9 +55,9 @@ StatementParseResult parseStatementAst(const std::vector<Token>& tokens, int sou
     }
 
     if (tokens[0].kind == TokenKind::RightBrace) {
-        const std::string trimmed = tokenSpelling(tokens);
         result.kind = StatementParseResult::Kind::CloseBrace;
-        result.statement = std::make_unique<CloseBraceStmt>(trim(trimmed.substr(1)), sourceColumn);
+        std::vector<Token> trailingTokens(tokens.begin() + 1, tokens.end());
+        result.statement = std::make_unique<CloseBraceStmt>(std::move(trailingTokens), sourceColumn);
         return result;
     }
 

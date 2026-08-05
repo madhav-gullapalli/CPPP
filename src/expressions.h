@@ -104,7 +104,7 @@ struct LvalueEmitResult {
 
 // InputArgument implements the InputArgument behavior for the expressions.h module.
 struct InputArgument {
-    std::string text;
+    std::vector<Token> tokens;
     int column;
 };
 
@@ -149,11 +149,11 @@ bool isInputCall(const std::vector<Token>& tokens);
 // inputFunctionForType implements the inputFunctionForType behavior for the expressions.h module.
 std::string inputFunctionForType(const Type& type);
 // parseInputCall parses inputcall for the compiler pipeline.
-bool parseInputCall(const std::string& text, int startColumn, std::vector<InputArgument>& arguments);
+bool parseInputCall(const std::vector<Token>& tokens, int startColumn, std::vector<InputArgument>& arguments);
 bool emitInputCallForType(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& inputText,
+    const std::vector<Token>& inputTokens,
     int inputColumn,
     const Type& targetType,
     const std::map<int, std::string>& sourceLines,
@@ -174,7 +174,7 @@ std::vector<std::string> declaredStructMethodNamesForType(const Type& type);
 std::unique_ptr<Expr> parseExpressionAst(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables
@@ -182,21 +182,11 @@ std::unique_ptr<Expr> parseExpressionAst(
 std::unique_ptr<Expr> parseExpressionAst(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions
-);
-
-ExpressionEmitResult emitExpression(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::string& expressionText,
-    int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
-    bool emitRuntimeChecks = false
 );
 
 ExpressionEmitResult emitExpression(
@@ -212,7 +202,7 @@ ExpressionEmitResult emitExpression(
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -223,7 +213,7 @@ ExpressionEmitResult emitExpression(
 LvalueEmitResult emitLvalueExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
@@ -233,7 +223,7 @@ LvalueEmitResult emitLvalueExpression(
 LvalueEmitResult emitLvalueExpression(
     const std::string& inputFile,
     int lineNumber,
-    const std::string& expressionText,
+    const std::vector<Token>& expressionTokens,
     int expressionColumn,
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
