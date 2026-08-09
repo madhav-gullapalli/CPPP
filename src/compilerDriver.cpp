@@ -14,6 +14,8 @@
 #include "errors.h"
 #include "expressions.h"
 #include "programEmitter.h"
+#include "semanticAnalyzer.h"
+#include "semanticPrinter.h"
 #include "sourceSplitter.h"
 #include "statementCompiler.h"
 #include "typesCppp.h"
@@ -216,7 +218,7 @@ void pruneSubmitLoopHelpers(CompileContext& context) {
 // raw file -> canonical TokenStream -> ProgramAst -> semantic lowering -> C++.
 int runCompilerDriver(int argc, char* argv[]) {
     if ((argc < 3 || argc > 5) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--ast|--compile|--run|--submit [--readable]]\n";
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--ast|--semantic|--compile|--run|--submit [--readable]]\n";
         return 1;
     }
     clearRecordedSourceErrors();
@@ -226,10 +228,11 @@ int runCompilerDriver(int argc, char* argv[]) {
     const std::string action = hasAction ? std::string(argv[3]) : "";
     const bool shouldPrintTokens = action == "--tokens";
     const bool shouldPrintAst = action == "--ast";
+    const bool shouldPrintSemantic = action == "--semantic";
     const bool shouldCompile = action == "--compile" || action == "--run" || action == "--submit";
     const bool shouldRun = action == "--run";
     const bool shouldSubmit = action == "--submit";
-    if (hasAction && !shouldCompile && !shouldPrintTokens && !shouldPrintAst) {
+    if (hasAction && !shouldCompile && !shouldPrintTokens && !shouldPrintAst && !shouldPrintSemantic) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
         return 1;
     }
@@ -285,7 +288,7 @@ int runCompilerDriver(int argc, char* argv[]) {
         printTokenStream(tokenStream);
         return 0;
     }
-    const ProgramAst program = parseProgramAst(tokenStream);
+    ProgramAst program = parseProgramAst(tokenStream);
     std::string astInvariantError;
     if (!validateProgramAst(program, astInvariantError)) {
         std::cerr << "Internal AST error: " << astInvariantError << '\n';
@@ -295,8 +298,25 @@ int runCompilerDriver(int argc, char* argv[]) {
         printProgramAst(std::cout, program);
         return 0;
     }
+    AnalyzedProgramAst analyzed = analyzeProgramAst(context, program);
+    if (hasRecordedSourceErrors()) {
+        printRecordedSourceErrors();
+        clearRecordedSourceErrors();
+        clearRequiredRuntimeHelpers();
+        setDeclaredFunctionsForExpressions(nullptr);
+        return 1;
+    }
+    std::string semanticInvariantError;
+    if (!validateAnalyzedProgramAst(analyzed, semanticInvariantError)) {
+        std::cerr << "Internal semantic AST error: " << semanticInvariantError << '\n';
+        return 1;
+    }
+    if (shouldPrintSemantic) {
+        printAnalyzedProgramAst(std::cout, analyzed);
+        return 0;
+    }
     setDeclaredFunctionsForExpressions(&context.declaredFunctions);
-    compileProgramAst(context, program);
+    compileProgramAst(context, analyzed);
 
     if (context.blockDepth > 0) {
         recordSourceError(options.inputFile, context.sourceLines.empty() ? 1 : context.sourceLines.rbegin()->first, 1, "unclosed block", context.sourceLines);

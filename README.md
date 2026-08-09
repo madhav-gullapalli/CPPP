@@ -77,6 +77,7 @@ Direct compiler usage:
 build/cppp --cppp in.cppp
 build/cppp --cppp in.cppp --tokens
 build/cppp --cppp in.cppp --ast
+build/cppp --cppp in.cppp --semantic
 build/cppp --cppp in.cppp --compile
 build/cppp --cppp in.cppp --run
 build/cppp --cppp in.cppp --submit
@@ -89,6 +90,7 @@ Windows equivalents:
 .\build\cppp.exe --cppp in.cppp
 .\build\cppp.exe --cppp in.cppp --tokens
 .\build\cppp.exe --cppp in.cppp --ast
+.\build\cppp.exe --cppp in.cppp --semantic
 .\build\cppp.exe --cppp in.cppp --compile
 .\build\cppp.exe --cppp in.cppp --run
 .\build\cppp.exe --cppp in.cppp --submit
@@ -102,6 +104,10 @@ spans and exits before semantic analysis or C++ generation. Its Make equivalent
 is `make ast INPUT=in.cppp`. Normal compilation also passes through this AST;
 the backend recursively lowers concrete `ProgramAst` nodes directly. Logical
 source fragments remain parser-internal and never cross the AST boundary.
+
+`--semantic` runs the dedicated semantic pass, prints resolved types, symbols,
+calls, lvalue state, and conversion decisions, then exits before C++ codegen.
+Its Make equivalent is `make semantic INPUT=in.cppp`.
 
 ## Local Codegen Freeze
 
@@ -127,7 +133,8 @@ make ast-invariants
 ```
 
 The baseline is stored in the ignored `tests/codegen_snapshots/` directory. The
-check transpiles all `correct.txt` examples and compares the generated C++
+check freezes both default transpilation and compact `--submit` output for every
+`correct.txt` example and compares the generated C++
 byte-for-byte. Record a new baseline only after reviewing an intentional codegen
 change. This suite is separate from `make test` and CI, and it does not snapshot
 `errors.txt`.

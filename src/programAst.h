@@ -52,6 +52,9 @@ struct TypeSyntax {
     std::vector<bool> functionParameterCopy;
     bool functionType = false;
     bool syntaxOk = true;
+    // Filled by semantic analysis; never consulted by the syntax parser.
+    Type resolvedType;
+    bool hasResolvedType = false;
 };
 
 struct ParameterSyntax {
@@ -87,6 +90,8 @@ struct ProgramStatement : ProgramAstNode {
     bool syntaxOk = true;
     size_t syntaxErrorOffset = 0;
     std::string syntaxError;
+    bool semanticAnalyzed = false;
+    bool semanticValid = false;
 
     explicit ProgramStatement(ProgramStatementKind kind, StatementSyntax syntax) :
         kind(kind), syntax(std::move(syntax)) {
@@ -115,12 +120,16 @@ struct ErrorStatementAst : ProgramStatement {
 };
 
 struct VariableDeclarationAst : ProgramStatement {
+    enum class InitializerKind { None, Assignment, Parenthesized };
     TypeSyntax type;
     bool inferredType = false;
     std::vector<std::string> names;
     std::vector<SourceSpan> nameSpans;
     std::vector<std::unique_ptr<Expr>> initializers;
     size_t continuationTokenIndex = 0;
+    InitializerKind initializerKind = InitializerKind::None;
+    Type resolvedType;
+    std::vector<Type> initializerConversionTargets;
 
     explicit VariableDeclarationAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::VariableDeclaration, std::move(syntax)) {}
@@ -136,6 +145,8 @@ struct AssignmentStatementAst : ProgramStatement {
     std::vector<std::vector<Token>> valueTokens;
     std::vector<size_t> targetOffsets;
     std::vector<size_t> valueOffsets;
+    std::vector<Type> resolvedTargetTypes;
+    std::vector<Type> valueConversionTargets;
 
     explicit AssignmentStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::Assignment, std::move(syntax)) {}
@@ -152,6 +163,8 @@ struct ReturnStatementAst : ProgramStatement {
     std::unique_ptr<Expr> value;
     std::vector<Token> valueTokens;
     size_t valueOffset = 0;
+    Type expectedType;
+    bool hasValueConversion = false;
 
     explicit ReturnStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::Return, std::move(syntax)) {}
@@ -171,6 +184,7 @@ struct ConditionalBranchAst : ProgramAstNode {
     size_t syntaxErrorOffset = 0;
     std::string syntaxError;
     BlockAst body;
+    bool hasConditionConversion = false;
 };
 
 struct CompletionBranchAst : ProgramAstNode {
@@ -185,6 +199,7 @@ struct IfStatementAst : ProgramStatement {
     BlockAst thenBody;
     std::vector<ConditionalBranchAst> elseIfBranches;
     std::unique_ptr<CompletionBranchAst> elseBranch;
+    bool hasConditionConversion = false;
 
     explicit IfStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::If, std::move(syntax)) {}
@@ -196,6 +211,7 @@ struct WhileStatementAst : ProgramStatement {
     size_t conditionOffset = 0;
     BlockAst body;
     std::unique_ptr<CompletionBranchAst> nobreakBranch;
+    bool hasConditionConversion = false;
 
     explicit WhileStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::While, std::move(syntax)) {}
@@ -235,6 +251,7 @@ struct ForStatementAst : ProgramStatement {
     ForClauseAst iteration;
     BlockAst body;
     std::unique_ptr<CompletionBranchAst> nobreakBranch;
+    bool hasConditionConversion = false;
 
     explicit ForStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::For, std::move(syntax)) {}
@@ -250,6 +267,7 @@ struct ForEachStatementAst : ProgramStatement {
     size_t iterableOffset = 0;
     BlockAst body;
     std::unique_ptr<CompletionBranchAst> nobreakBranch;
+    Type resolvedVariableType;
 
     explicit ForEachStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::ForEach, std::move(syntax)) {}
@@ -261,6 +279,7 @@ struct RepStatementAst : ProgramStatement {
     size_t countOffset = 0;
     BlockAst body;
     std::unique_ptr<CompletionBranchAst> nobreakBranch;
+    Type resolvedCountType;
 
     explicit RepStatementAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::Rep, std::move(syntax)) {}
@@ -272,6 +291,7 @@ struct FunctionDeclarationAst : ProgramStatement {
     SourceSpan nameSpan;
     std::vector<ParameterSyntax> parameters;
     BlockAst body;
+    Type resolvedFunctionType;
 
     explicit FunctionDeclarationAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::FunctionDeclaration, std::move(syntax)) {}
@@ -282,6 +302,7 @@ struct AggregateDeclarationAst : ProgramStatement {
     SourceSpan nameSpan;
     bool isClass = false;
     BlockAst body;
+    Type resolvedType;
 
     explicit AggregateDeclarationAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::AggregateDeclaration, std::move(syntax)) {}

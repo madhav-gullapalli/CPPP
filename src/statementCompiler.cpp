@@ -1,14 +1,15 @@
 /*
  * statementCompiler.cpp
  *
- * Performs semantic lowering by walking the recursive ProgramAst. Statement
- * kinds and block relationships are never rediscovered from source text.
+ * Emits C++ by walking a semantically analyzed ProgramAst. Statement kinds
+ * and block relationships are never rediscovered from source text.
  */
 
 #include "statementCompiler.h"
 
 #include "assignmentCppp.h"
 #include "errors.h"
+#include "expressionParser.h"
 #include "functions.h"
 #include "listsCppp.h"
 #include "printCppp.h"
@@ -40,14 +41,6 @@ std::string stripGeneratedStatement(const std::string& generatedStatement) {
     std::string text = trim(generatedStatement);
     if (!text.empty() && text.back() == ';') text.pop_back();
     return text;
-}
-
-bool containsCustomType(const Type& type) {
-    if (isStructType(type)) return true;
-    for (const Type& subtype : type.subtypes) {
-        if (containsCustomType(subtype)) return true;
-    }
-    return false;
 }
 
 std::vector<Token> withoutTrailingSemicolon(const std::vector<Token>& tokens) {
@@ -127,6 +120,58 @@ bool containsIncrementOrDecrement(const Expr* expression) {
             containsIncrementOrDecrement(slice->end.get());
     }
     return false;
+}
+
+bool containsContextualEmptyLiteral(const Expr* expression) {
+    if (!expression) return false;
+    if (const auto* list = dynamic_cast<const ListLiteralExpr*>(expression)) {
+        if (list->elements.empty()) return true;
+        for (const auto& item : list->elements)
+            if (containsContextualEmptyLiteral(item.get())) return true;
+    }
+    if (const auto* set = dynamic_cast<const SetLiteralExpr*>(expression)) {
+        if (set->elements.empty()) return true;
+        for (const auto& item : set->elements)
+            if (containsContextualEmptyLiteral(item.get())) return true;
+    }
+    if (const auto* map = dynamic_cast<const MapLiteralExpr*>(expression)) {
+        if (map->entries.empty()) return true;
+        for (const auto& item : map->entries) {
+            if (containsContextualEmptyLiteral(item.key.get()) ||
+                containsContextualEmptyLiteral(item.value.get())) return true;
+        }
+    }
+    if (const auto* pair = dynamic_cast<const PairLiteralExpr*>(expression)) {
+        return containsContextualEmptyLiteral(pair->first.get()) ||
+            containsContextualEmptyLiteral(pair->second.get());
+    }
+    if (const auto* field = dynamic_cast<const FieldExpr*>(expression))
+        return containsContextualEmptyLiteral(field->base.get());
+    if (const auto* unary = dynamic_cast<const UnaryExpr*>(expression))
+        return containsContextualEmptyLiteral(unary->operand.get());
+    if (const auto* binary = dynamic_cast<const BinaryExpr*>(expression))
+        return containsContextualEmptyLiteral(binary->left.get()) ||
+            containsContextualEmptyLiteral(binary->right.get());
+    if (const auto* cast = dynamic_cast<const CastExpr*>(expression))
+        return containsContextualEmptyLiteral(cast->operand.get());
+    if (const auto* call = dynamic_cast<const CallExpr*>(expression)) {
+        if (containsContextualEmptyLiteral(call->receiver.get())) return true;
+        for (const auto& argument : call->arguments)
+            if (containsContextualEmptyLiteral(argument.get())) return true;
+    }
+    if (const auto* index = dynamic_cast<const IndexExpr*>(expression))
+        return containsContextualEmptyLiteral(index->base.get()) ||
+            containsContextualEmptyLiteral(index->index.get());
+    if (const auto* slice = dynamic_cast<const SliceExpr*>(expression))
+        return containsContextualEmptyLiteral(slice->base.get()) ||
+            containsContextualEmptyLiteral(slice->start.get()) ||
+            containsContextualEmptyLiteral(slice->end.get());
+    return false;
+}
+
+void collectCustomTypeNames(const Type& type, std::set<std::string>& names) {
+    if (isStructType(type)) names.insert(type.name);
+    for (const Type& subtype : type.subtypes) collectCustomTypeNames(subtype, names);
 }
 
 bool needsCharRuntimeHelperForType(const Type& type) {
@@ -232,15 +277,66 @@ bool recordContextualSuggestion(
 
 class AstLowerer {
 public:
-    explicit AstLowerer(CompileContext& context) : context(context) {}
+    AstLowerer(CompileContext& context, const AnalyzedProgramAst& analyzed) :
+        context(context), analyzed(analyzed) {}
 
     void compile(const ProgramAst& program) {
-        for (const auto& statement : program.body.statements) compileStatement(*statement);
+        std::map<std::string, const AggregateDeclarationAst*> aggregates;
+        for (const auto& statement : program.body.statements) {
+            if (const auto* aggregate = dynamic_cast<const AggregateDeclarationAst*>(statement.get())) {
+                aggregates[aggregate->name] = aggregate;
+            }
+        }
+        // Semantic analysis registers the complete aggregate namespace before
+        // member resolution. Mirror that capability in C++ with lightweight
+        // declarations; the dependency order below still ensures inline
+        // struct fields see complete definitions.
+        std::map<std::string, size_t> emissionIndex;
+        for (size_t i = 0; i < analyzed.aggregateEmissionOrder.size(); ++i) {
+            emissionIndex[analyzed.aggregateEmissionOrder[i]] = i;
+        }
+        std::set<std::string> forwardDeclarations;
+        for (const auto& aggregate : analyzed.aggregateFields) {
+            for (const auto& field : aggregate.second) {
+                std::set<std::string> referenced;
+                collectCustomTypeNames(field.second, referenced);
+                for (const std::string& name : referenced) {
+                    if (name != aggregate.first && emissionIndex[name] > emissionIndex[aggregate.first]) {
+                        forwardDeclarations.insert(name);
+                    }
+                }
+            }
+        }
+        for (const std::string& name : forwardDeclarations) {
+            context.queueTopLevelLine("struct " + name + ";");
+        }
+        for (const auto& aggregate : analyzed.aggregateFields) {
+            for (const auto& field : aggregate.second) {
+                if (isClassType(field.second) && field.second.name != aggregate.first &&
+                    emissionIndex[field.second.name] > emissionIndex[aggregate.first]) {
+                    deferredClassEqualityFields.insert(aggregate.first + "." + field.first);
+                }
+            }
+        }
+        if (!deferredClassEqualityFields.empty()) {
+            context.queueTopLevelLine(
+                "template <typename T> bool CPPPClassEqual(const cppp_smart_pointer<T>& left, "
+                "const cppp_smart_pointer<T>& right) { return (left && right) ? (*left == *right) : (!left && !right); }");
+        }
+        for (const std::string& name : analyzed.aggregateEmissionOrder) {
+            const auto aggregate = aggregates.find(name);
+            if (aggregate != aggregates.end()) compileAggregate(*aggregate->second);
+        }
+        for (const auto& statement : program.body.statements) {
+            if (!dynamic_cast<const AggregateDeclarationAst*>(statement.get())) compileStatement(*statement);
+        }
         if (sawUnclosedBlock) context.blockDepth = std::max(context.blockDepth, 1);
     }
 
 private:
     CompileContext& context;
+    const AnalyzedProgramAst& analyzed;
+    std::set<std::string> deferredClassEqualityFields;
     bool sawUnclosedBlock = false;
 
     void setRequirementOwner() {
@@ -325,10 +421,16 @@ private:
             ? std::vector<std::string>{}
             : context.blockDeclaredNames.back();
         context.eraseDeclaredNames(names);
+        if (!context.blockShadowedVariables.empty()) {
+            for (const auto& shadowed : context.blockShadowedVariables.back()) {
+                context.declaredVariables[shadowed.first] = shadowed.second;
+            }
+        }
         if (!context.blockKinds.empty()) {
             context.blockKinds.pop_back();
             context.blockBreakFlags.pop_back();
             context.blockDeclaredNames.pop_back();
+            context.blockShadowedVariables.pop_back();
         }
         --context.blockDepth;
         if (!block.hasClosingSyntax) {
@@ -340,6 +442,16 @@ private:
                 withComment(indentForDepth(context.blockDepth) + "}", block.closingSyntax),
                 block.closingSyntax.lineNumber
             );
+        }
+    }
+
+    void prepareShadowedDeclaration(const std::vector<std::string>& names) {
+        if (context.blockShadowedVariables.empty()) return;
+        for (const std::string& name : names) {
+            const auto existing = context.declaredVariables.find(name);
+            if (existing == context.declaredVariables.end()) continue;
+            context.blockShadowedVariables.back().emplace(name, existing->second);
+            context.declaredVariables.erase(existing);
         }
     }
 
@@ -412,65 +524,6 @@ private:
         if (!requireSemicolon(node)) return;
         recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
             "unsupported statement", context.sourceLines);
-    }
-
-    bool emitCondition(
-        const ProgramStatement& node,
-        const std::vector<Token>& tokens,
-        size_t offset,
-        const std::string& keyword,
-        std::string& generated
-    ) {
-        if (!node.syntaxOk) {
-            recordSourceError(
-                context.options.inputFile,
-                node.syntax.lineNumber,
-                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
-                node.syntaxError,
-                context.sourceLines
-            );
-            return false;
-        }
-        if (tokens.empty()) {
-            recordSourceError(
-                context.options.inputFile,
-                node.syntax.lineNumber,
-                node.syntax.startColumn + static_cast<int>(offset),
-                keyword == "rep" ? "expected rep count" : "expected condition",
-                context.sourceLines
-            );
-            return false;
-        }
-        const ExpressionEmitResult condition = emitExpression(
-            context.options.inputFile,
-            node.syntax.lineNumber,
-            tokens,
-            node.syntax.startColumn + static_cast<int>(offset),
-            context.sourceLines,
-            context.declaredVariables
-        );
-        if (!condition.ok) return false;
-        if (keyword == "rep") {
-            if (condition.type != PrimitiveType::Bool && condition.type != PrimitiveType::Char &&
-                condition.type != PrimitiveType::Int && condition.type != PrimitiveType::Float) {
-                recordSourceError(context.options.inputFile, node.syntax.lineNumber,
-                    node.syntax.startColumn + static_cast<int>(offset),
-                    "rep count must be numeric", context.sourceLines);
-                return false;
-            }
-            generated = castExpressionTo(condition.generatedExpression, condition.type, PrimitiveType::Int);
-            return true;
-        }
-        if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
-            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
-                node.syntax.startColumn + static_cast<int>(offset),
-                keyword + " condition must be bool", context.sourceLines);
-            return false;
-        }
-        generated = condition.type == PrimitiveType::Bool
-            ? condition.generatedExpression
-            : castExpressionTo(condition.generatedExpression, condition.type, PrimitiveType::Bool);
-        return true;
     }
 
     bool resolveTypeSyntax(const TypeSyntax& syntax, bool allowVoid, Type& result) {
@@ -628,59 +681,28 @@ private:
         return true;
     }
 
-    bool emitBranchCondition(
-        const ConditionalBranchAst& branch,
-        std::string& generated
-    ) {
-        if (!branch.syntaxOk) {
-            recordSourceError(
-                context.options.inputFile,
-                branch.headerSyntax.lineNumber,
-                branch.headerSyntax.startColumn + static_cast<int>(branch.syntaxErrorOffset),
-                branch.syntaxError,
-                context.sourceLines
-            );
-            return false;
-        }
-        if (branch.conditionTokens.empty()) {
-            recordSourceError(context.options.inputFile, branch.headerSyntax.lineNumber,
-                branch.headerSyntax.startColumn + static_cast<int>(branch.conditionOffset),
-                "expected condition", context.sourceLines);
-            return false;
-        }
-        const ExpressionEmitResult condition = emitExpression(
-            context.options.inputFile,
-            branch.headerSyntax.lineNumber,
-            branch.conditionTokens,
-            branch.headerSyntax.startColumn + static_cast<int>(branch.conditionOffset),
-            context.sourceLines,
-            context.declaredVariables
-        );
-        if (!condition.ok) return false;
-        if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
-            recordSourceError(context.options.inputFile, branch.headerSyntax.lineNumber,
-                branch.headerSyntax.startColumn + static_cast<int>(branch.conditionOffset),
-                "else if condition must be bool", context.sourceLines);
-            return false;
-        }
-        generated = condition.type == PrimitiveType::Bool
-            ? condition.generatedExpression
-            : castExpressionTo(condition.generatedExpression, condition.type, PrimitiveType::Bool);
-        return true;
-    }
-
     void compileIf(const IfStatementAst& node) {
         if (!node.syntaxOk && !node.thenBody.hasClosingSyntax) sawUnclosedBlock = true;
-        std::string condition;
-        if (!emitCondition(node, node.conditionTokens, node.conditionOffset, "if", condition)) return;
+        if (!node.condition) return;
+        std::string condition = generateAnalyzedExpression(
+            *node.condition, node.syntax.lineNumber, context.options.shouldRun, context.declaredFunctions);
+        if (node.condition->inferredType != PrimitiveType::Bool) {
+            condition = castExpressionTo(condition, node.condition->inferredType, PrimitiveType::Bool);
+        }
         context.queueGeneratedLine(
             withComment(indentForDepth(context.blockDepth) + "if (" + condition + ") {", node.syntax),
             node.syntax.lineNumber
         );
         compileOwnedBlock(node.thenBody, "if");
         for (const ConditionalBranchAst& branch : node.elseIfBranches) {
-            std::string branchCondition;
-            if (!emitBranchCondition(branch, branchCondition)) return;
+            if (!branch.condition) return;
+            std::string branchCondition = generateAnalyzedExpression(
+                *branch.condition, branch.headerSyntax.lineNumber,
+                context.options.shouldRun, context.declaredFunctions);
+            if (branch.condition->inferredType != PrimitiveType::Bool) {
+                branchCondition = castExpressionTo(
+                    branchCondition, branch.condition->inferredType, PrimitiveType::Bool);
+            }
             context.queueGeneratedLine(
                 withComment(indentForDepth(context.blockDepth) + "else if (" + branchCondition + ") {", branch.headerSyntax),
                 branch.headerSyntax.lineNumber
@@ -698,8 +720,12 @@ private:
 
     void compileWhile(const WhileStatementAst& node) {
         if (!node.syntaxOk && !node.body.hasClosingSyntax) sawUnclosedBlock = true;
-        std::string condition;
-        if (!emitCondition(node, node.conditionTokens, node.conditionOffset, "while", condition)) return;
+        if (!node.condition) return;
+        std::string condition = generateAnalyzedExpression(
+            *node.condition, node.syntax.lineNumber, context.options.shouldRun, context.declaredFunctions);
+        if (node.condition->inferredType != PrimitiveType::Bool) {
+            condition = castExpressionTo(condition, node.condition->inferredType, PrimitiveType::Bool);
+        }
         const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
         context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
         context.queueGeneratedLine(
@@ -870,6 +896,9 @@ private:
             requireContainerMember(iterable.type, "begin_mut");
             requireContainerMember(iterable.type, "end_mut");
         }
+        if (isMapType(iterable.type)) {
+            requireContainerMember(elementType, "ctor_std");
+        }
         if (node.inferredVariable) {
             variableType = elementType;
             declaration = cppTypeForType(variableType) + " " + node.variableName;
@@ -897,25 +926,36 @@ private:
 
     void compileRep(const RepStatementAst& node) {
         if (!node.syntaxOk && !node.body.hasClosingSyntax) sawUnclosedBlock = true;
-        std::string count;
-        if (!emitCondition(node, node.countTokens, node.countOffset, "rep", count)) return;
+        if (!node.count || !node.semanticValid) return;
+        std::string count = generateAnalyzedExpression(
+            *node.count,
+            node.syntax.lineNumber,
+            context.options.shouldRun,
+            context.declaredFunctions
+        );
+        if (node.count->inferredType != PrimitiveType::Int) {
+            count = castExpressionTo(count, node.count->inferredType, PrimitiveType::Int);
+        }
         const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
         context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
-        if (context.options.shouldSubmit) {
-            const std::string index = "_" + std::to_string(context.repLoopIndex++);
-            context.queueGeneratedLine(
-                withComment(indentForDepth(context.blockDepth) + "for (int " + index + " = 0; " + index + " < " + count + "; ++" + index + ") {", node.syntax),
-                node.syntax.lineNumber
-            );
-        } else {
-            const std::string suffix = std::to_string(context.repLoopIndex++);
-            const std::string index = "__cppp_rep_" + suffix;
-            const std::string limit = "__cppp_rep_limit_" + suffix;
-            context.queueGeneratedLine(
-                withComment(indentForDepth(context.blockDepth) + "for (long long " + index + " = 0, " + limit + " = " + count + "; " + index + " < " + limit + "; ++" + index + ") {", node.syntax),
-                node.syntax.lineNumber
-            );
-        }
+        const std::string suffix = std::to_string(context.repLoopIndex++);
+        const std::string index = context.options.shouldSubmit ? "_" + suffix : "__cppp_rep_" + suffix;
+        const std::string limit = context.options.shouldSubmit ? "_n" + suffix : "__cppp_rep_limit_" + suffix;
+        context.queueGeneratedLine(
+            indentForDepth(context.blockDepth) + "long long " + limit + " = " + count + ";",
+            node.syntax.lineNumber
+        );
+        context.queueGeneratedLine(
+            indentForDepth(context.blockDepth) + "if (" + limit + " < 0) throw runtime_error(\"" +
+                std::to_string(node.syntax.lineNumber) + ":" +
+                std::to_string(node.count->sourceColumn) + ":rep count cannot be negative\");",
+            node.syntax.lineNumber
+        );
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "for (long long " + index + " = 0; " +
+                index + " < " + limit + "; ++" + index + ") {", node.syntax),
+            node.syntax.lineNumber
+        );
         compileOwnedBlock(node.body, "rep", breakFlag);
         compileCompletion(node.nobreakBranch.get(), breakFlag);
     }
@@ -959,46 +999,19 @@ private:
     void compileReturn(const ReturnStatementAst& node) {
         if (!requireSemicolon(node)) return;
         const int line = node.syntax.lineNumber;
-        const int column = node.syntax.startColumn;
-        if (!context.inFunction) {
-            recordSourceError(context.options.inputFile, line, column,
-                "return can only be used inside a function", context.sourceLines);
-            return;
-        }
         if (!node.value) {
-            if (!context.currentFunction.returnsVoid) {
-                recordSourceError(context.options.inputFile, line, column,
-                    "non-void function must return a value of type " + cpppTypeName(context.currentFunction.returnType),
-                    context.sourceLines);
-                return;
-            }
             context.queueGeneratedLine(withComment(indentForDepth(context.blockDepth) + "return;", node.syntax), line);
             return;
         }
-        const int expressionColumn = column + static_cast<int>(node.valueOffset);
-        if (context.currentFunction.returnsVoid) {
-            recordSourceError(context.options.inputFile, line, expressionColumn,
-                "void function cannot return a value", context.sourceLines);
-            return;
-        }
-        const ExpressionEmitResult expression = emitExpression(
-            context.options.inputFile,
+        std::string generated = generateAnalyzedExpression(
+            *node.value,
             line,
-            node.valueTokens,
-            expressionColumn,
-            context.sourceLines,
-            context.declaredVariables
+            context.options.shouldRun,
+            context.declaredFunctions
         );
-        if (!expression.ok) return;
-        if (!isImplicitlyConvertible(expression.type, context.currentFunction.returnType)) {
-            recordSourceError(context.options.inputFile, line, expressionColumn,
-                "cannot implicitly convert " + cpppTypeName(expression.type) + " to " + cpppTypeName(context.currentFunction.returnType),
-                context.sourceLines);
-            return;
+        if (node.hasValueConversion) {
+            generated = castExpressionTo(generated, node.value->inferredType, node.expectedType);
         }
-        const std::string generated = expression.type == context.currentFunction.returnType
-            ? expression.generatedExpression
-            : castExpressionTo(expression.generatedExpression, expression.type, context.currentFunction.returnType);
         context.queueGeneratedLine(
             withComment(indentForDepth(context.blockDepth) + "return " + generated + ";", node.syntax),
             line
@@ -1017,6 +1030,47 @@ private:
             node.type.name != "bigint" && node.type.name != "Bigint" &&
             node.type.name != "bigfloat" && node.type.name != "BigFloat" &&
             recordContextualSuggestion(context, node, false)) return;
+        prepareShadowedDeclaration(node.names);
+        const bool directAnalyzedInitializer =
+            node.semanticValid && !node.initializers.empty() &&
+            node.initializerKind == VariableDeclarationAst::InitializerKind::Assignment &&
+            node.initializers.size() == node.names.size() &&
+            std::any_of(node.initializers.begin(), node.initializers.end(), [](const auto& value) {
+                return containsContextualEmptyLiteral(value.get());
+            }) &&
+            std::none_of(node.initializers.begin(), node.initializers.end(), [](const auto& value) {
+                const auto* call = dynamic_cast<const CallExpr*>(value.get());
+                return call && !call->receiver && call->callee == "input";
+            });
+        if (directAnalyzedInitializer) {
+            std::string generated;
+            for (size_t i = 0; i < node.names.size(); ++i) {
+                const Expr& initializer = *node.initializers[i];
+                std::string value = generateAnalyzedExpression(
+                    initializer,
+                    node.syntax.lineNumber,
+                    context.options.shouldRun,
+                    context.declaredFunctions
+                );
+                const auto* nullLiteral = dynamic_cast<const LiteralExpr*>(&initializer);
+                const bool nullValue = nullLiteral && nullLiteral->kind == LiteralExpr::Kind::Null;
+                if (!nullValue && initializer.inferredType != node.resolvedType) {
+                    value = castExpressionTo(value, initializer.inferredType, node.resolvedType);
+                }
+                if (i > 0) generated += " ";
+                generated += cppTypeForType(node.resolvedType) + " " + node.names[i] + " = " + value + ";";
+                context.declaredVariables[node.names[i]] = node.resolvedType;
+                if (!context.blockDeclaredNames.empty()) {
+                    context.blockDeclaredNames.back().push_back(node.names[i]);
+                }
+            }
+            context.queueGeneratedLine(
+                withComment(indentGeneratedStatement(generated, context.blockDepth), node.syntax),
+                node.syntax.lineNumber
+            );
+            return;
+        }
+
         const std::map<std::string, Type> before = context.declaredVariables;
         const std::vector<Token> tokens = withoutTrailingSemicolon(node.syntax.tokens);
         ResolvedDeclarationSyntax declaration;
@@ -1157,17 +1211,18 @@ private:
         if (!buildFunctionHeader(node, signature, generatedSignature, nameColumn)) return;
 
         if (method) {
-            auto& methods = context.declaredStructMethods[context.currentStructName];
-            if (methods.count(signature.name) != 0) {
-                recordSourceError(context.options.inputFile, node.syntax.lineNumber, nameColumn,
-                    "duplicate method '" + signature.name + "'", context.sourceLines);
-                return;
+            // Member signatures were registered and checked by semantic
+            // analysis. Lowering only consumes that resolved table.
+            const auto resolved = analyzed.aggregateMethods.find(context.currentStructName);
+            if (resolved != analyzed.aggregateMethods.end()) {
+                const auto found = resolved->second.find(signature.name);
+                if (found != resolved->second.end()) signature = found->second;
             }
-            methods[signature.name] = signature;
             context.currentStructMethodName = signature.name;
             context.queueTopLevelLine("    " + generatedSignature, node.syntax.lineNumber);
             context.savedDeclaredVariables = context.declaredVariables;
             context.declaredVariables = context.declaredStructs[context.currentStructName];
+            context.declaredVariables["self"] = Type(PrimitiveType::Struct, context.currentStructName);
             for (const FunctionParameter& parameter : signature.parameters) {
                 context.declaredVariables[parameter.name] = parameter.type;
             }
@@ -1231,38 +1286,21 @@ private:
         if (!result.ok) return;
         bool accepted = true;
         for (const auto& field : fields) {
-            if (context.declaredStructs[context.currentStructName].count(field.first) != 0) {
-                recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
-                    "field '" + field.first + "' is already declared", context.sourceLines);
+            const auto resolvedAggregate = analyzed.aggregateFields.find(context.currentStructName);
+            const auto resolvedField = resolvedAggregate == analyzed.aggregateFields.end()
+                ? std::map<std::string, Type>::const_iterator{}
+                : resolvedAggregate->second.find(field.first);
+            if (resolvedAggregate == analyzed.aggregateFields.end() ||
+                resolvedField == resolvedAggregate->second.end()) {
                 accepted = false;
                 continue;
             }
-            if (!context.currentStructIsClass && containsCustomType(field.second)) {
-                recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
-                    "struct fields cannot contain custom types; use a class for recursive or nested custom values",
-                    context.sourceLines);
-                accepted = false;
-                continue;
-            }
-            context.declaredStructs[context.currentStructName][field.first] = field.second;
             context.currentStructFields.push_back(field.first);
-            context.declaredStructFieldOrders[context.currentStructName].push_back(field.first);
         }
         if (accepted) context.queueTopLevelLine("    " + trim(result.generatedStatement), node.syntax.lineNumber);
     }
 
     void compileAggregate(const AggregateDeclarationAst& node) {
-        const std::string kind = node.isClass ? "class" : "struct";
-        if (context.declaredStructs.count(node.name) != 0 || declaredTypeForName(node.name) != PrimitiveType::Unknown) {
-            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
-                node.syntax.startColumn + 7,
-                kind + " '" + node.name + "' is already declared", context.sourceLines);
-            return;
-        }
-        context.declaredStructs[node.name] = {};
-        context.declaredStructFieldOrders[node.name] = {};
-        context.declaredStructMethods[node.name] = {};
-        if (node.isClass) context.declaredClassNames.insert(node.name);
         context.currentStructIsClass = node.isClass;
         context.currentStructName = node.name;
         context.currentStructFields.clear();
@@ -1333,7 +1371,12 @@ private:
             const Type& type = fields.at(field);
             if (fieldIndex++ > 0) equal += " && ";
             if (isClassType(type)) {
-                equal += "((" + field + " && other." + field + ") ? (*" + field + " == *other." + field + ") : (!" + field + " && !other." + field + "))";
+                if (deferredClassEqualityFields.count(context.currentStructName + "." + field) != 0) {
+                    equal += "CPPPClassEqual(" + field + ", other." + field + ")";
+                } else {
+                    equal += "((" + field + " && other." + field + ") ? (*" + field +
+                        " == *other." + field + ") : (!" + field + " && !other." + field + "))";
+                }
             } else {
                 if (isCollectionType(type) || isPairType(type)) requireContainerMember(type, "compare_eq");
                 if (isHeapType(type)) {
@@ -1372,6 +1415,7 @@ private:
         context.blockKinds.pop_back();
         context.blockBreakFlags.pop_back();
         context.blockDeclaredNames.pop_back();
+        context.blockShadowedVariables.pop_back();
         --context.blockDepth;
         context.currentStructIsClass = false;
         context.currentStructName.clear();
@@ -1381,10 +1425,15 @@ private:
 };
 }
 
-void compileProgramAst(CompileContext& context, const ProgramAst& program) {
+void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& analyzed) {
+    if (!analyzed.program || !analyzed.valid) return;
+    context.declaredStructs = analyzed.aggregateFields;
+    context.declaredStructFieldOrders = analyzed.aggregateFieldOrder;
+    context.declaredStructMethods = analyzed.aggregateMethods;
+    context.declaredClassNames = analyzed.classNames;
     setDeclaredStructsForExpressions(&context.declaredStructs);
     setDeclaredClassNamesForExpressions(&context.declaredClassNames);
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
-    AstLowerer(context).compile(program);
+    AstLowerer(context, analyzed).compile(*analyzed.program);
 }

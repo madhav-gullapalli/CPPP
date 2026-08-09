@@ -21,6 +21,12 @@ struct Expr {
     Type inferredType = PrimitiveType::Unknown;
     bool mutableValue = false;
     bool explicitCast = false;
+    // Filled only by semantic analysis. Syntax parsing leaves these defaults.
+    bool semanticAnalyzed = false;
+    bool semanticValid = false;
+    bool hasImplicitConversion = false;
+    Type implicitConversionTarget;
+    std::string resolvedSymbol;
 
     virtual ~Expr() = default;
 };
@@ -75,6 +81,7 @@ struct VariableExpr : Expr {
 struct FieldExpr : Expr {
     std::unique_ptr<Expr> base;
     std::string field;
+    std::string resolvedOwnerType;
 
     FieldExpr(std::unique_ptr<Expr> base, std::string field, int sourceColumn, SourceSpan sourceSpan = {}) :
         base(std::move(base)), field(std::move(field)) {
@@ -149,6 +156,7 @@ struct CallExpr : Expr {
     // named arguments such as print(..., end = "").
     std::vector<std::string> argumentNames;
     bool partialApplication = false;
+    std::string resolvedCallable;
 
     CallExpr(
         std::string callee,
@@ -171,6 +179,7 @@ struct CallExpr : Expr {
 struct IndexExpr : Expr {
     std::unique_ptr<Expr> base;
     std::unique_ptr<Expr> index;
+    bool dynamicPairIndex = false;
 
     IndexExpr(
         std::unique_ptr<Expr> base,

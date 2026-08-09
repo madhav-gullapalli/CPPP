@@ -672,18 +672,6 @@ Type declaredTypeForName(const std::string& name) {
     if (name == "Pair") {
         return PrimitiveType::Pair;
     }
-    if (name == "vector") {
-        return PrimitiveType::List;
-    }
-    if (name == "set") {
-        return PrimitiveType::Set;
-    }
-    if (name == "map") {
-        return PrimitiveType::Map;
-    }
-    if (name == "pair") {
-        return PrimitiveType::Pair;
-    }
     if (name == "string") {
         return Type(PrimitiveType::List, {Type(PrimitiveType::Char)});
     }

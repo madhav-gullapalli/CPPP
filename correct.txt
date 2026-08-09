@@ -1535,11 +1535,11 @@ function definition and call
   Output:
     25
 
-vector alias parameter
-  Function parameters may use `vector<T>` as an alias for `List<T>`.
+canonical List parameter
+  Function parameters use the canonical `List<T>` spelling.
 
   Example:
-    int sumV(vector<int> values){
+    int sumV(List<int> values){
         return sum(values);
     }
     List<int> values = [1, 2, 3, 4];
@@ -3057,6 +3057,8 @@ class fields, aliases, and recursive links output
 
 class equality output
   Class equality compares every field, including recursively owned fields.
+  `NULL` is a sentinel and is never equal to any value, including another
+  null class handle.
 
   Example:
     class Point {
@@ -3070,7 +3072,7 @@ class equality output
     print(a == b, a == c, empty == NULL);
 
   Output:
-    1 0 1
+    1 0 0
 
 class function parameter output
   Class parameters are passed by reference, so a function can update fields.
@@ -4222,3 +4224,100 @@ safe input binary search
 
   Output:
     2
+
+Semantic analysis decisions
+---------------------------
+
+acyclic nested struct values
+  Structs may directly contain other structs, classes, and Lists of their own
+  type. Semantic analysis orders inline definitions and rejects only direct
+  struct-value cycles.
+
+  Example:
+    struct Box { Point corner; }
+    struct Point { int x; }
+    class Owner { Box box; }
+    struct Forest { List<Forest> children; }
+    Point point = Point(7);
+    Box box = Box(point);
+    Owner owner = Owner(box);
+    Forest forest = Forest([]);
+    print(owner.box.corner.x, len(forest.children));
+
+  Output:
+    7 0
+
+inner block shadowing
+  An inner lexical block may shadow an outer variable. The outer binding is
+  visible again after the block ends.
+
+  Example:
+    int value = 1;
+    if (true) {
+        int value = 2;
+        print(value);
+    }
+    print(value);
+
+  Output:
+    2
+    1
+
+open and copy slices
+  Either List slice bound may be omitted. Omitting both bounds creates a new
+  List with the same values.
+
+  Example:
+    List<int> values = [1, 2, 3, 4];
+    print(values[:2], values[2:], values[:]);
+
+  Output:
+    [1, 2] [3, 4] [1, 2, 3, 4]
+
+dynamic homogeneous Pair index
+  A Pair whose two slots have the same type may use a runtime int index.
+
+  Example:
+    Pair<int, int> point = (8, 9);
+    int index = 1;
+    print(point[index]);
+
+  Output:
+    9
+
+bitwise result keeps left type
+  Bitwise and shift expressions use the type of their left operand.
+
+  Example:
+    char value = 'A';
+    var shifted = value << 0;
+    print(shifted);
+
+  Output:
+    A
+
+NULL comparisons are universal and never equal
+  Any value may be compared with `NULL`. Equality is always false and
+  inequality is always true, including `NULL == NULL`.
+
+  Example:
+    print(1 == NULL, NULL != "x", NULL == NULL);
+
+  Output:
+    0 1 0
+
+all-path function return
+  A non-void function is valid when every branch returns a compatible value.
+
+  Example:
+    float choose(bool first) {
+        if (first) {
+            return 1;
+        } else {
+            return 2.5;
+        }
+    }
+    print(choose(true), choose(false));
+
+  Output:
+    1 2.5

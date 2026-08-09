@@ -1,0 +1,19 @@
+class Counter {
+    int value;
+    void add(int amount) {
+        value += amount;
+    }
+}
+
+int sumPositive(List<int> values) {
+    int total = 0;
+    for (int value in values) {
+        if (value > 0) {
+            total += value;
+        }
+    }
+    return total;
+}
+
+List<int> values = [2, -1, 4];
+print(sumPositive(values));

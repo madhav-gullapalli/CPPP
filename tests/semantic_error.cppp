@@ -1,0 +1,14 @@
+vector<int> legacy;
+int duplicate(int value, int value) {
+    return value;
+}
+int collision = 1;
+int collision() {
+    return 2;
+}
+struct Left {
+    Right right;
+}
+struct Right {
+    Left left;
+}

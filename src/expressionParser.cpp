@@ -101,57 +101,52 @@ public:
         int lineNumber,
         const std::map<int, std::string>& sourceLines,
         const std::map<std::string, Type>& declaredVariables,
-        const std::map<std::string, FunctionSignature>& declaredFunctions
+        const std::map<std::string, FunctionSignature>& declaredFunctions,
+        const std::map<std::string, int>* futureVariableLines = nullptr
     ) :
         inputFile(inputFile),
         lineNumber(lineNumber),
         sourceLines(sourceLines),
         declaredVariables(declaredVariables),
-        declaredFunctions(declaredFunctions) {}
+        declaredFunctions(declaredFunctions),
+        futureVariableLines(futureVariableLines) {}
 
 // analyze analyzes the construct and validates its semantics.
     bool analyze(Expr& expr) {
+        if (expr.semanticAnalyzed) {
+            return expr.semanticValid;
+        }
+        bool result = false;
         if (auto* literal = dynamic_cast<LiteralExpr*>(&expr)) {
-            return analyzeLiteral(*literal);
+            result = analyzeLiteral(*literal);
+        } else if (auto* variable = dynamic_cast<VariableExpr*>(&expr)) {
+            result = analyzeVariable(*variable);
+        } else if (auto* field = dynamic_cast<FieldExpr*>(&expr)) {
+            result = analyzeField(*field);
+        } else if (auto* unary = dynamic_cast<UnaryExpr*>(&expr)) {
+            result = analyzeUnary(*unary);
+        } else if (auto* binary = dynamic_cast<BinaryExpr*>(&expr)) {
+            result = analyzeBinary(*binary);
+        } else if (auto* cast = dynamic_cast<CastExpr*>(&expr)) {
+            result = analyzeCast(*cast);
+        } else if (auto* call = dynamic_cast<CallExpr*>(&expr)) {
+            result = analyzeCall(*call);
+        } else if (auto* index = dynamic_cast<IndexExpr*>(&expr)) {
+            result = analyzeIndex(*index);
+        } else if (auto* slice = dynamic_cast<SliceExpr*>(&expr)) {
+            result = analyzeSlice(*slice);
+        } else if (auto* list = dynamic_cast<ListLiteralExpr*>(&expr)) {
+            result = analyzeListLiteral(*list);
+        } else if (auto* set = dynamic_cast<SetLiteralExpr*>(&expr)) {
+            result = analyzeSetLiteral(*set);
+        } else if (auto* map = dynamic_cast<MapLiteralExpr*>(&expr)) {
+            result = analyzeMapLiteral(*map);
+        } else if (auto* pair = dynamic_cast<PairLiteralExpr*>(&expr)) {
+            result = analyzePairLiteral(*pair);
         }
-        if (auto* variable = dynamic_cast<VariableExpr*>(&expr)) {
-            return analyzeVariable(*variable);
-        }
-        if (auto* field = dynamic_cast<FieldExpr*>(&expr)) {
-            return analyzeField(*field);
-        }
-        if (auto* unary = dynamic_cast<UnaryExpr*>(&expr)) {
-            return analyzeUnary(*unary);
-        }
-        if (auto* binary = dynamic_cast<BinaryExpr*>(&expr)) {
-            return analyzeBinary(*binary);
-        }
-        if (auto* cast = dynamic_cast<CastExpr*>(&expr)) {
-            return analyzeCast(*cast);
-        }
-        if (auto* call = dynamic_cast<CallExpr*>(&expr)) {
-            return analyzeCall(*call);
-        }
-        if (auto* index = dynamic_cast<IndexExpr*>(&expr)) {
-            return analyzeIndex(*index);
-        }
-        if (auto* slice = dynamic_cast<SliceExpr*>(&expr)) {
-            return analyzeSlice(*slice);
-        }
-        if (auto* list = dynamic_cast<ListLiteralExpr*>(&expr)) {
-            return analyzeListLiteral(*list);
-        }
-        if (auto* set = dynamic_cast<SetLiteralExpr*>(&expr)) {
-            return analyzeSetLiteral(*set);
-        }
-        if (auto* map = dynamic_cast<MapLiteralExpr*>(&expr)) {
-            return analyzeMapLiteral(*map);
-        }
-        if (auto* pair = dynamic_cast<PairLiteralExpr*>(&expr)) {
-            return analyzePairLiteral(*pair);
-        }
-
-        return false;
+        expr.semanticAnalyzed = true;
+        expr.semanticValid = result;
+        return result;
     }
 
 private:
@@ -160,6 +155,7 @@ private:
     const std::map<int, std::string>& sourceLines;
     const std::map<std::string, Type>& declaredVariables;
     const std::map<std::string, FunctionSignature>& declaredFunctions;
+    const std::map<std::string, int>* futureVariableLines;
 
     void report(int column, const std::string& message) const {
         recordSourceError(inputFile, lineNumber, column, message, sourceLines);
@@ -433,13 +429,29 @@ private:
             if (function != declaredFunctions.end()) {
                 expr.inferredType = functionTypeForSignature(function->second);
                 expr.mutableValue = false;
+                expr.resolvedSymbol = "function:" + expr.name;
                 return true;
             }
             const Type builtinType = builtinFunctionType(expr.name);
             if (isFunctionType(builtinType)) {
                 expr.inferredType = builtinType;
                 expr.mutableValue = false;
+                expr.resolvedSymbol = "builtin:" + expr.name;
                 return true;
+            }
+            if (futureVariableLines != nullptr) {
+                const auto future = futureVariableLines->find(expr.name);
+                if (future != futureVariableLines->end() && future->second > lineNumber) {
+                    reportNameSuggestion(
+                        expr.sourceColumn,
+                        expr.sourceSpan,
+                        "variable '" + expr.name + "' is used before its declaration",
+                        expr.name,
+                        {},
+                        "move the declaration of '" + expr.name + "' before this use"
+                    );
+                    return false;
+                }
             }
             std::vector<std::string> candidates;
             candidates.reserve(declaredVariables.size());
@@ -465,6 +477,7 @@ private:
 
         expr.inferredType = variable->second;
         expr.mutableValue = true;
+        expr.resolvedSymbol = "variable:" + expr.name;
         return true;
     }
 
@@ -526,6 +539,8 @@ private:
         }
         expr.inferredType = field->second;
         expr.mutableValue = expr.base->mutableValue;
+        expr.resolvedOwnerType = expr.base->inferredType.name;
+        expr.resolvedSymbol = "field:" + expr.base->inferredType.name + "." + expr.field;
         return true;
     }
 
@@ -639,7 +654,7 @@ private:
                 report(expr.sourceColumn, "cannot use '" + expr.op + "' with " + cpppTypeName(expr.left->inferredType) + " and " + cpppTypeName(expr.right->inferredType));
                 return false;
             }
-            expr.inferredType = PrimitiveType::Int;
+            expr.inferredType = expr.left->inferredType;
             return true;
         }
 
@@ -651,9 +666,8 @@ private:
             const bool leftNull = leftLiteral != nullptr && leftLiteral->kind == LiteralExpr::Kind::Null;
             const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
             if (leftNull || rightNull) {
-                const Type& structSide = leftNull ? rightType : leftType;
-                if ((expr.op != "==" && expr.op != "!=") || !isClassType(structSide)) {
-                    report(expr.sourceColumn, "NULL can only be compared with a class using == or !=");
+                if (expr.op != "==" && expr.op != "!=") {
+                    report(expr.sourceColumn, "NULL can only be compared using == or !=");
                     return false;
                 }
                 expr.inferredType = PrimitiveType::Bool;
@@ -732,6 +746,21 @@ private:
         for (const std::unique_ptr<Expr>& argument : expr.arguments) {
             if (!analyze(*argument)) {
                 return false;
+            }
+        }
+
+        if (expr.receiver) {
+            expr.resolvedCallable = "method:" + cpppTypeName(expr.receiver->inferredType) + "." + expr.callee;
+        } else {
+            const auto variable = declaredVariables.find(expr.callee);
+            if (variable != declaredVariables.end() && isFunctionType(variable->second)) {
+                expr.resolvedCallable = "function-variable:" + expr.callee;
+            } else if (declaredFunctions.count(expr.callee) != 0) {
+                expr.resolvedCallable = "function:" + expr.callee;
+            } else if (isStructType(declaredTypeForName(expr.callee))) {
+                expr.resolvedCallable = "constructor:" + expr.callee;
+            } else {
+                expr.resolvedCallable = "builtin:" + expr.callee;
             }
         }
 
@@ -1195,6 +1224,7 @@ private:
         const auto function = declaredFunctions.find(expr.callee);
         if (function != declaredFunctions.end()) {
             const FunctionSignature& signature = function->second;
+            expr.functionType = functionTypeForSignature(signature);
             if (expr.arguments.size() > signature.parameters.size()) {
                 std::string expected;
                 for (size_t i = 0; i < signature.parameters.size(); ++i) {
@@ -1297,11 +1327,22 @@ private:
                         expr.mutableValue = expr.base->mutableValue;
                         return true;
                     }
+                    report(expr.sourceColumn, "pair index must be 0 or 1");
+                    return false;
                 }
             }
-
-            report(expr.sourceColumn, "pair index must be 0 or 1");
-            return false;
+            if (expr.index->inferredType != PrimitiveType::Int) {
+                report(expr.sourceColumn, "pair index must be int");
+                return false;
+            }
+            if (expr.base->inferredType.subtypes[0] != expr.base->inferredType.subtypes[1]) {
+                report(expr.sourceColumn, "dynamic Pair indexing requires both elements to have the same type; use [0] or [1]");
+                return false;
+            }
+            expr.inferredType = expr.base->inferredType.subtypes[0];
+            expr.mutableValue = expr.base->mutableValue;
+            expr.dynamicPairIndex = true;
+            return true;
         }
 
         if (!isMapType(expr.base->inferredType)) {
@@ -1322,7 +1363,8 @@ private:
 
 // analyzeSlice analyzes the construct and validates its semantics.
     bool analyzeSlice(SliceExpr& expr) {
-        if (!analyze(*expr.base) || !analyze(*expr.start) || !analyze(*expr.end)) {
+        if (!analyze(*expr.base) || (expr.start && !analyze(*expr.start)) ||
+            (expr.end && !analyze(*expr.end))) {
             return false;
         }
 
@@ -1331,12 +1373,12 @@ private:
             return false;
         }
 
-        if (expr.start->inferredType != PrimitiveType::Int) {
+        if (expr.start && expr.start->inferredType != PrimitiveType::Int) {
             report(expr.start->sourceColumn, "slice start must be int");
             return false;
         }
 
-        if (expr.end->inferredType != PrimitiveType::Int) {
+        if (expr.end && expr.end->inferredType != PrimitiveType::Int) {
             report(expr.end->sourceColumn, "slice end must be int");
             return false;
         }
@@ -1508,6 +1550,7 @@ private:
     const std::map<std::string, FunctionSignature>& declaredFunctions;
 
     std::string generateVariable(const VariableExpr& expr) const {
+        if (expr.name == "self") return "(*this)";
         if (expr.name == "sum" && isFunctionType(expr.inferredType)) {
             requireRuntimeHelper("CPPPFunctionType");
             requireContainerMember(expr.inferredType.subtypes[1], "begin_mut");
@@ -1683,6 +1726,9 @@ private:
                 requireContainerMember(expr.right->inferredType, "end_const");
                 const Type elementType = expr.right->inferredType.subtypes[0];
                 if (expr.left->inferredType == elementType) {
+                    if (isCollectionType(elementType) || isPairType(elementType)) {
+                        requireContainerMember(elementType, "compare_eq");
+                    }
                     return "([&]() { const auto& __cppp_list = " + right + "; return find(__cppp_list.begin(), __cppp_list.end(), " + left + ") != __cppp_list.end(); }())";
                 }
                 if (expr.left->inferredType != expr.right->inferredType) {
@@ -1692,6 +1738,10 @@ private:
                 return "CPPPListContainsSublist(" + right + ", " + left + ")";
             }
             const Type elementType = expr.right->inferredType.subtypes[0];
+            if (isListType(expr.right->inferredType) &&
+                (isCollectionType(elementType) || isPairType(elementType))) {
+                requireContainerMember(elementType, "compare_eq");
+            }
             std::string needle = left;
             if (!isImplicitlyConvertible(expr.left->inferredType, elementType) || expr.left->inferredType != elementType) {
                 needle = castExpressionTo(needle, expr.left->inferredType, elementType);
@@ -1720,6 +1770,12 @@ private:
         const auto* rightLiteral = dynamic_cast<const LiteralExpr*>(expr.right.get());
         const bool leftNull = leftLiteral != nullptr && leftLiteral->kind == LiteralExpr::Kind::Null;
         const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
+        if ((expr.op == "==" || expr.op == "!=") && (leftNull || rightNull)) {
+            if (leftNull && rightNull) return expr.op == "==" ? "false" : "true";
+            const std::string& value = leftNull ? right : left;
+            return "([&]() { (void)(" + value + "); return " +
+                (expr.op == "==" ? "false" : "true") + "; }())";
+        }
         if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.left->inferredType) && rightNull) {
             const std::string equal = "(" + left + " == nullptr)";
             return expr.op == "==" ? equal : "(!" + equal + ")";
@@ -2201,8 +2257,17 @@ private:
         }
         if (isPairType(expr.base->inferredType)) {
             const auto* literal = dynamic_cast<const LiteralExpr*>(expr.index.get());
-            requireContainerMember(expr.base->inferredType, literal != nullptr && literal->text == "0" ? "first_const" : "second_const");
-            return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
+            if (literal != nullptr) {
+                requireContainerMember(expr.base->inferredType, literal->text == "0" ? "first_const" : "second_const");
+                return "((" + base + ")." + (literal->text == "0" ? "first()" : "second()") + ")";
+            }
+            requireContainerMember(expr.base->inferredType, "first_const");
+            requireContainerMember(expr.base->inferredType, "second_const");
+            return "([&]() -> decltype(auto) { const auto& __cppp_pair = " + base +
+                "; long long __cppp_index = static_cast<long long>(" + index +
+                "); if (__cppp_index != 0 && __cppp_index != 1) { " +
+                runtimeErrorThrowExpression(expr.sourceColumn, "Pair index must be 0 or 1") +
+                "; } return __cppp_index == 0 ? __cppp_pair.first() : __cppp_pair.second(); }())";
         }
         const Type keyType = expr.base->inferredType.subtypes[0];
         requireContainerMember(expr.base->inferredType, "index_mut");
@@ -2234,8 +2299,17 @@ private:
             }
             if (isPairType(index->base->inferredType)) {
                 const auto* literal = dynamic_cast<const LiteralExpr*>(index->index.get());
-                requireContainerMember(index->base->inferredType, literal != nullptr && literal->text == "0" ? "first_mut" : "second_mut");
-                return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
+                if (literal != nullptr) {
+                    requireContainerMember(index->base->inferredType, literal->text == "0" ? "first_mut" : "second_mut");
+                    return "((" + base + ")." + (literal->text == "0" ? "first()" : "second()") + ")";
+                }
+                requireContainerMember(index->base->inferredType, "first_mut");
+                requireContainerMember(index->base->inferredType, "second_mut");
+                return "([&]() -> decltype(auto) { auto& __cppp_pair = " + base +
+                    "; long long __cppp_index = static_cast<long long>(" + generatedIndex +
+                    "); if (__cppp_index != 0 && __cppp_index != 1) { " +
+                    runtimeErrorThrowExpression(index->sourceColumn, "Pair index must be 0 or 1") +
+                    "; } return __cppp_index == 0 ? __cppp_pair.first() : __cppp_pair.second(); }())";
             }
             const Type keyType = index->base->inferredType.subtypes[0];
             requireContainerMember(index->base->inferredType, "index_mut");
@@ -2256,8 +2330,8 @@ private:
 // generateSlice implements the generateSlice behavior for the expressionParser.cpp module.
     std::string generateSlice(const SliceExpr& expr) const {
         const std::string base = generate(*expr.base);
-        const std::string start = generate(*expr.start);
-        const std::string end = generate(*expr.end);
+        const std::string start = expr.start ? generate(*expr.start) : "0";
+        const std::string end = expr.end ? generate(*expr.end) : "LLONG_MAX";
         if (emitRuntimeChecks) {
             requireRuntimeHelper("CPPPListSlice");
             return "CPPPListSlice(" + base + ", " + start + ", " + end + ")";
@@ -2267,7 +2341,9 @@ private:
         requireContainerMember(expr.base->inferredType, "end_const");
         requireContainerMember(expr.inferredType, "ctor_default");
         requireContainerMember(expr.inferredType, "ctor_iterator");
-        return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = static_cast<long long>(" + end + "); long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
+        return "([&]() { const auto& __cppp_list = " + base + "; long long __cppp_start = static_cast<long long>(" + start + "); long long __cppp_end = " +
+            (expr.end ? "static_cast<long long>(" + end + ")" : "static_cast<long long>(__cppp_list.size())") +
+            "; long long __cppp_size = static_cast<long long>(__cppp_list.size()); if (__cppp_start < 0) __cppp_start += __cppp_size; if (__cppp_end < 0) __cppp_end += __cppp_size; __cppp_start = max(0LL, min(__cppp_start, __cppp_size)); __cppp_end = max(0LL, min(__cppp_end, __cppp_size)); if (__cppp_start >= __cppp_end) return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">{}; return CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">(__cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_start), __cppp_list.begin() + static_cast<CPPPList<" + cppTypeForExpressionType(expr.inferredType.subtypes[0]) + ">::difference_type>(__cppp_end)); }())";
     }
 
 // generateListLiteral implements the generateListLiteral behavior for the expressionParser.cpp module.
@@ -2332,7 +2408,18 @@ private:
 
     std::string generatePairLiteral(const PairLiteralExpr& expr) const {
         requireContainerMember(expr.inferredType, "ctor_values");
-        return "CPPPPair<" + cppTypeForExpressionType(expr.first->inferredType) + ", " + cppTypeForExpressionType(expr.second->inferredType) + ">(" + generate(*expr.first) + ", " + generate(*expr.second) + ")";
+        const Type& firstType = expr.inferredType.subtypes[0];
+        const Type& secondType = expr.inferredType.subtypes[1];
+        std::string first = generate(*expr.first);
+        std::string second = generate(*expr.second);
+        if (expr.first->inferredType != firstType) {
+            first = castExpressionTo(first, expr.first->inferredType, firstType);
+        }
+        if (expr.second->inferredType != secondType) {
+            second = castExpressionTo(second, expr.second->inferredType, secondType);
+        }
+        return "CPPPPair<" + cppTypeForExpressionType(firstType) + ", " +
+            cppTypeForExpressionType(secondType) + ">(" + first + ", " + second + ")";
     }
 
     std::string generateField(const FieldExpr& expr) const {
@@ -2375,8 +2462,17 @@ std::string generateMutableAccessExpression(
         }
         if (isPairType(index->base->inferredType)) {
             const auto* literal = dynamic_cast<const LiteralExpr*>(index->index.get());
-            requireContainerMember(index->base->inferredType, literal != nullptr && literal->text == "0" ? "first_mut" : "second_mut");
-            return "((" + base + ")." + (literal != nullptr && literal->text == "0" ? "first()" : "second()") + ")";
+            if (literal != nullptr) {
+                requireContainerMember(index->base->inferredType, literal->text == "0" ? "first_mut" : "second_mut");
+                return "((" + base + ")." + (literal->text == "0" ? "first()" : "second()") + ")";
+            }
+            requireContainerMember(index->base->inferredType, "first_mut");
+            requireContainerMember(index->base->inferredType, "second_mut");
+            return "([&]() -> decltype(auto) { auto& __cppp_pair = " + base +
+                "; long long __cppp_index = static_cast<long long>(" + generatedIndex +
+                "); if (__cppp_index != 0 && __cppp_index != 1) { throw runtime_error(\"" +
+                std::to_string(lineNumber) + ":" + std::to_string(index->sourceColumn) +
+                ":Pair index must be 0 or 1\"); } return __cppp_index == 0 ? __cppp_pair.first() : __cppp_pair.second(); }())";
         }
         const Type keyType = index->base->inferredType.subtypes[0];
         requireContainerMember(index->base->inferredType, "index_mut");
@@ -2391,6 +2487,35 @@ std::string generateMutableAccessExpression(
     }
     return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expr);
 }
+}
+
+bool analyzeExpressionAst(
+    Expr& expression,
+    const std::string& inputFile,
+    int lineNumber,
+    const std::map<int, std::string>& sourceLines,
+    const std::map<std::string, Type>& declaredVariables,
+    const std::map<std::string, FunctionSignature>& declaredFunctions,
+    const std::map<std::string, int>* futureVariableLines
+) {
+    ExpressionAnalyzer analyzer(
+        inputFile,
+        lineNumber,
+        sourceLines,
+        declaredVariables,
+        declaredFunctions,
+        futureVariableLines
+    );
+    return analyzer.analyze(expression);
+}
+
+std::string generateAnalyzedExpression(
+    const Expr& expression,
+    int lineNumber,
+    bool emitRuntimeChecks,
+    const std::map<std::string, FunctionSignature>& declaredFunctions
+) {
+    return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expression);
 }
 
 ExpressionParser::ExpressionParser(
@@ -2830,11 +2955,17 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
            isOperator("++") || isOperator("--"))) {
         if (match(TokenKind::LeftBracket)) {
             const Token& leftBracket = previous();
-            std::unique_ptr<Expr> start = parseLogicalOr(ok);
-            if (!ok) return nullptr;
-            if (match(TokenKind::Operator, ":")) {
-                std::unique_ptr<Expr> end = parseLogicalOr(ok);
+            std::unique_ptr<Expr> start;
+            if (!isOperator(":")) {
+                start = parseLogicalOr(ok);
                 if (!ok) return nullptr;
+            }
+            if (match(TokenKind::Operator, ":")) {
+                std::unique_ptr<Expr> end;
+                if (!check(TokenKind::RightBracket)) {
+                    end = parseLogicalOr(ok);
+                    if (!ok) return nullptr;
+                }
                 if (!match(TokenKind::RightBracket)) {
                     report(leftBracket, "unclosed bracket in list slice");
                     ok = false;
@@ -2842,6 +2973,11 @@ std::unique_ptr<Expr> ExpressionParser::parsePostfix(bool& ok) {
                 }
                 expression = std::make_unique<SliceExpr>(std::move(expression), std::move(start), std::move(end), absoluteColumn(leftBracket), leftBracket.sourceSpan);
                 continue;
+            }
+            if (!start) {
+                report(leftBracket, "expected index or ':' after '['");
+                ok = false;
+                return nullptr;
             }
             if (!match(TokenKind::RightBracket)) {
                 report(leftBracket, "unclosed bracket in list index");

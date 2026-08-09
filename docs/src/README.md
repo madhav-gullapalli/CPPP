@@ -17,13 +17,16 @@ The compiler pipeline today is:
    one `CompileContext`, and tokenizes the complete source once.
 3. `src/astParser.cpp` uses parser-internal token-backed views to parse the
    canonical `TokenStream` into one recursive, syntax-only `ProgramAst`.
-4. `src/statementCompiler.cpp` recursively consumes concrete AST nodes and
-   performs semantic checks and codegen using the existing helper modules.
-5. `src/programEmitter.cpp` turns the generated line buffers in
+4. `src/semanticAnalyzer.cpp` resolves names and types, validates scopes,
+   conversions, calls, returns, loops, and aggregates, and produces an
+   `AnalyzedProgramAst` view over the enriched tree.
+5. `src/statementCompiler.cpp` consumes only a valid `AnalyzedProgramAst` and
+   lowers it to generated C++ lines.
+6. `src/programEmitter.cpp` turns the generated line buffers in
    `CompileContext` into one readable C++ translation unit.
-6. `src/submitPostProcessor.cpp` optionally compacts the completed translation
+7. `src/submitPostProcessor.cpp` optionally compacts the completed translation
    unit for `--submit`; `--readable` skips this post-processing pass.
-7. `src/compilerDriver.cpp` optionally invokes `g++` and optionally runs the
+8. `src/compilerDriver.cpp` optionally invokes `g++` and optionally runs the
    produced executable.
 
 If you only read two files first, make them:
@@ -38,9 +41,10 @@ This is a tiny CLI entry point. It just forwards `main(...)` to
 ## [src/compilerDriver.cpp](../../src/compilerDriver.cpp) and [src/compilerDriver.h](../../src/compilerDriver.h)
 These files own one end-to-end compiler invocation. The driver validates CLI
 flags, builds `CompileOptions`, opens the input file, creates the shared
-`CompileContext`, parses the canonical token stream into a `ProgramAst`, calls
-lowering, emits the output `.cpp`, and optionally invokes `g++` or runs the
-executable. `--ast` prints that tree and exits before lowering.
+`CompileContext`, parses the canonical token stream into a `ProgramAst`, runs
+semantic analysis, calls lowering, emits the output `.cpp`, and optionally
+invokes `g++` or runs the executable. `--ast` prints syntax; `--semantic`
+prints the deterministic analyzed tree and exits before lowering.
 
 ## [src/compileContext.h](../../src/compileContext.h)
 This header defines the shared state passed through the entire pipeline. It is
@@ -63,6 +67,12 @@ These files own the recursive full-program syntax tree, construct it without
 semantic symbol tables or C++ emission, validate its structural invariants, and
 provide deterministic `--ast` output. Nested blocks belong directly to their
 functions, aggregates, conditionals, and loops.
+
+## `src/semanticAst.h`, `src/semanticAnalyzer.*`, and `src/semanticPrinter.*`
+These files form the dedicated semantic stage. The analyzer walks recursive AST
+scope, resolves `TypeSyntax` and symbols, annotates expressions and statements,
+registers function/aggregate signatures, computes inline-struct dependencies,
+and rejects invalid programs before codegen. `--semantic` prints the result.
 
 ## [src/statementParser.cpp](../../src/statementParser.cpp) and [src/statementParser.h](../../src/statementParser.h)
 These files classify logical statements into a small statement AST. They are
@@ -113,8 +123,8 @@ This module provides emitted runtime support and type-emission machinery used by
 the generated C++ program.
 
 ## [src/statementCompiler.cpp](../../src/statementCompiler.cpp) and [src/statementCompiler.h](../../src/statementCompiler.h)
-This is the central direct lowering stage. It recursively dispatches on concrete
-`ProgramAst` nodes, uses owned `BlockAst` relationships to track scope, and
+This is the direct code-generation stage. It recursively dispatches on concrete
+nodes through `AnalyzedProgramAst`, uses owned `BlockAst` relationships, and
 routes expression-level work to assignment, list, print, and type helpers before
 queueing generated C++ lines into `CompileContext`.
 
@@ -157,7 +167,7 @@ helper machinery for list operations.
   block/closing-span attribution.
 
 ### `src/statementCompiler.cpp`
-- `compileProgramAst(...)` is the recursive semantic/codegen entry point.
+- `compileProgramAst(...)` is the analyzed-tree codegen entry point.
 - `AstLowerer::compileStatement(...)` dispatches concrete statement nodes.
 - `compileOwnedBlock(...)` owns scope entry, child traversal, and scope exit.
 

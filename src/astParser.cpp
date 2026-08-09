@@ -459,8 +459,10 @@ void fillVariableDeclaration(
     }
     declaration.continuationTokenIndex = declaration.inferredType ? firstName + 1 : cursor;
     if (hasAssignment) {
+        declaration.initializerKind = VariableDeclarationAst::InitializerKind::Assignment;
         parseExpressionsByComma(tokens, operation + 1, end, declaration.initializers);
     } else if (firstName + 1 < end && tokens[firstName + 1].kind == TokenKind::LeftParen) {
+        declaration.initializerKind = VariableDeclarationAst::InitializerKind::Parenthesized;
         const size_t close = findMatchingParen(tokens, firstName + 1, end);
         if (close <= end) parseExpressionsByComma(tokens, firstName + 2, close, declaration.initializers);
     }
@@ -861,7 +863,9 @@ bool validateExpression(const Expr* expression, SourceSpan parent, std::string& 
     } else if (const auto* node = dynamic_cast<const IndexExpr*>(expression)) {
         return child(node->base) && child(node->index);
     } else if (const auto* node = dynamic_cast<const SliceExpr*>(expression)) {
-        return child(node->base) && child(node->start) && child(node->end);
+        return child(node->base) &&
+            (!node->start || child(node->start)) &&
+            (!node->end || child(node->end));
     } else if (const auto* node = dynamic_cast<const ListLiteralExpr*>(expression)) {
         for (const auto& element : node->elements) if (!child(element)) return false;
     } else if (const auto* node = dynamic_cast<const SetLiteralExpr*>(expression)) {

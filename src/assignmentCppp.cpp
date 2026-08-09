@@ -169,6 +169,10 @@ AssignmentEmitResult emitParsedAssignment(
                 sourceLines);
             return {true, false, "", {}};
         }
+        requireContainerMember(target.type, "insert_range");
+        requireContainerMember(target.type, "end_mut");
+        requireContainerMember(expression.type, "begin_mut");
+        requireContainerMember(expression.type, "end_mut");
         return {
             true,
             true,

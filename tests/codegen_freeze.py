@@ -20,7 +20,7 @@ COMPILER = ROOT / "build" / ("cppp.exe" if os.name == "nt" else "cppp")
 DEFAULT_SNAPSHOT_DIR = ROOT / "tests" / "codegen_snapshots"
 DEFAULT_WORK_DIR = ROOT / "tests" / "tmp" / "codegen_freeze"
 MANIFEST_NAME = "manifest.json"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 
 
 def digest(text: str) -> str:
@@ -31,8 +31,9 @@ def case_source(case: Case) -> str:
     return case.example.rstrip() + "\n"
 
 
-def snapshot_name(index: int, case: Case) -> str:
-    return f"{index:03d}_{case.key}.cpp"
+def snapshot_name(index: int, case: Case, mode: str = "default") -> str:
+    suffix = ".submit.cpp" if mode == "submit" else ".cpp"
+    return f"{index:03d}_{case.key}{suffix}"
 
 
 def build_compiler() -> None:
@@ -58,11 +59,14 @@ def prepare_work_dir(work_dir: Path) -> Path:
     return case_dir
 
 
-def transpile(case: Case, case_dir: Path) -> str:
+def transpile(case: Case, case_dir: Path, mode: str = "default") -> str:
     source = case_dir / f"{case.key}.cppp"
     source.write_text(case_source(case), encoding="utf-8")
+    command = [str(COMPILER), "--cppp", str(source.relative_to(ROOT))]
+    if mode == "submit":
+        command.append("--submit")
     result = subprocess.run(
-        [str(COMPILER), "--cppp", str(source.relative_to(ROOT))],
+        command,
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -70,7 +74,7 @@ def transpile(case: Case, case_dir: Path) -> str:
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"{case.title} (correct.txt:{case.title_line}) failed to transpile:\n{result.stdout}"
+            f"{case.title} (correct.txt:{case.title_line}) failed in {mode} mode:\n{result.stdout}"
         )
     generated = source.with_suffix(".cpp")
     if not generated.exists():
@@ -86,6 +90,7 @@ def manifest_cases(cases: List[Case]) -> List[Dict[str, object]]:
             "title_line": case.title_line,
             "source_sha256": digest(case_source(case)),
             "snapshot": snapshot_name(index, case),
+            "submit_snapshot": snapshot_name(index, case, "submit"),
         }
         for index, case in enumerate(cases, start=1)
     ]
@@ -104,14 +109,18 @@ def record(cases: List[Case], snapshot_dir: Path, work_dir: Path) -> None:
 
     try:
         for index, case in enumerate(cases, start=1):
-            print_progress(index, len(cases), case, "recording")
+            print_progress(index, len(cases), case, "recording default and submit")
             generated = transpile(case, case_dir)
             (temporary_snapshots / snapshot_name(index, case)).write_text(generated, encoding="utf-8")
+            submit_generated = transpile(case, case_dir, "submit")
+            (temporary_snapshots / snapshot_name(index, case, "submit")).write_text(
+                submit_generated, encoding="utf-8"
+            )
 
         manifest = {
             "version": MANIFEST_VERSION,
             "catalog": "correct.txt",
-            "mode": "default transpile",
+            "modes": ["default transpile", "submit"],
             "cases": manifest_cases(cases),
         }
         (temporary_snapshots / MANIFEST_NAME).write_text(
@@ -165,7 +174,11 @@ def check(cases: List[Case], snapshot_dir: Path, work_dir: Path) -> None:
             "Review the catalog change, then run `make codegen-freeze-record` intentionally."
         )
 
-    expected_files = {str(entry["snapshot"]) for entry in expected_cases}
+    expected_files = {
+        str(entry[name])
+        for entry in expected_cases
+        for name in ("snapshot", "submit_snapshot")
+    }
     actual_files = {path.name for path in snapshot_dir.glob("*.cpp")}
     if actual_files != expected_files:
         missing = sorted(expected_files - actual_files)
@@ -180,15 +193,16 @@ def check(cases: List[Case], snapshot_dir: Path, work_dir: Path) -> None:
     case_dir = prepare_work_dir(work_dir)
     failures: List[str] = []
     for index, case in enumerate(cases, start=1):
-        print_progress(index, len(cases), case, "checking")
-        generated = transpile(case, case_dir)
-        name = snapshot_name(index, case)
-        expected = (snapshot_dir / name).read_text(encoding="utf-8")
-        if generated != expected:
-            failures.append(
-                f"{case.title} (correct.txt:{case.title_line}) changed codegen:\n"
-                + unified_difference(expected, generated, name)
-            )
+        print_progress(index, len(cases), case, "checking default and submit")
+        for mode in ("default", "submit"):
+            generated = transpile(case, case_dir, mode)
+            name = snapshot_name(index, case, mode)
+            expected = (snapshot_dir / name).read_text(encoding="utf-8")
+            if generated != expected:
+                failures.append(
+                    f"{case.title} (correct.txt:{case.title_line}) changed {mode} codegen:\n"
+                    + unified_difference(expected, generated, name)
+                )
 
     if failures:
         print(f"\nCodegen freeze detected {len(failures)} changed case(s):", file=sys.stderr)
@@ -198,7 +212,7 @@ def check(cases: List[Case], snapshot_dir: Path, work_dir: Path) -> None:
             "Generated C++ changed. Preserve the old codegen or explicitly record a new baseline after review."
         )
 
-    print(f"All {len(cases)} correct.txt codegen snapshots match.")
+    print(f"All {len(cases)} correct.txt default and submit codegen snapshots match.")
 
 
 def main() -> int:

@@ -3,17 +3,16 @@
  *
  * Main statement-lowering stage.
  *
- * This stage recursively consumes ProgramAst nodes, updates semantic scope
- * state, and queues generated C++ lines.
+ * This stage recursively consumes an already-valid AnalyzedProgramAst and
+ * queues generated C++ lines.
  */
 
 #pragma once
 
 #include "compileContext.h"
-#include "programAst.h"
+#include "semanticAst.h"
 
 #include <vector>
 
-// Semantic/codegen pass over the recursive ProgramAst. It never reparses
-// statement syntax or reconstructs parser fragments.
-void compileProgramAst(CompileContext& context, const ProgramAst& program);
+// Codegen pass over the analyzed recursive ProgramAst.
+void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& program);

@@ -1,0 +1,6 @@
+int invalidResult(int value) {
+    int doubled = value * 2;
+    return "not an int";
+}
+
+print(invalidResult(3));

@@ -1,0 +1,18 @@
+struct Box {
+    Point point;
+    Node owner;
+}
+struct Point {
+    int x;
+}
+class Node {
+    int value;
+}
+struct Forest {
+    List<Forest> children;
+}
+Point point = Point(4);
+Node node = Node(8);
+Box box = Box(point, node);
+Forest forest = Forest([]);
+print(box.point.x, box.owner.value, len(forest.children));

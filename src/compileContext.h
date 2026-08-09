@@ -7,6 +7,7 @@
  * source text
  *   -> TokenStream
  *   -> ProgramAst
+ *   -> analyzeProgramAst(...)
  *   -> compileProgramAst(...)
  *   -> generatedTopLevelLines / generatedFunctionLines / generatedMainLines
  *   -> emitTranslatedProgram(...)
@@ -81,6 +82,7 @@ struct CompileContext {
     std::vector<std::string> blockKinds;
     std::vector<std::string> blockBreakFlags;
     std::vector<std::vector<std::string>> blockDeclaredNames;
+    std::vector<std::map<std::string, Type>> blockShadowedVariables;
     int repLoopIndex = 0;
     int loopControlIndex = 0;
 
@@ -120,6 +122,7 @@ struct CompileContext {
         blockKinds.push_back(kind);
         blockBreakFlags.push_back(breakFlag);
         blockDeclaredNames.push_back(std::move(declaredNames));
+        blockShadowedVariables.emplace_back();
     }
 
     // Removes names whose scope ended when a block closed.

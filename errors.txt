@@ -919,8 +919,9 @@ cannot find <from> in <List<...>>
     2 | print(values.find(1.5));
       |              ^~~~
 
-for-in expects a List value
-  A foreach loop must iterate over a List expression.
+for-in expects an iterable value
+  A foreach loop must iterate over a List, Set, Map, or range. Other values
+  can be converted explicitly with `List(value)` where that conversion exists.
 
   Example:
     int x = 3;
@@ -929,7 +930,7 @@ for-in expects a List value
     }
 
   Diagnostic:
-    error: for-in expects a List value
+    error: for-in expects List, Set, Map, or range; convert this value with List(value)
      --> example.cppp:2:19
       |
     2 | for (int value in x) {
@@ -2804,8 +2805,8 @@ null class method call
       |         ^~~~~~~~~
 
 recursive struct field
-  Inline structs cannot contain their own type. Use a class when a value needs
-  a recursive link.
+  Inline structs cannot contain a direct value cycle. Use a class link or a
+  reference-backed collection to break the cycle.
 
   Example:
     struct Node {
@@ -2814,67 +2815,10 @@ recursive struct field
     }
 
   Diagnostic:
-    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+    error: recursive struct value cycle: Node -> Node; use a class link to break the inline value cycle
      --> example.cppp:3:5
       |
     3 |     Node next;
-      |     ^~~~
-
-struct containing a struct
-  Inline structs cannot contain another custom struct. Keep the fields inline
-  primitives or containers of primitive values, or use a class.
-
-  Example:
-    struct Point {
-        int x;
-    }
-    struct Box {
-        Point corner;
-    }
-
-  Diagnostic:
-    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
-     --> example.cppp:5:5
-      |
-    5 |     Point corner;
-      |     ^~~~~
-
-struct containing a class
-  Inline structs cannot contain a class field because classes use shared
-  ownership handles.
-
-  Example:
-    class Node {
-        int value;
-    }
-    struct Holder {
-        Node node;
-    }
-
-  Diagnostic:
-    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
-     --> example.cppp:5:5
-      |
-    5 |     Node node;
-      |     ^~~~
-
-struct containing a list of structs
-  A collection inside an inline struct cannot contain custom struct or class
-  values.
-
-  Example:
-    struct Point {
-        int x;
-    }
-    struct Grid {
-        List<Point> points;
-    }
-
-  Diagnostic:
-    error: struct fields cannot contain custom types; use a class for recursive or nested custom values
-     --> example.cppp:5:5
-      |
-    5 |     List<Point> points;
       |     ^~~~
 
 submit helper pruning
@@ -4794,3 +4738,103 @@ negative List input size
 
   Diagnostic:
     error: runtime error: input() List size cannot be negative
+
+Semantic analysis errors
+------------------------
+
+lowercase container aliases are not types
+  Container type names are canonical and case-sensitive. Use `List`, `Set`,
+  `Map`, and `Pair`; legacy lowercase aliases are not accepted.
+
+  Example:
+    vector<int> values;
+
+  Diagnostic:
+    error: unknown type 'vector'
+
+duplicate function parameter
+  Parameter names must be unique within one function signature.
+
+  Example:
+    int duplicate(int value, int value) {
+        return value;
+    }
+
+  Diagnostic:
+    error: duplicate parameter 'value' in duplicate()
+
+function and variable name collision
+  Functions and variables share a value namespace and cannot use the same
+  name in one scope.
+
+  Example:
+    int collision = 1;
+    int collision() {
+        return 2;
+    }
+
+  Diagnostic:
+    error: function 'collision' conflicts with an existing symbol in this scope
+
+mutually recursive struct values
+  Direct inline struct dependencies must be acyclic. A class link breaks the
+  value cycle when recursive ownership is required.
+
+  Example:
+    struct Left {
+        Right right;
+    }
+    struct Right {
+        Left left;
+    }
+
+  Diagnostic:
+    error: recursive struct value cycle: Left -> Right -> Left; use a class link to break the inline value cycle
+
+non-void function missing a return path
+  Every control-flow path through a non-void function must return a value.
+
+  Example:
+    int choose(bool first) {
+        if (first) {
+            return 1;
+        }
+    }
+
+  Diagnostic:
+    error: non-void function 'choose' does not return int on every path
+
+dynamic heterogeneous Pair index
+  A runtime Pair index is valid only when both slots have the same type. Use a
+  literal `0` or `1` to select a slot from a heterogeneous Pair.
+
+  Example:
+    Pair<int, string> value = (1, "one");
+    int index = 0;
+    print(value[index]);
+
+  Diagnostic:
+    error: dynamic Pair indexing requires both elements to have the same type; use [0] or [1]
+
+variable used before declaration
+  Variables become visible after their declaration. When the declaration is
+  later in the same program, the diagnostic points out the ordering problem.
+
+  Example:
+    print(answer);
+    int answer = 42;
+
+  Diagnostic:
+    error: variable 'answer' is used before its declaration
+
+negative rep count
+  `rep` evaluates its count once. Zero performs no iterations; a negative
+  count is a CP++ runtime error.
+
+  Example:
+    rep(-1) {
+        print("unreachable");
+    }
+
+  Diagnostic:
+    error: runtime error: rep count cannot be negative

@@ -1262,7 +1262,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
                 "}",
                 ""
             },
-            {"CPPPCharType", "CPPPPrintValue"},
+            {"CPPPCharType", "CPPPPrintValue", "CPPPPrintValueString"},
             {"CPPPPrintDelimited("}
         }
     };
@@ -1316,6 +1316,12 @@ void requireContainerMember(const Type& type, const std::string& memberName) {
             if (isCollectionType(subtype) || isPairType(subtype)) {
                 requireContainerMember(subtype, memberName);
             }
+        }
+    }
+    if (isMapType(type) && memberName == "index_mut" && type.subtypes.size() == 2) {
+        const Type& valueType = type.subtypes[1];
+        if (isCollectionType(valueType) || isPairType(valueType)) {
+            requireContainerMember(valueType, "ctor_default");
         }
     }
     if ((isSetType(type) || isMapType(type)) && !type.subtypes.empty() &&
@@ -1468,6 +1474,39 @@ std::vector<std::string> typeSupportPreambleForSubmit(
 
     std::set<std::string> containerTypes = requiredContainerTypes;
     std::set<std::string> containerMembers = requiredContainerMembers;
+    const auto addHelperContainerMember = [&](const std::string& type,
+                                               const std::string& member) {
+        const std::set<std::string> constOverloads = {
+            "first", "second", "begin", "end", "rbegin", "rend", "at",
+            "front", "back", "find", "lower_bound", "upper_bound"
+        };
+        if (constOverloads.count(member) != 0) {
+            containerMembers.insert(type + "." + member + "_const");
+            containerMembers.insert(type + "." + member + "_mut");
+        } else if (member == "index") {
+            containerMembers.insert(type + ".index_const");
+            containerMembers.insert(type + ".index_mut");
+        } else if (member == "insert") {
+            containerMembers.insert(type + ".insert_one");
+            containerMembers.insert(type + ".insert_range");
+        } else if (member == "erase") {
+            containerMembers.insert(type + ".erase_one");
+            containerMembers.insert(type + ".erase_range");
+            containerMembers.insert(type + ".erase_key");
+        } else {
+            containerMembers.insert(type + "." + member);
+        }
+        if (member != "to_list") return;
+        if (type == "CPPPStack") {
+            containerMembers.insert("CPPPList.ctor_vector");
+        } else if (type == "CPPPQueue" || type == "CPPPHeap") {
+            containerMembers.insert("CPPPList.ctor_default");
+            containerMembers.insert("CPPPList.reserve");
+            containerMembers.insert("CPPPList.push_back");
+        } else if (type == "CPPPDeque") {
+            containerMembers.insert("CPPPList.ctor_iterator");
+        }
+    };
     if (resolvedHelpers.count("CPPPInputList") != 0 || resolvedHelpers.count("CPPPInputListLine") != 0) {
         containerMembers.insert("CPPPList.ctor_default");
         containerMembers.insert("CPPPList.ctor_vector");
@@ -1480,6 +1519,11 @@ std::vector<std::string> typeSupportPreambleForSubmit(
         std::set<std::string> helperMembers;
         for (const std::string& line : helper.code) {
             collectContainerMemberUses(line, helperMembers);
+            if (line.find(".emplace_back(") != std::string::npos &&
+                line.find(".begin()") != std::string::npos &&
+                line.find(".end()") != std::string::npos) {
+                containerMembers.insert("CPPPList.ctor_iterator");
+            }
             if (line.find("CPPPPair<") != std::string::npos) helperTypes.insert("CPPPPair");
             if (line.find("CPPPList<") != std::string::npos) helperTypes.insert("CPPPList");
             if (line.find("CPPPStack<") != std::string::npos) helperTypes.insert("CPPPStack");
@@ -1498,7 +1542,7 @@ std::vector<std::string> typeSupportPreambleForSubmit(
                 }
             }
             for (const std::string& member : helperMembers) {
-                containerMembers.insert(type + "." + member);
+                addHelperContainerMember(type, member);
             }
         }
     }

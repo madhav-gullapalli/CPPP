@@ -25,15 +25,16 @@ the code path is:
 4. [`src/astParser.cpp`](../src/astParser.cpp) parses the complete stream into a
    recursive `ProgramAst`. It uses token-backed statement views internally but
    performs no symbol lookup, type checking, or C++ emission.
-5. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes that AST
-   through `compileProgramAst(...)`, recursively lowering concrete statement
-   and block nodes without reconstructing or reparsing source fragments.
-6. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns its output buffers
+5. [`src/semanticAnalyzer.cpp`](../src/semanticAnalyzer.cpp) consumes the syntax
+   AST, resolves and validates its meaning, and returns `AnalyzedProgramAst`.
+6. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes that
+   valid analyzed representation through `compileProgramAst(...)`.
+7. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns its output buffers
    into one readable generated C++ translation unit.
-7. Compact `--submit` passes the complete unit through
+8. Compact `--submit` passes the complete unit through
    [`src/submitPostProcessor.cpp`](../src/submitPostProcessor.cpp); `--readable`
    skips this pass.
-8. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) optionally invokes
+9. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) optionally invokes
    `g++`, prints compile diagnostics if that fails, and optionally runs the
    produced executable.
 
@@ -114,18 +115,29 @@ validates ownership/span/coverage invariants after parsing. `--ast` then prints
 the tree through [`src/astPrinter.cpp`](../src/astPrinter.cpp) and exits without
 creating a generated `.cpp` file.
 
-## Stage 4: Direct AST Semantic Lowering and Codegen
+## Stage 4: Dedicated Semantic Analysis
+
+[`src/semanticAnalyzer.cpp`](../src/semanticAnalyzer.cpp) walks `ProgramAst`
+scope directly. It registers aggregate and function signatures, resolves
+`TypeSyntax`, attaches inferred types and resolved symbols/callables, records
+implicit conversions, validates control-flow context and all-path returns, and
+computes aggregate dependency order. Invalid programs stop here. The
+deterministic `--semantic` mode prints these annotations without generating C++.
+
+## Stage 5: Analyzed AST Codegen
 
 [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) is the center of
-the backend. `compileProgramAst(...)` accepts the full-program AST and dispatches
+the backend. `compileProgramAst(...)` accepts `AnalyzedProgramAst` and dispatches
 on concrete nodes for declarations, assignments, functions, aggregates,
 control flow, returns, and simple control statements. Recursive `BlockAst`
 ownership drives scope entry and exit. No whole-program flattening or
 statement-level reparsing occurs after AST construction.
 
-Expression and lvalue emitters still accept AST-attributed token slices as a
-localized compatibility adapter. Statement structure, type syntax, block
-relationships, and declaration/assignment shape are not rediscovered there.
+Returns, conditions, contextual initializers, aggregate order, and `rep` counts
+emit from semantic nodes. Assignment, input/comparator declarations, and the
+specialized print/list statement emitters still accept AST-attributed token
+slices as localized compatibility adapters; this is the remaining migration
+debt, not a second statement parser.
 
 This stage is responsible for:
 
@@ -149,7 +161,7 @@ The file relies on helper modules for specific domains:
 Practical rule: add syntax structure in `astParser.cpp`, represent it in
 `programAst.h`, then lower that node in `compileProgramAst(...)`.
 
-## Stage 5: Shared State via `CompileContext`
+## Stage 6: Shared State via `CompileContext`
 
 [`src/compileContext.h`](../src/compileContext.h) defines the data shared between
 direct AST lowering and final emission.
@@ -170,7 +182,7 @@ The most important `CompileContext` fields are:
 If two stages need to communicate, they almost always do it by mutating or
 reading this struct.
 
-## Stage 6: Control-Flow Header Parsing
+## Stage 7: Control-Flow Header Parsing
 
 [`src/controlFlow.cpp`](../src/controlFlow.cpp) handles a narrower but important
 job: parsing the header parts of structured control flow.
@@ -194,7 +206,7 @@ Important nuance: this module is parser-internal. It does not participate in
 semantic lowering; brace emission, scope effects, and generated helper variables
 are driven by recursive AST nodes in `statementCompiler.cpp`.
 
-## Stage 7: Final Program Emission
+## Stage 8: Final Program Emission
 
 [`src/programEmitter.cpp`](../src/programEmitter.cpp) converts the generated
 buffers in `CompileContext` into the final `.cpp` file.
@@ -217,7 +229,7 @@ whitespace compaction separate from parsing, lowering, reachability, helper
 pruning, and serialization. `--submit --readable` changes only this final
 post-processing decision.
 
-## Stage 8: Native Compile and Run
+## Stage 9: Native Compile and Run
 
 After emission, [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) may:
 
@@ -256,7 +268,8 @@ The easiest way to keep the codebase straight is this:
 - `compilerDriver.cpp` owns orchestration
 - `sourceSplitter.cpp` owns parser-internal statement grouping
 - `astParser.cpp` owns recursive program structure
-- `statementCompiler.cpp` owns direct AST semantic lowering
+- `semanticAnalyzer.cpp` owns meaning, typing, and semantic diagnostics
+- `statementCompiler.cpp` owns analyzed-tree codegen
 - helper modules own specialized subproblems
 - `CompileContext` is the shared memory between stages
 - `programEmitter.cpp` owns final file serialization
