@@ -6,6 +6,22 @@ meant to answer two practical questions quickly:
 1. Where does this feature get handled?
 2. If I change this stage, what data does the next stage depend on?
 
+## Source Layout
+
+The implementation is grouped by compiler responsibility:
+
+```text
+src/
+├── cppp.cpp, compilerDriver.*       # CLI entry and orchestration
+├── tokenize/                        # TokenStream and lexer
+├── parse/                           # syntax AST, expression, and statement parsing
+├── semantic_analyze/                # semantic analysis, diagnostics, and typed view
+└── codegen/                         # lowering, runtime support, and emission
+```
+
+The root `Makefile` adds each stage directory to the include path and discovers
+its implementation and header files when building the compiler.
+
 ## End-To-End Flow
 
 For one invocation such as:
@@ -21,18 +37,18 @@ the code path is:
    builds `CompileOptions`.
 3. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) reads and registers the
    complete source file, creates one `CompileContext`, and asks
-   [`src/tokenizer.cpp`](../src/tokenizer.cpp) for one canonical `TokenStream`.
-4. [`src/astParser.cpp`](../src/astParser.cpp) parses the complete stream into a
+   [`src/tokenize/tokenizer.cpp`](../src/tokenize/tokenizer.cpp) for one canonical `TokenStream`.
+4. [`src/parse/astParser.cpp`](../src/parse/astParser.cpp) parses the complete stream into a
    recursive `ProgramAst`. It uses token-backed statement views internally but
    performs no symbol lookup, type checking, or C++ emission.
-5. [`src/semanticAnalyzer.cpp`](../src/semanticAnalyzer.cpp) consumes the syntax
+5. [`src/semantic_analyze/semanticAnalyzer.cpp`](../src/semantic_analyze/semanticAnalyzer.cpp) consumes the syntax
    AST, resolves and validates its meaning, and returns `AnalyzedProgramAst`.
-6. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes that
+6. [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp) consumes that
    valid analyzed representation through `compileProgramAst(...)`.
-7. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns its output buffers
+7. [`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp) turns its output buffers
    into one readable generated C++ translation unit.
 8. Compact `--submit` passes the complete unit through
-   [`src/submitPostProcessor.cpp`](../src/submitPostProcessor.cpp); `--readable`
+   [`src/codegen/submitPostProcessor.cpp`](../src/codegen/submitPostProcessor.cpp); `--readable`
    skips this pass.
 9. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) optionally invokes
    `g++`, prints compile diagnostics if that fails, and optionally runs the
@@ -75,7 +91,7 @@ the final contest-style output.
 
 ## Stage 3: Canonical Tokenization and Full-Program Parsing
 
-[`src/tokenizer.cpp`](../src/tokenizer.cpp) scans the complete source file once.
+[`src/tokenize/tokenizer.cpp`](../src/tokenize/tokenizer.cpp) scans the complete source file once.
 The resulting `TokenStream` owns the normalized source text and an ordered token
 sequence ending in exactly one `EndOfFile` token. Every token records its kind,
 text, line/column range, byte offsets, and canonical diagnostic `SourceSpan`.
@@ -83,7 +99,7 @@ text, line/column range, byte offsets, and canonical diagnostic `SourceSpan`.
 Whitespace is trivia and is not emitted. Line comments and block braces are
 explicit tokens. The `--tokens` mode prints this representation as JSON lines.
 
-[`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) then groups tokens into
+[`src/parse/sourceSplitter.cpp`](../src/parse/sourceSplitter.cpp) then groups tokens into
 temporary parser-internal `SourceFragment` views. It does not lex raw text, and
 these views do not survive into `ProgramAst` or semantic lowering.
 
@@ -102,8 +118,8 @@ Key splitter responsibilities:
 - merge continuation lines back into one logical statement
 - preserve comments in a form later stages can still emit or diagnose cleanly
 
-[`src/astParser.cpp`](../src/astParser.cpp) consumes those views and constructs
-one recursive [`ProgramAst`](../src/programAst.h). Functions, aggregates,
+[`src/parse/astParser.cpp`](../src/parse/astParser.cpp) consumes those views and constructs
+one recursive [`ProgramAst`](../src/parse/programAst.h). Functions, aggregates,
 conditionals, loops, and their continuation branches own nested `BlockAst`
 objects; declarations, assignments, returns, and expressions have dedicated
 statement nodes. Syntactic types remain unresolved `TypeSyntax` values.
@@ -112,12 +128,12 @@ AST construction does not read `CompileContext` symbol tables and suppresses
 normal semantic diagnostics. Malformed syntax is retained in recovery metadata
 so direct lowering can still issue user-facing errors. The driver
 validates ownership/span/coverage invariants after parsing. `--ast` then prints
-the tree through [`src/astPrinter.cpp`](../src/astPrinter.cpp) and exits without
+the tree through [`src/parse/astPrinter.cpp`](../src/parse/astPrinter.cpp) and exits without
 creating a generated `.cpp` file.
 
 ## Stage 4: Dedicated Semantic Analysis
 
-[`src/semanticAnalyzer.cpp`](../src/semanticAnalyzer.cpp) walks `ProgramAst`
+[`src/semantic_analyze/semanticAnalyzer.cpp`](../src/semantic_analyze/semanticAnalyzer.cpp) walks `ProgramAst`
 scope directly. It registers aggregate and function signatures, resolves
 `TypeSyntax`, attaches inferred types and resolved symbols/callables, records
 implicit conversions, validates control-flow context and all-path returns, and
@@ -126,7 +142,7 @@ deterministic `--semantic` mode prints these annotations without generating C++.
 
 ## Stage 5: Analyzed AST Codegen
 
-[`src/statementCompiler.cpp`](../src/statementCompiler.cpp) is the center of
+[`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp) is the center of
 the backend. `compileProgramAst(...)` accepts `AnalyzedProgramAst` and dispatches
 on concrete nodes for declarations, assignments, functions, aggregates,
 control flow, returns, and simple control statements. Recursive `BlockAst`
@@ -150,20 +166,20 @@ This stage is responsible for:
 
 The file relies on helper modules for specific domains:
 
-- [`src/typeDeclarations.cpp`](../src/typeDeclarations.cpp) for declarations
-- [`src/assignmentCppp.cpp`](../src/assignmentCppp.cpp) for assignments
-- [`src/expressionParser.cpp`](../src/expressionParser.cpp) for expressions
-- [`src/controlFlow.cpp`](../src/controlFlow.cpp) for parser-time control-flow headers
-- [`src/printCppp.cpp`](../src/printCppp.cpp) for `print(...)`
-- [`src/listsCppp.cpp`](../src/listsCppp.cpp) for list-specific syntax/support
-- [`src/functions.cpp`](../src/functions.cpp) for function metadata
+- [`src/codegen/typeDeclarations.cpp`](../src/codegen/typeDeclarations.cpp) for declarations
+- [`src/codegen/assignmentCppp.cpp`](../src/codegen/assignmentCppp.cpp) for assignments
+- [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp) for expressions
+- [`src/parse/controlFlow.cpp`](../src/parse/controlFlow.cpp) for parser-time control-flow headers
+- [`src/codegen/printCppp.cpp`](../src/codegen/printCppp.cpp) for `print(...)`
+- [`src/codegen/listsCppp.cpp`](../src/codegen/listsCppp.cpp) for list-specific syntax/support
+- [`src/semantic_analyze/functions.cpp`](../src/semantic_analyze/functions.cpp) for function metadata
 
 Practical rule: add syntax structure in `astParser.cpp`, represent it in
 `programAst.h`, then lower that node in `compileProgramAst(...)`.
 
 ## Stage 6: Shared State via `CompileContext`
 
-[`src/compileContext.h`](../src/compileContext.h) defines the data shared between
+[`src/codegen/compileContext.h`](../src/codegen/compileContext.h) defines the data shared between
 direct AST lowering and final emission.
 
 The most important `CompileContext` fields are:
@@ -184,7 +200,7 @@ reading this struct.
 
 ## Stage 7: Control-Flow Header Parsing
 
-[`src/controlFlow.cpp`](../src/controlFlow.cpp) handles a narrower but important
+[`src/parse/controlFlow.cpp`](../src/parse/controlFlow.cpp) handles a narrower but important
 job: parsing the header parts of structured control flow.
 
 Examples:
@@ -208,13 +224,13 @@ are driven by recursive AST nodes in `statementCompiler.cpp`.
 
 ## Stage 8: Final Program Emission
 
-[`src/programEmitter.cpp`](../src/programEmitter.cpp) converts the generated
+[`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp) converts the generated
 buffers in `CompileContext` into the final `.cpp` file.
 
 It emits, in order:
 
 1. standard-library includes
-2. runtime support preamble from [`src/typesCppp.cpp`](../src/typesCppp.cpp)
+2. runtime support preamble from [`src/codegen/typesCppp.cpp`](../src/codegen/typesCppp.cpp)
 3. optional runtime source-line table for `--run`
 4. queued top-level generated lines
 5. queued generated function definitions
@@ -224,7 +240,7 @@ It emits, in order:
 
 Emission itself always produces ordinary readable C++. Compact submit mode
 buffers that complete translation unit and then passes it through
-[`src/submitPostProcessor.cpp`](../src/submitPostProcessor.cpp). This keeps
+[`src/codegen/submitPostProcessor.cpp`](../src/codegen/submitPostProcessor.cpp). This keeps
 whitespace compaction separate from parsing, lowering, reachability, helper
 pruning, and serialization. `--submit --readable` changes only this final
 post-processing decision.
@@ -244,22 +260,22 @@ wrong."
 
 ## Where To Start For Common Tasks
 
-- New statement syntax: start in [`src/programAst.h`](../src/programAst.h) and
-  [`src/astParser.cpp`](../src/astParser.cpp), then add direct lowering in
-  [`src/statementCompiler.cpp`](../src/statementCompiler.cpp).
+- New statement syntax: start in [`src/parse/programAst.h`](../src/parse/programAst.h) and
+  [`src/parse/astParser.cpp`](../src/parse/astParser.cpp), then add direct lowering in
+  [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp).
 - New expression/operator behavior: start in
-  [`src/expressionParser.cpp`](../src/expressionParser.cpp) and
-  [`src/expressions.cpp`](../src/expressions.cpp).
+  [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp) and
+  [`src/parse/expressions.cpp`](../src/parse/expressions.cpp).
 - Wrong compile/runtime diagnostic location: inspect
-  [`src/compileContext.h`](../src/compileContext.h),
-  [`src/programEmitter.cpp`](../src/programEmitter.cpp), and
-  [`src/errors.cpp`](../src/errors.cpp).
+  [`src/codegen/compileContext.h`](../src/codegen/compileContext.h),
+  [`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp), and
+  [`src/semantic_analyze/errors.cpp`](../src/semantic_analyze/errors.cpp).
 - Wrong brace/statement boundary behavior: inspect
-  [`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp).
+  [`src/parse/sourceSplitter.cpp`](../src/parse/sourceSplitter.cpp).
 - Wrong generated top-level vs function vs main placement: inspect
-  [`src/compileContext.h`](../src/compileContext.h),
-  [`src/statementCompiler.cpp`](../src/statementCompiler.cpp), and
-  [`src/programEmitter.cpp`](../src/programEmitter.cpp).
+  [`src/codegen/compileContext.h`](../src/codegen/compileContext.h),
+  [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp), and
+  [`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp).
 
 ## Mental Model
 

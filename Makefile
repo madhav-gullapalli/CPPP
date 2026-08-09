@@ -4,6 +4,12 @@ PYTHON ?= python3
 
 BUILD_DIR := build
 SRC_DIR := src
+INCLUDE_DIRS := \
+    -I$(SRC_DIR) \
+    -I$(SRC_DIR)/tokenize \
+    -I$(SRC_DIR)/parse \
+    -I$(SRC_DIR)/semantic_analyze \
+    -I$(SRC_DIR)/codegen
 
 ifeq ($(OS),Windows_NT)
 EXE_EXT := .exe
@@ -20,50 +26,17 @@ COMPILER := $(BUILD_DIR)/cppp$(EXE_EXT)
 SOURCES := \
 $(SRC_DIR)/cppp.cpp \
 $(SRC_DIR)/compilerDriver.cpp \
-$(SRC_DIR)/astParser.cpp \
-$(SRC_DIR)/astPrinter.cpp \
-$(SRC_DIR)/semanticAnalyzer.cpp \
-$(SRC_DIR)/semanticPrinter.cpp \
-$(SRC_DIR)/programEmitter.cpp \
-$(SRC_DIR)/submitPostProcessor.cpp \
-$(SRC_DIR)/functions.cpp \
-$(SRC_DIR)/assignmentCppp.cpp \
-$(SRC_DIR)/sourceSplitter.cpp \
-$(SRC_DIR)/statementCompiler.cpp \
-$(SRC_DIR)/statementParser.cpp \
-$(SRC_DIR)/controlFlow.cpp \
-$(SRC_DIR)/errors.cpp \
-$(SRC_DIR)/expressionParser.cpp \
-$(SRC_DIR)/expressions.cpp \
-$(SRC_DIR)/listsCppp.cpp \
-$(SRC_DIR)/printCppp.cpp \
-$(SRC_DIR)/tokenizer.cpp \
-$(SRC_DIR)/typeDeclarations.cpp \
-$(SRC_DIR)/typesCppp.cpp
+$(wildcard $(SRC_DIR)/tokenize/*.cpp) \
+$(wildcard $(SRC_DIR)/parse/*.cpp) \
+$(wildcard $(SRC_DIR)/semantic_analyze/*.cpp) \
+$(wildcard $(SRC_DIR)/codegen/*.cpp)
 
 HEADERS := \
-$(SRC_DIR)/assignmentCppp.h \
-$(SRC_DIR)/astParser.h \
-$(SRC_DIR)/astPrinter.h \
-$(SRC_DIR)/semanticAnalyzer.h \
-$(SRC_DIR)/semanticAst.h \
-$(SRC_DIR)/semanticPrinter.h \
-$(SRC_DIR)/compileContext.h \
 $(SRC_DIR)/compilerDriver.h \
-$(SRC_DIR)/controlFlow.h \
-$(SRC_DIR)/errors.h \
-$(SRC_DIR)/expressionParser.h \
-$(SRC_DIR)/expressions.h \
-$(SRC_DIR)/listsCppp.h \
-$(SRC_DIR)/printCppp.h \
-$(SRC_DIR)/programAst.h \
-$(SRC_DIR)/sourceSplitter.h \
-$(SRC_DIR)/submitPostProcessor.h \
-$(SRC_DIR)/statementParser.h \
-$(SRC_DIR)/statementCompiler.h \
-$(SRC_DIR)/stmtAst.h \
-$(SRC_DIR)/tokenizer.h \
-$(SRC_DIR)/typesCppp.h
+$(wildcard $(SRC_DIR)/tokenize/*.h) \
+$(wildcard $(SRC_DIR)/parse/*.h) \
+$(wildcard $(SRC_DIR)/semantic_analyze/*.h) \
+$(wildcard $(SRC_DIR)/codegen/*.h)
 
 INPUT ?= in.cppp
 PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
@@ -76,7 +49,7 @@ $(BUILD_DIR):
 	$(MKDIR_P)
 
 $(COMPILER): $(SOURCES) $(HEADERS) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(SOURCES) -o "$(COMPILER)"
+	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $(SOURCES) -o "$(COMPILER)"
 
 transpile: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)"
