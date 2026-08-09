@@ -25,6 +25,20 @@ struct Expr {
     virtual ~Expr() = default;
 };
 
+// ErrorExpr is syntax recovery for the full-program AST pass. When the source
+// omitted an expression entirely, its span is intentionally invalid and the
+// containing statement supplies the recovery span. Normal semantic compilation
+// continues through compatibility lowering and reports the established error.
+struct ErrorExpr : Expr {
+    std::string reason;
+
+    ErrorExpr(std::string reason, int sourceColumn, SourceSpan sourceSpan = {}) :
+        reason(std::move(reason)) {
+        this->sourceColumn = sourceColumn;
+        this->sourceSpan = sourceSpan;
+    }
+};
+
 // LiteralExpr implements the LiteralExpr behavior for the exprAst.h module.
 struct LiteralExpr : Expr {
     enum class Kind {
@@ -131,6 +145,9 @@ struct CallExpr : Expr {
     Type functionType;
     std::unique_ptr<Expr> receiver;
     std::vector<std::unique_ptr<Expr>> arguments;
+    // Empty entries are positional arguments. This is syntax-only metadata for
+    // named arguments such as print(..., end = "").
+    std::vector<std::string> argumentNames;
     bool partialApplication = false;
 
     CallExpr(
@@ -138,11 +155,13 @@ struct CallExpr : Expr {
         std::unique_ptr<Expr> receiver,
         std::vector<std::unique_ptr<Expr>> arguments,
         int sourceColumn,
-        SourceSpan sourceSpan = {}
+        SourceSpan sourceSpan = {},
+        std::vector<std::string> argumentNames = {}
     ) :
         callee(std::move(callee)),
         receiver(std::move(receiver)),
-        arguments(std::move(arguments)) {
+        arguments(std::move(arguments)),
+        argumentNames(std::move(argumentNames)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
     }

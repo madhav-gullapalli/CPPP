@@ -13,6 +13,31 @@ fixes appear below the frame as `= note:` and `= help:`.
 General syntax
 --------------
 
+full-program AST inspection
+  `--ast` parses the complete source into a recursive syntax tree and exits
+  before semantic analysis or C++ generation. The output includes stable node
+  names and source-offset spans.
+
+  Example:
+    int square(int value) {
+        return value * value;
+    }
+    print(square(4));
+
+semantic errors remain downstream of AST construction
+  AST construction records what was written without deciding whether its types
+  are compatible. Normal compilation still reports CP++ semantic diagnostics
+  after the AST has been built.
+
+  Example:
+    int badReturn() {
+        return "not an int";
+    }
+    print(badReturn());
+
+  Diagnostic:
+    error: cannot implicitly convert string to int
+
 missing semicolon
   A CP++ statement must end with a semicolon.
 

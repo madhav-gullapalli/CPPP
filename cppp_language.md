@@ -29,6 +29,13 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 - Notes: This is a compiler inspection/testing mode and does not generate C++. The Make equivalent is `make tokens INPUT=file.cppp`.
 - Complexity: proportional to source size
 
+### Full-program AST
+
+- Syntax: `build/cppp --cppp file.cppp --ast`
+- What it does: Parses the canonical token stream into CP++'s recursive full-program syntax tree and prints a deterministic tree containing node kinds, important fields, expressions, and source-offset spans.
+- Notes: AST inspection stops before semantic checks and does not generate C++. Invalid semantic relationships may therefore still appear structurally in this output. The Make equivalent is `make ast INPUT=file.cppp`.
+- Complexity: proportional to source size
+
 ### Run mode
 
 - Syntax: `build/cppp --cppp file.cppp --run`

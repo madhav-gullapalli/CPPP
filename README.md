@@ -76,6 +76,7 @@ Direct compiler usage:
 ```sh
 build/cppp --cppp in.cppp
 build/cppp --cppp in.cppp --tokens
+build/cppp --cppp in.cppp --ast
 build/cppp --cppp in.cppp --compile
 build/cppp --cppp in.cppp --run
 build/cppp --cppp in.cppp --submit
@@ -87,6 +88,7 @@ Windows equivalents:
 ```sh
 .\build\cppp.exe --cppp in.cppp
 .\build\cppp.exe --cppp in.cppp --tokens
+.\build\cppp.exe --cppp in.cppp --ast
 .\build\cppp.exe --cppp in.cppp --compile
 .\build\cppp.exe --cppp in.cppp --run
 .\build\cppp.exe --cppp in.cppp --submit
@@ -94,6 +96,12 @@ Windows equivalents:
 ```
 
 `--run` keeps extra runtime checks and CP++-style runtime diagnostics. `--submit` prunes unused support and whitespace-minifies the generated contest C++. Add `--readable` after `--submit` to inspect the same pruned program without compaction. The Make equivalents are `make submit INPUT=in.cppp READABLE=1` and `make subrun INPUT=in.cppp READABLE=1`.
+
+`--ast` prints the recursive, syntax-only full-program AST with source-offset
+spans and exits before semantic analysis or C++ generation. Its Make equivalent
+is `make ast INPUT=in.cppp`. Normal compilation also passes through this AST;
+the current backend then uses a transitional compatibility lowering layer to
+preserve existing generated C++ exactly.
 
 ## Local Codegen Freeze
 
@@ -108,6 +116,14 @@ Use the standalone freeze suite for local migration testing:
 
 ```sh
 make codegen-freeze
+```
+
+The deterministic AST stress suite samples 100 programs from `correct.txt`,
+checks structural invariants, parses each twice, and verifies that AST mode does
+not emit C++:
+
+```sh
+make ast-invariants
 ```
 
 The baseline is stored in the ignored `tests/codegen_snapshots/` directory. The

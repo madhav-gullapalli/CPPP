@@ -189,6 +189,10 @@ std::unique_ptr<Expr> parseExpressionAst(
     const std::map<std::string, FunctionSignature>& declaredFunctions
 );
 
+// Parses expression structure without symbol tables, semantic validation, or
+// user-facing diagnostics. On recovery, callers receive ErrorExpr.
+std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& expressionTokens);
+
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,

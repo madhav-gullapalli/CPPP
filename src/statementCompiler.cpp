@@ -8,13 +8,13 @@
 
 #include "statementCompiler.h"
 
+#include "astParser.h"
 #include "assignmentCppp.h"
 #include "controlFlow.h"
 #include "errors.h"
 #include "functions.h"
 #include "listsCppp.h"
 #include "printCppp.h"
-#include "sourceSplitter.h"
 #include "statementParser.h"
 #include "typesCppp.h"
 
@@ -295,12 +295,12 @@ bool needsRangeRuntimeHelperForType(const Type& type) {
 }
 }
 
-void compileTokenStream(CompileContext& context, const TokenStream& tokenStream) {
+void compileProgramAst(CompileContext& context, const ProgramAst& program) {
     setDeclaredStructsForExpressions(&context.declaredStructs);
     setDeclaredClassNamesForExpressions(&context.declaredClassNames);
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
-    const std::vector<SourceFragment> sourceFragments = splitTokenStream(tokenStream);
+    const std::vector<SourceFragment> sourceFragments = lowerProgramAstToFragments(program);
     for (const SourceFragment& fragment : sourceFragments) {
         const std::string requirementOwner = !context.currentStructMethodName.empty()
             ? "method:" + context.currentStructName + "." + context.currentStructMethodName

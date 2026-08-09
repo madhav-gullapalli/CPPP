@@ -15,11 +15,11 @@ The compiler pipeline today is:
 1. `src/cppp.cpp` calls `runCompilerDriver(...)`.
 2. `src/compilerDriver.cpp` validates CLI options, opens the input file, creates
    one `CompileContext`, and tokenizes the complete source once.
-3. `src/sourceSplitter.cpp` groups the canonical `TokenStream` into token-backed
-   logical statement views for the current parser.
-4. `src/statementCompiler.cpp` consumes that stream and performs most lowering,
-   using helper modules for expressions, types, assignments, print, lists,
-   functions, and control-flow headers.
+3. `src/astParser.cpp` uses token-backed compatibility views to parse the
+   canonical `TokenStream` into one recursive, syntax-only `ProgramAst`.
+4. `src/statementCompiler.cpp` consumes that AST through a transitional
+   compatibility lowering layer and performs semantic checks and codegen using
+   the existing helper modules.
 5. `src/programEmitter.cpp` turns the generated line buffers in
    `CompileContext` into one readable C++ translation unit.
 6. `src/submitPostProcessor.cpp` optionally compacts the completed translation
@@ -39,8 +39,9 @@ This is a tiny CLI entry point. It just forwards `main(...)` to
 ## [src/compilerDriver.cpp](../../src/compilerDriver.cpp) and [src/compilerDriver.h](../../src/compilerDriver.h)
 These files own one end-to-end compiler invocation. The driver validates CLI
 flags, builds `CompileOptions`, opens the input file, creates the shared
-`CompileContext`, calls the splitter and lowering stages, emits the output
-`.cpp`, and optionally invokes `g++` or runs the executable.
+`CompileContext`, parses the canonical token stream into a `ProgramAst`, calls
+lowering, emits the output `.cpp`, and optionally invokes `g++` or runs the
+executable. `--ast` prints that tree and exits before lowering.
 
 ## [src/compileContext.h](../../src/compileContext.h)
 This header defines the shared state passed through the entire pipeline. It is
@@ -56,6 +57,12 @@ mode prints this stream for inspection and snapshot tests.
 This stage groups an already-tokenized file into statement-sized compatibility
 views. It handles top-level terminators, continuation lines, comments, and block
 braces without scanning raw source again.
+
+## `src/programAst.h`, `src/astParser.*`, and `src/astPrinter.*`
+These files own the recursive full-program syntax tree, construct it without
+semantic symbol tables or C++ emission, validate its structural invariants, and
+provide deterministic `--ast` output. Nested blocks belong directly to their
+functions, aggregates, conditionals, and loops.
 
 ## [src/statementParser.cpp](../../src/statementParser.cpp) and [src/statementParser.h](../../src/statementParser.h)
 These files classify logical statements into a small statement AST. They are
@@ -105,9 +112,8 @@ This module provides emitted runtime support and type-emission machinery used by
 the generated C++ program.
 
 ## [src/statementCompiler.cpp](../../src/statementCompiler.cpp) and [src/statementCompiler.h](../../src/statementCompiler.h)
-This is the central lowering stage. It receives the canonical `TokenStream`,
-iterates through its temporary statement views, tracks block nesting and scope,
-recognizes functions/control flow, and
+This is the central transitional lowering stage. It receives `ProgramAst`,
+walks its AST-owned compatibility fragments in source order, tracks scope, and
 routes specialized work to the expression, assignment, list, print, and type
 helpers before queueing generated C++ lines into `CompileContext`.
 
@@ -140,12 +146,19 @@ helper machinery for list operations.
   mode does not need.
 
 ### `src/sourceSplitter.cpp`
-- `splitTokenStream(...)` groups canonical tokens into statement views.
+- `splitTokenStream(...)` supplies parser-internal compatibility views.
 - `splitPhysicalFragments(...)` handles token-level boundaries.
 - `mergeLogicalFragments(...)` rejoins multi-line logical statements.
 
+### `src/astParser.cpp`
+- `parseProgramAst(...)` builds the recursive, syntax-only program tree.
+- `validateProgramAst(...)` checks spans, ownership, mandatory children, and
+  complete fragment attribution.
+- `lowerProgramAstToFragments(...)` is the temporary bridge to existing
+  lowering.
+
 ### `src/statementCompiler.cpp`
-- `compileTokenStream(...)` is the main statement-lowering loop.
+- `compileProgramAst(...)` is the transitional semantic/codegen loop.
 - `emitConditionHeader(...)` lowers analyzed `if`/`while` conditions.
 - `emitForPart(...)` lowers pieces of classic `for (init; cond; iter)` loops.
 

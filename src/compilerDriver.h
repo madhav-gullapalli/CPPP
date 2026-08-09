@@ -6,7 +6,7 @@
  * The driver owns the high-level pipeline:
  * - validate CLI arguments
  * - prepare CompileOptions
- * - split and lower CP++ source into generated C++
+ * - parse a full-program AST, then lower it into generated C++
  * - emit the translated .cpp file
  * - optionally compile and/or run the result
  */

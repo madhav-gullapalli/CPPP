@@ -22,12 +22,13 @@ the code path is:
 3. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) reads and registers the
    complete source file, creates one `CompileContext`, and asks
    [`src/tokenizer.cpp`](../src/tokenizer.cpp) for one canonical `TokenStream`.
-4. [`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) groups that stream into
-   token-backed logical statement views without rescanning source text.
-5. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes the
-   stream through `compileTokenStream(...)` and fills the generated-output
-   buffers inside `CompileContext`.
-6. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns those buffers
+4. [`src/astParser.cpp`](../src/astParser.cpp) parses the complete stream into a
+   recursive `ProgramAst`. It uses token-backed statement views internally but
+   performs no symbol lookup, type checking, or C++ emission.
+5. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes that AST
+   through `compileProgramAst(...)`. A transitional compatibility traversal
+   lowers AST-owned fragments into the existing semantic/codegen machinery.
+6. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns its output buffers
    into one readable generated C++ translation unit.
 7. Compact `--submit` passes the complete unit through
    [`src/submitPostProcessor.cpp`](../src/submitPostProcessor.cpp); `--readable`
@@ -51,7 +52,8 @@ Practical takeaway: if you want to understand real compiler behavior, skip
 [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) owns the overall workflow.
 It decides:
 
-- which mode is active: token inspection, transpile only, compile, run, or submit
+- which mode is active: token inspection, AST inspection, transpile only,
+  compile, run, or submit
 - where the generated `.cpp` should be written
 - where the compiled executable should live
 - whether expression/runtime checks should stay enabled
@@ -61,7 +63,7 @@ Important driver responsibilities:
 - clear stale diagnostic/runtime-helper state before each invocation
 - populate `CompileOptions`
 - create the shared `CompileContext`
-- construct the canonical token stream and call lowering
+- construct the canonical token stream and full-program AST, then call lowering
 - emit the final C++ file
 - optionally call `g++`
 - optionally execute the produced binary
@@ -70,7 +72,7 @@ Important driver responsibilities:
 loop helper artifacts that are useful during richer lowering but unnecessary in
 the final contest-style output.
 
-## Stage 3: Canonical Tokenization and Statement Views
+## Stage 3: Canonical Tokenization and Full-Program Parsing
 
 [`src/tokenizer.cpp`](../src/tokenizer.cpp) scans the complete source file once.
 The resulting `TokenStream` owns the normalized source text and an ordered token
@@ -98,12 +100,31 @@ Key splitter responsibilities:
 - merge continuation lines back into one logical statement
 - preserve comments in a form later stages can still emit or diagnose cleanly
 
-## Stage 4: Statement Lowering
+[`src/astParser.cpp`](../src/astParser.cpp) consumes those views and constructs
+one recursive [`ProgramAst`](../src/programAst.h). Functions, aggregates,
+conditionals, loops, and their continuation branches own nested `BlockAst`
+objects; declarations, assignments, returns, and expressions have dedicated
+statement nodes. Syntactic types remain unresolved `TypeSyntax` values.
+
+AST construction does not read `CompileContext` symbol tables and suppresses
+normal semantic diagnostics. Malformed syntax is retained in recovery nodes so
+the existing downstream path can still issue user-facing errors. The driver
+validates ownership/span/coverage invariants after parsing. `--ast` then prints
+the tree through [`src/astPrinter.cpp`](../src/astPrinter.cpp) and exits without
+creating a generated `.cpp` file.
+
+## Stage 4: Transitional Semantic Lowering and Codegen
 
 [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) is the center of
-the transpiler. `compileTokenStream(...)` accepts the canonical stream, obtains
-its logical token views, and decides what kind of statement each view represents
-and how it should be lowered.
+the transitional backend. `compileProgramAst(...)` accepts the full-program AST,
+walks its recursive structure to recover AST-owned compatibility fragments, and
+feeds them into the existing semantic and code-generation logic. It never
+receives or reparses the original `TokenStream`.
+
+This compatibility layer intentionally preserves byte-for-byte codegen during
+the migration. It still reparses individual AST-owned statement fragments and
+mixes semantic checking, state mutation, and emission; moving those operations
+to a dedicated semantic pass is the next architectural step.
 
 This stage is responsible for:
 
@@ -124,8 +145,8 @@ The file relies on helper modules for specific domains:
 - [`src/listsCppp.cpp`](../src/listsCppp.cpp) for list-specific syntax/support
 - [`src/functions.cpp`](../src/functions.cpp) for function metadata
 
-Practical rule: if a source feature feels statement-shaped, start in
-`compileTokenStream(...)` and follow the branch it takes.
+Practical rule: add syntax structure in `astParser.cpp`; then follow
+`compileProgramAst(...)` when changing the current semantic/lowering behavior.
 
 ## Stage 5: Shared State via `CompileContext`
 

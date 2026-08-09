@@ -2401,7 +2401,8 @@ ExpressionParser::ExpressionParser(
     const std::map<int, std::string>& sourceLines,
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
-    bool emitRuntimeChecks
+    bool emitRuntimeChecks,
+    bool syntaxOnly
 ) :
     inputFile(inputFile),
     lineNumber(lineNumber),
@@ -2410,6 +2411,7 @@ ExpressionParser::ExpressionParser(
     declaredVariables(declaredVariables),
     declaredFunctions(declaredFunctions),
     emitRuntimeChecks(emitRuntimeChecks),
+    syntaxOnly(syntaxOnly),
     tokens(expressionTokens) {
     if (tokens.empty() || tokens.back().kind != TokenKind::EndOfFile) {
         SourceSpan endSpan;
@@ -2603,6 +2605,7 @@ int ExpressionParser::absoluteEndColumn(const Token& token) const {
 }
 
 void ExpressionParser::report(const Token& token, const std::string& message) const {
+    if (syntaxOnly) return;
     const SourceSpan tokenSpan = token.sourceSpan.valid()
         ? token.sourceSpan
         : sourceSpanForColumns(
@@ -2642,6 +2645,7 @@ void ExpressionParser::report(const Token& token, const std::string& message) co
 }
 
 void ExpressionParser::reportUnexpectedTrailingToken(const Token& token) const {
+    if (syntaxOnly) return;
     Diagnostic diagnostic;
     diagnostic.message = "unexpected token in expression";
     const SourceSpan span = token.sourceSpan.valid()
@@ -2871,8 +2875,8 @@ std::unique_ptr<Expr> ExpressionParser::parseMethodCall(std::unique_ptr<Expr> ex
     if (!check(TokenKind::LeftParen)) {
         return std::make_unique<FieldExpr>(std::move(expression), method.text, absoluteColumn(method), method.sourceSpan);
     }
-    if (method.text != "remove" && method.text != "find" && method.text != "at" && method.text != "split" &&
-        method.text != "prev" && method.text != "next" && method.text != "hasPrev" && method.text != "hasNext") {
+    if (syntaxOnly || (method.text != "remove" && method.text != "find" && method.text != "at" && method.text != "split" &&
+        method.text != "prev" && method.text != "next" && method.text != "hasPrev" && method.text != "hasNext")) {
         if (match(TokenKind::LeftParen)) {
             const Token& leftParen = previous();
             std::vector<std::unique_ptr<Expr>> arguments;
@@ -2953,6 +2957,14 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
     const Token& leftBrace = peek();
     ++current;
     if (check(TokenKind::RightBrace, "}")) {
+        if (syntaxOnly) {
+            ++current;
+            return std::make_unique<SetLiteralExpr>(
+                std::vector<std::unique_ptr<Expr>>{},
+                absoluteColumn(leftBrace),
+                leftBrace.sourceSpan
+            );
+        }
         report(leftBrace, "empty set or map literal needs a declared type");
         ok = false;
         return nullptr;
@@ -3006,7 +3018,8 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
             sourceLines,
             declaredVariables,
             declaredFunctions,
-            emitRuntimeChecks
+            emitRuntimeChecks,
+            syntaxOnly
         );
         bool sliceOk = true;
         std::unique_ptr<Expr> expression = parser.parseAst(sliceOk);
@@ -3205,12 +3218,12 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             }
             return std::make_unique<CallExpr>("len", nullptr, std::move(arguments), absoluteColumn(identifier), identifier.sourceSpan);
         }
-        if (identifier.text == "split") {
+        if (!syntaxOnly && identifier.text == "split") {
             report(identifier, "split must be called as list.split(delimiter)");
             ok = false;
             return nullptr;
         }
-        if (identifier.text == "copy" &&
+        if (!syntaxOnly && identifier.text == "copy" &&
             check(TokenKind::LeftParen) &&
             current + 2 < tokens.size() &&
             tokens[current + 1].kind == TokenKind::LeftBracket &&
@@ -3221,7 +3234,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
         }
         if (identifier.text == "min" || identifier.text == "max" || identifier.text == "sum" || identifier.text == "abs" || identifier.text == "range") {
             if (!match(TokenKind::LeftParen)) {
-                if (identifier.text == "range") {
+                if (!syntaxOnly && identifier.text == "range") {
                     report(identifier, "range must be called as range(stop), range(start, stop), or range(start, stop, step)");
                     ok = false;
                     return nullptr;
@@ -3245,7 +3258,7 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
             }
             return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier), identifier.sourceSpan);
         }
-        if (identifier.text == "input") {
+        if (!syntaxOnly && identifier.text == "input") {
             reportInputUsageError(identifier);
             ok = false;
             return nullptr;
@@ -3253,11 +3266,22 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
         if (match(TokenKind::LeftParen)) {
             const Token& leftParen = previous();
             std::vector<std::unique_ptr<Expr>> arguments;
-            if (!match(TokenKind::RightParen)) {
+            std::vector<std::string> argumentNames;
+            const auto parseArgument = [&]() {
+                std::string name;
+                if (syntaxOnly && check(TokenKind::Identifier) && current + 1 < tokens.size() &&
+                    tokens[current + 1].kind == TokenKind::Equals) {
+                    name = tokens[current].text;
+                    current += 2;
+                }
                 arguments.push_back(parseExpression(ok));
+                argumentNames.push_back(std::move(name));
+            };
+            if (!match(TokenKind::RightParen)) {
+                parseArgument();
                 if (!ok) return nullptr;
                 while (match(TokenKind::Comma)) {
-                    arguments.push_back(parseExpression(ok));
+                    parseArgument();
                     if (!ok) return nullptr;
                 }
                 if (!match(TokenKind::RightParen)) {
@@ -3266,7 +3290,14 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
                     return nullptr;
                 }
             }
-            return std::make_unique<CallExpr>(identifier.text, nullptr, std::move(arguments), absoluteColumn(identifier), identifier.sourceSpan);
+            return std::make_unique<CallExpr>(
+                identifier.text,
+                nullptr,
+                std::move(arguments),
+                absoluteColumn(identifier),
+                identifier.sourceSpan,
+                std::move(argumentNames)
+            );
         }
         return std::make_unique<VariableExpr>(identifier.text, absoluteColumn(identifier), identifier.sourceSpan);
     }
@@ -3290,6 +3321,13 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
     if (match(TokenKind::LeftBracket)) {
         const Token& leftBracket = previous();
         if (match(TokenKind::RightBracket)) {
+            if (syntaxOnly) {
+                return std::make_unique<ListLiteralExpr>(
+                    std::vector<std::unique_ptr<Expr>>{},
+                    absoluteColumn(leftBracket),
+                    leftBracket.sourceSpan
+                );
+            }
             report(leftBracket, "empty list literal needs a declared List type");
             ok = false;
             return nullptr;

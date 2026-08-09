@@ -225,6 +225,7 @@
   "reverse_does_not_take_arguments": "error: reverse() does not take arguments\n --> <source>:2:16\n  |\n2 | values.reverse(0);\n  |                ^",
   "right_side_of_in_must_be_a_list": "error: right side of 'in' must be a List\n --> <source>:2:9\n  |\n2 | print(1 in x);\n  |         ^~",
   "runtime_diagnostic_model": "error: runtime error: division by zero\n --> <source>:3:12\n  |\n3 | int x=total/zero;\n  |            ^",
+  "semantic_errors_remain_downstream_of_ast_construction": "error: cannot implicitly convert string to int\n --> <source>:2:12\n  |\n2 |     return \"not an int\";\n  |            ^~~~~~~~~~~~",
   "set_blank_compare_selector": "error: compare() expects an index or field name\n --> <source>:1:17\n  |\n1 | Set<int> values(compare());\n  |                 ^~~~~~~",
   "set_comparator_arity_mismatch": "error: comparator must have type bool(int, int), got bool(int)\n --> <source>:2:17\n  |\n2 | Set<int> values(bad);\n  |                 ^~~",
   "set_compare_index_requires_nested_keys": "error: compare(index) can only order Lists or Pairs\n --> <source>:1:17\n  |\n1 | Set<int> values(compare(0));\n  |                 ^~~~~~~",

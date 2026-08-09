@@ -6,7 +6,8 @@
  * The current flow is:
  * source text
  *   -> TokenStream
- *   -> compileTokenStream(...)
+ *   -> ProgramAst
+ *   -> compileProgramAst(...)
  *   -> generatedTopLevelLines / generatedFunctionLines / generatedMainLines
  *   -> emitTranslatedProgram(...)
  *

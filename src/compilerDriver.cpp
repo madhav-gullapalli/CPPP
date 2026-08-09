@@ -8,6 +8,8 @@
 
 #include "compilerDriver.h"
 
+#include "astParser.h"
+#include "astPrinter.h"
 #include "compileContext.h"
 #include "errors.h"
 #include "expressions.h"
@@ -211,10 +213,10 @@ void pruneSubmitLoopHelpers(CompileContext& context) {
 }
 
 // Keep the driver flow linear on purpose:
-// raw file -> canonical TokenStream -> statement lowering -> generated C++.
+// raw file -> canonical TokenStream -> ProgramAst -> semantic lowering -> C++.
 int runCompilerDriver(int argc, char* argv[]) {
     if ((argc < 3 || argc > 5) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--compile|--run|--submit [--readable]]\n";
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--ast|--compile|--run|--submit [--readable]]\n";
         return 1;
     }
     clearRecordedSourceErrors();
@@ -223,10 +225,11 @@ int runCompilerDriver(int argc, char* argv[]) {
     const bool hasAction = argc >= 4;
     const std::string action = hasAction ? std::string(argv[3]) : "";
     const bool shouldPrintTokens = action == "--tokens";
+    const bool shouldPrintAst = action == "--ast";
     const bool shouldCompile = action == "--compile" || action == "--run" || action == "--submit";
     const bool shouldRun = action == "--run";
     const bool shouldSubmit = action == "--submit";
-    if (hasAction && !shouldCompile && !shouldPrintTokens) {
+    if (hasAction && !shouldCompile && !shouldPrintTokens && !shouldPrintAst) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
         return 1;
     }
@@ -282,8 +285,18 @@ int runCompilerDriver(int argc, char* argv[]) {
         printTokenStream(tokenStream);
         return 0;
     }
+    const ProgramAst program = parseProgramAst(tokenStream);
+    std::string astInvariantError;
+    if (!validateProgramAst(program, astInvariantError)) {
+        std::cerr << "Internal AST error: " << astInvariantError << '\n';
+        return 1;
+    }
+    if (shouldPrintAst) {
+        printProgramAst(std::cout, program);
+        return 0;
+    }
     setDeclaredFunctionsForExpressions(&context.declaredFunctions);
-    compileTokenStream(context, tokenStream);
+    compileProgramAst(context, program);
 
     if (context.blockDepth > 0) {
         recordSourceError(options.inputFile, context.sourceLines.empty() ? 1 : context.sourceLines.rbegin()->first, 1, "unclosed block", context.sourceLines);

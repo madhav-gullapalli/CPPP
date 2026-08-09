@@ -23,7 +23,8 @@ public:
         const std::map<int, std::string>& sourceLines,
         const std::map<std::string, Type>& declaredVariables,
         const std::map<std::string, FunctionSignature>& declaredFunctions,
-        bool emitRuntimeChecks
+        bool emitRuntimeChecks,
+        bool syntaxOnly = false
     );
 
 // parse parses  for the compiler pipeline.
@@ -38,6 +39,7 @@ private:
     const std::map<std::string, Type>& declaredVariables;
     const std::map<std::string, FunctionSignature>& declaredFunctions;
     bool emitRuntimeChecks;
+    bool syntaxOnly;
     std::vector<Token> tokens;
     size_t current = 0;
 

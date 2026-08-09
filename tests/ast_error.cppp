@@ -1,0 +1,6 @@
+int badReturn() {
+    return "not an int";
+}
+
+print(badReturn());
+

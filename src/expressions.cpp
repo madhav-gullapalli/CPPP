@@ -1173,6 +1173,38 @@ std::unique_ptr<Expr> parseExpressionAst(
     return expression;
 }
 
+std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& expressionTokens) {
+    static const std::string emptyFile;
+    static const std::map<int, std::string> emptyLines;
+    static const std::map<std::string, Type> emptyVariables;
+    static const std::map<std::string, FunctionSignature> emptyFunctions;
+    const int line = expressionTokens.empty() ? 1 : expressionTokens.front().span.startLine;
+    const int column = expressionTokens.empty() ? 1 : expressionTokens.front().span.startColumn;
+    ExpressionParser parser(
+        emptyFile,
+        line,
+        expressionTokens,
+        column,
+        emptyLines,
+        emptyVariables,
+        emptyFunctions,
+        false,
+        true
+    );
+    bool ok = true;
+    std::unique_ptr<Expr> expression = parser.parseAst(ok);
+    if (ok && expression) {
+        return expression;
+    }
+    SourceSpan span;
+    for (const Token& token : expressionTokens) {
+        if (!token.sourceSpan.valid()) continue;
+        if (!span.valid()) span = token.sourceSpan;
+        else span.endOffset = token.sourceSpan.endOffset;
+    }
+    return std::make_unique<ErrorExpr>("expression syntax recovery", column, span);
+}
+
 // hasArithmeticOperator returns whether the supplied input satisfies the relevant condition.
 bool hasArithmeticOperator(const std::vector<Token>& tokens) {
     for (const Token& token : tokens) {

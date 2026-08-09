@@ -10,9 +10,10 @@
 #pragma once
 
 #include "compileContext.h"
+#include "programAst.h"
 
 #include <vector>
 
-// Lowers a canonical source token stream into generated C++ while updating the
-// shared CompileContext.
-void compileTokenStream(CompileContext& context, const TokenStream& tokenStream);
+// Transitional semantic/lowering pass. Syntax has already been parsed into a
+// recursive ProgramAst before this stage begins.
+void compileProgramAst(CompileContext& context, const ProgramAst& program);

@@ -20,6 +20,8 @@ COMPILER := $(BUILD_DIR)/cppp$(EXE_EXT)
 SOURCES := \
 $(SRC_DIR)/cppp.cpp \
 $(SRC_DIR)/compilerDriver.cpp \
+$(SRC_DIR)/astParser.cpp \
+$(SRC_DIR)/astPrinter.cpp \
 $(SRC_DIR)/programEmitter.cpp \
 $(SRC_DIR)/submitPostProcessor.cpp \
 $(SRC_DIR)/functions.cpp \
@@ -39,6 +41,8 @@ $(SRC_DIR)/typesCppp.cpp
 
 HEADERS := \
 $(SRC_DIR)/assignmentCppp.h \
+$(SRC_DIR)/astParser.h \
+$(SRC_DIR)/astPrinter.h \
 $(SRC_DIR)/compileContext.h \
 $(SRC_DIR)/compilerDriver.h \
 $(SRC_DIR)/controlFlow.h \
@@ -47,6 +51,7 @@ $(SRC_DIR)/expressionParser.h \
 $(SRC_DIR)/expressions.h \
 $(SRC_DIR)/listsCppp.h \
 $(SRC_DIR)/printCppp.h \
+$(SRC_DIR)/programAst.h \
 $(SRC_DIR)/sourceSplitter.h \
 $(SRC_DIR)/submitPostProcessor.h \
 $(SRC_DIR)/statementParser.h \
@@ -58,7 +63,7 @@ $(SRC_DIR)/typesCppp.h
 INPUT ?= in.cppp
 PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
-.PHONY: all tokens transpile compile run submit subrun test codegen-freeze codegen-freeze-record clean
+.PHONY: all tokens ast ast-invariants transpile compile run submit subrun test codegen-freeze codegen-freeze-record clean
 
 all: $(COMPILER)
 
@@ -73,6 +78,12 @@ transpile: $(COMPILER)
 
 tokens: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)" --tokens
+
+ast: $(COMPILER)
+	"$(COMPILER)" --cppp "$(INPUT)" --ast
+
+ast-invariants: $(COMPILER)
+	$(PYTHON) tests/ast_invariants.py
 
 compile: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)" --compile
