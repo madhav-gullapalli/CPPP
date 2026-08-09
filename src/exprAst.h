@@ -27,8 +27,8 @@ struct Expr {
 
 // ErrorExpr is syntax recovery for the full-program AST pass. When the source
 // omitted an expression entirely, its span is intentionally invalid and the
-// containing statement supplies the recovery span. Normal semantic compilation
-// continues through compatibility lowering and reports the established error.
+// containing statement supplies the recovery span. Semantic compilation uses
+// that statement node to report the established error.
 struct ErrorExpr : Expr {
     std::string reason;
 

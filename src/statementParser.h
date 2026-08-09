@@ -39,5 +39,5 @@ struct StatementParseResult {
 };
 
 // Parses a logical statement from the canonical file token stream. The token
-// vector must end with EndOfFile, as SourceFragment::tokens does.
+// The token vector must end with EndOfFile.
 StatementParseResult parseStatementAst(const std::vector<Token>& tokens, int sourceColumn = 1);

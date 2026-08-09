@@ -311,14 +311,8 @@ SourceFragment renderFragment(
         insertionAfter(stream, lastCode)
     });
 
-    fragment.codeText = codeText;
-    fragment.text = codeText;
     if (logical.hasComment) {
         fragment.commentText = logical.comment.text;
-        if (!fragment.text.empty()) {
-            fragment.text += " ";
-        }
-        fragment.text += logical.comment.text;
     }
 
     const Token* first = !logical.codeTokens.empty()

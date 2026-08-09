@@ -26,8 +26,8 @@ the code path is:
    recursive `ProgramAst`. It uses token-backed statement views internally but
    performs no symbol lookup, type checking, or C++ emission.
 5. [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) consumes that AST
-   through `compileProgramAst(...)`. A transitional compatibility traversal
-   lowers AST-owned fragments into the existing semantic/codegen machinery.
+   through `compileProgramAst(...)`, recursively lowering concrete statement
+   and block nodes without reconstructing or reparsing source fragments.
 6. [`src/programEmitter.cpp`](../src/programEmitter.cpp) turns its output buffers
    into one readable generated C++ translation unit.
 7. Compact `--submit` passes the complete unit through
@@ -83,14 +83,15 @@ Whitespace is trivia and is not emitted. Line comments and block braces are
 explicit tokens. The `--tokens` mode prints this representation as JSON lines.
 
 [`src/sourceSplitter.cpp`](../src/sourceSplitter.cpp) then groups tokens into
-temporary `SourceFragment` compatibility views. It does not lex raw text.
+temporary parser-internal `SourceFragment` views. It does not lex raw text, and
+these views do not survive into `ProgramAst` or semantic lowering.
 
 `SourceFragment` carries:
 
 - the original source line number
 - the original starting column
 - a rebased token view ending in `EndOfFile`
-- compatibility text reconstructed from those tokens for legacy lowerers
+- text reconstructed from those tokens for parser classification and recovery
 - the canonical source span
 
 Key splitter responsibilities:
@@ -107,31 +108,31 @@ objects; declarations, assignments, returns, and expressions have dedicated
 statement nodes. Syntactic types remain unresolved `TypeSyntax` values.
 
 AST construction does not read `CompileContext` symbol tables and suppresses
-normal semantic diagnostics. Malformed syntax is retained in recovery nodes so
-the existing downstream path can still issue user-facing errors. The driver
+normal semantic diagnostics. Malformed syntax is retained in recovery metadata
+so direct lowering can still issue user-facing errors. The driver
 validates ownership/span/coverage invariants after parsing. `--ast` then prints
 the tree through [`src/astPrinter.cpp`](../src/astPrinter.cpp) and exits without
 creating a generated `.cpp` file.
 
-## Stage 4: Transitional Semantic Lowering and Codegen
+## Stage 4: Direct AST Semantic Lowering and Codegen
 
 [`src/statementCompiler.cpp`](../src/statementCompiler.cpp) is the center of
-the transitional backend. `compileProgramAst(...)` accepts the full-program AST,
-walks its recursive structure to recover AST-owned compatibility fragments, and
-feeds them into the existing semantic and code-generation logic. It never
-receives or reparses the original `TokenStream`.
+the backend. `compileProgramAst(...)` accepts the full-program AST and dispatches
+on concrete nodes for declarations, assignments, functions, aggregates,
+control flow, returns, and simple control statements. Recursive `BlockAst`
+ownership drives scope entry and exit. No whole-program flattening or
+statement-level reparsing occurs after AST construction.
 
-This compatibility layer intentionally preserves byte-for-byte codegen during
-the migration. It still reparses individual AST-owned statement fragments and
-mixes semantic checking, state mutation, and emission; moving those operations
-to a dedicated semantic pass is the next architectural step.
+Expression and lvalue emitters still accept AST-attributed token slices as a
+localized compatibility adapter. Statement structure, type syntax, block
+relationships, and declaration/assignment shape are not rediscovered there.
 
 This stage is responsible for:
 
-- function declaration detection at top level
-- block-depth tracking
+- function and aggregate lowering from their AST nodes
+- recursive block-depth and lexical-scope tracking
 - scope tracking for declared variables
-- close-brace handling and scope cleanup
+- AST-owned branch/loop completion handling and scope cleanup
 - routing work to specialized helpers
 - queueing final generated lines into `CompileContext`
 
@@ -140,18 +141,18 @@ The file relies on helper modules for specific domains:
 - [`src/typeDeclarations.cpp`](../src/typeDeclarations.cpp) for declarations
 - [`src/assignmentCppp.cpp`](../src/assignmentCppp.cpp) for assignments
 - [`src/expressionParser.cpp`](../src/expressionParser.cpp) for expressions
-- [`src/controlFlow.cpp`](../src/controlFlow.cpp) for control-flow headers
+- [`src/controlFlow.cpp`](../src/controlFlow.cpp) for parser-time control-flow headers
 - [`src/printCppp.cpp`](../src/printCppp.cpp) for `print(...)`
 - [`src/listsCppp.cpp`](../src/listsCppp.cpp) for list-specific syntax/support
 - [`src/functions.cpp`](../src/functions.cpp) for function metadata
 
-Practical rule: add syntax structure in `astParser.cpp`; then follow
-`compileProgramAst(...)` when changing the current semantic/lowering behavior.
+Practical rule: add syntax structure in `astParser.cpp`, represent it in
+`programAst.h`, then lower that node in `compileProgramAst(...)`.
 
 ## Stage 5: Shared State via `CompileContext`
 
-[`src/compileContext.h`](../src/compileContext.h) defines the data shared across
-stages. It is the glue between token-backed statement lowering and final emission.
+[`src/compileContext.h`](../src/compileContext.h) defines the data shared between
+direct AST lowering and final emission.
 
 The most important `CompileContext` fields are:
 
@@ -164,7 +165,7 @@ The most important `CompileContext` fields are:
 - `generatedFunctionLines`: emitted function bodies
 - `generatedMainLines`: emitted statements that will go inside generated `main`
 - block/function tracking fields such as `blockDepth`, `blockKinds`,
-  `pendingLoopElse`, `inFunction`, and `outputTarget`
+  `blockBreakFlags`, `inFunction`, and `outputTarget`
 
 If two stages need to communicate, they almost always do it by mutating or
 reading this struct.
@@ -185,14 +186,13 @@ Examples:
 Why this is split out:
 
 - the syntax rules are specialized enough to deserve focused helpers
-- `statementCompiler.cpp` wants source-aware parse results without owning all
-  the string/token details itself
-- the parser returns offsets that make later diagnostics point at the right part
-  of the user's source
+- `astParser.cpp` needs source-aware parse results without owning every
+  header-token detail itself
+- those offsets and token slices are stored on AST nodes for later diagnostics
 
-Important nuance: this module parses headers, but it does not own the full
-block-lowering lifecycle. Brace emission, scope effects, and generated helper
-variables are still coordinated by `statementCompiler.cpp`.
+Important nuance: this module is parser-internal. It does not participate in
+semantic lowering; brace emission, scope effects, and generated helper variables
+are driven by recursive AST nodes in `statementCompiler.cpp`.
 
 ## Stage 7: Final Program Emission
 
@@ -232,10 +232,9 @@ wrong."
 
 ## Where To Start For Common Tasks
 
-- New statement syntax: start in
-  [`src/statementCompiler.cpp`](../src/statementCompiler.cpp), then inspect
-  [`src/statementParser.cpp`](../src/statementParser.cpp) and any specialized
-  helper module it should delegate to.
+- New statement syntax: start in [`src/programAst.h`](../src/programAst.h) and
+  [`src/astParser.cpp`](../src/astParser.cpp), then add direct lowering in
+  [`src/statementCompiler.cpp`](../src/statementCompiler.cpp).
 - New expression/operator behavior: start in
   [`src/expressionParser.cpp`](../src/expressionParser.cpp) and
   [`src/expressions.cpp`](../src/expressions.cpp).
@@ -255,8 +254,9 @@ wrong."
 The easiest way to keep the codebase straight is this:
 
 - `compilerDriver.cpp` owns orchestration
-- `sourceSplitter.cpp` owns statement-sized input fragments
-- `statementCompiler.cpp` owns statement lowering
+- `sourceSplitter.cpp` owns parser-internal statement grouping
+- `astParser.cpp` owns recursive program structure
+- `statementCompiler.cpp` owns direct AST semantic lowering
 - helper modules own specialized subproblems
 - `CompileContext` is the shared memory between stages
 - `programEmitter.cpp` owns final file serialization

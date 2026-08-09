@@ -145,7 +145,7 @@ void printForClause(std::ostream& output, const ForClauseAst& clause, int depth,
 
 void printStatement(std::ostream& output, const ProgramStatement& statement, int depth) {
     if (const auto* node = dynamic_cast<const CommentStatementAst*>(&statement)) {
-        line(output, depth, "CommentStmt " + quote(node->fragment.commentText), node->sourceSpan);
+        line(output, depth, "CommentStmt " + quote(node->syntax.commentText), node->sourceSpan);
     } else if (const auto* node = dynamic_cast<const ErrorStatementAst*>(&statement)) {
         line(output, depth, "ErrorStmt " + quote(node->reason), node->sourceSpan);
         if (node->recoveredBody) printBlock(output, *node->recoveredBody, depth + 1);
@@ -238,4 +238,3 @@ void printProgramAst(std::ostream& output, const ProgramAst& program) {
     line(output, 0, "Program", program.sourceSpan);
     printBlock(output, program.body, 1);
 }
-

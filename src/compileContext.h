@@ -35,42 +35,12 @@ struct CompileOptions {
     bool readableSubmit = false;
 };
 
-// One logical statement fragment produced by source splitting.
-struct SourceFragment {
-    int lineNumber = 0;
-    int startColumn = 1;
-    std::string text;
-    std::string codeText;
-    std::string commentText;
-    int endLineNumber = 0;
-    int endColumn = 1;
-    SourceSpan sourceSpan;
-    // Rebased view of canonical source tokens for this logical statement.
-    // The final token is always EndOfFile for compatibility with parsers.
-    std::vector<Token> tokens;
-
-    SourceFragment() = default;
-    SourceFragment(int lineNumber, int startColumn, std::string text) :
-        lineNumber(lineNumber),
-        startColumn(startColumn),
-        text(std::move(text)),
-        codeText(this->text),
-        endLineNumber(lineNumber),
-        endColumn(startColumn) {}
-};
-
 // One emitted C++ line plus the CP++ source metadata needed for diagnostics.
 struct GeneratedLine {
     std::string text;
     int sourceLine = 0;
     std::vector<SourceRange> sourceRanges;
     std::string submitOwnerKey;
-};
-
-// Tracks whether a just-closed loop can attach a trailing `nobreak`.
-struct PendingLoopElse {
-    bool active = false;
-    std::string breakFlagName;
 };
 
 enum class OutputTarget {
@@ -99,12 +69,8 @@ struct CompileContext {
     std::vector<GeneratedLine> generatedMainLines;
     int generatedLine = 0;
     int blockDepth = 0;
-    int suppressedBlockDepth = 0;
-    bool canAttachElse = false;
-    PendingLoopElse pendingLoopElse;
     OutputTarget outputTarget = OutputTarget::Main;
     bool inFunction = false;
-    bool inStruct = false;
     bool currentStructIsClass = false;
     std::string currentStructName;
     std::string currentStructMethodName;

@@ -16,7 +16,8 @@ General syntax
 full-program AST inspection
   `--ast` parses the complete source into a recursive syntax tree and exits
   before semantic analysis or C++ generation. The output includes stable node
-  names and source-offset spans.
+  names and source-offset spans. Normal compilation traverses this same tree
+  directly; it does not flatten it back into source fragments.
 
   Example:
     int square(int value) {
@@ -26,8 +27,8 @@ full-program AST inspection
 
 semantic errors remain downstream of AST construction
   AST construction records what was written without deciding whether its types
-  are compatible. Normal compilation still reports CP++ semantic diagnostics
-  after the AST has been built.
+  are compatible. Direct AST lowering still reports CP++ semantic diagnostics
+  after the tree has been built, including errors inside function bodies.
 
   Example:
     int badReturn() {

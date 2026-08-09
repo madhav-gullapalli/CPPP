@@ -15,11 +15,10 @@ The compiler pipeline today is:
 1. `src/cppp.cpp` calls `runCompilerDriver(...)`.
 2. `src/compilerDriver.cpp` validates CLI options, opens the input file, creates
    one `CompileContext`, and tokenizes the complete source once.
-3. `src/astParser.cpp` uses token-backed compatibility views to parse the
+3. `src/astParser.cpp` uses parser-internal token-backed views to parse the
    canonical `TokenStream` into one recursive, syntax-only `ProgramAst`.
-4. `src/statementCompiler.cpp` consumes that AST through a transitional
-   compatibility lowering layer and performs semantic checks and codegen using
-   the existing helper modules.
+4. `src/statementCompiler.cpp` recursively consumes concrete AST nodes and
+   performs semantic checks and codegen using the existing helper modules.
 5. `src/programEmitter.cpp` turns the generated line buffers in
    `CompileContext` into one readable C++ translation unit.
 6. `src/submitPostProcessor.cpp` optionally compacts the completed translation
@@ -54,9 +53,10 @@ literal/comment lexing, byte offsets, and source spans. The `--tokens` driver
 mode prints this stream for inspection and snapshot tests.
 
 ## [src/sourceSplitter.cpp](../../src/sourceSplitter.cpp) and [src/sourceSplitter.h](../../src/sourceSplitter.h)
-This stage groups an already-tokenized file into statement-sized compatibility
+This parser-internal stage groups an already-tokenized file into statement-sized
 views. It handles top-level terminators, continuation lines, comments, and block
-braces without scanning raw source again.
+braces without scanning raw source again. Its `SourceFragment` objects do not
+cross the `ProgramAst` boundary.
 
 ## `src/programAst.h`, `src/astParser.*`, and `src/astPrinter.*`
 These files own the recursive full-program syntax tree, construct it without
@@ -78,12 +78,12 @@ classic `for (...)`, and CP++ `for (T x in iterable)`. Full block lowering is
 still coordinated by `statementCompiler.cpp`.
 
 ## [src/typeDeclarations.cpp](../../src/typeDeclarations.cpp)
-This file parses and validates variable declarations and type syntax, then emits
-their generated C++ form.
+This file validates AST-resolved declaration metadata and emits its generated
+C++ form. Initializer expressions still enter through token-slice adapters.
 
 ## [src/assignmentCppp.cpp](../../src/assignmentCppp.cpp) and [src/assignmentCppp.h](../../src/assignmentCppp.h)
-These files handle assignment parsing and lowering, including compound
-assignments and assignment-specific rewrites.
+These files lower AST-parsed assignments, including compound assignments and
+assignment-specific rewrites. Lvalue and value expressions remain token-backed.
 
 ## [src/printCppp.cpp](../../src/printCppp.cpp) and [src/printCppp.h](../../src/printCppp.h)
 This pair parses `print(...)` and emits the generated output logic, including
@@ -104,18 +104,19 @@ types, inserts conversions, and emits generated C++ expressions plus runtime
 checks when enabled.
 
 ## [src/functions.cpp](../../src/functions.cpp) and [src/functions.h](../../src/functions.h)
-These files manage function signatures, parameter metadata, declaration parsing,
-and function-call metadata.
+These files provide function-signature and call-description metadata. Function
+declarations themselves are parsed by `astParser.cpp` and lowered directly by
+`statementCompiler.cpp`.
 
 ## [src/typesCppp.cpp](../../src/typesCppp.cpp) and [src/typesCppp.h](../../src/typesCppp.h)
 This module provides emitted runtime support and type-emission machinery used by
 the generated C++ program.
 
 ## [src/statementCompiler.cpp](../../src/statementCompiler.cpp) and [src/statementCompiler.h](../../src/statementCompiler.h)
-This is the central transitional lowering stage. It receives `ProgramAst`,
-walks its AST-owned compatibility fragments in source order, tracks scope, and
-routes specialized work to the expression, assignment, list, print, and type
-helpers before queueing generated C++ lines into `CompileContext`.
+This is the central direct lowering stage. It recursively dispatches on concrete
+`ProgramAst` nodes, uses owned `BlockAst` relationships to track scope, and
+routes expression-level work to assignment, list, print, and type helpers before
+queueing generated C++ lines into `CompileContext`.
 
 ## [src/programEmitter.cpp](../../src/programEmitter.cpp) and [src/programEmitter.h](../../src/programEmitter.h)
 This is the final emission stage. It writes includes, runtime helper preamble,
@@ -146,21 +147,19 @@ helper machinery for list operations.
   mode does not need.
 
 ### `src/sourceSplitter.cpp`
-- `splitTokenStream(...)` supplies parser-internal compatibility views.
+- `splitTokenStream(...)` supplies parser-internal statement views.
 - `splitPhysicalFragments(...)` handles token-level boundaries.
 - `mergeLogicalFragments(...)` rejoins multi-line logical statements.
 
 ### `src/astParser.cpp`
 - `parseProgramAst(...)` builds the recursive, syntax-only program tree.
 - `validateProgramAst(...)` checks spans, ownership, mandatory children, and
-  complete fragment attribution.
-- `lowerProgramAstToFragments(...)` is the temporary bridge to existing
-  lowering.
+  block/closing-span attribution.
 
 ### `src/statementCompiler.cpp`
-- `compileProgramAst(...)` is the transitional semantic/codegen loop.
-- `emitConditionHeader(...)` lowers analyzed `if`/`while` conditions.
-- `emitForPart(...)` lowers pieces of classic `for (init; cond; iter)` loops.
+- `compileProgramAst(...)` is the recursive semantic/codegen entry point.
+- `AstLowerer::compileStatement(...)` dispatches concrete statement nodes.
+- `compileOwnedBlock(...)` owns scope entry, child traversal, and scope exit.
 
 ### `src/controlFlow.cpp`
 - `parseConditionHeaderDetailed(...)` produces source-aware diagnostics for

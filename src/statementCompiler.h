@@ -3,8 +3,8 @@
  *
  * Main statement-lowering stage.
  *
- * This stage consumes the canonical whole-file TokenStream, derives temporary
- * statement views, updates scope state, and queues generated C++ lines.
+ * This stage recursively consumes ProgramAst nodes, updates semantic scope
+ * state, and queues generated C++ lines.
  */
 
 #pragma once
@@ -14,6 +14,6 @@
 
 #include <vector>
 
-// Transitional semantic/lowering pass. Syntax has already been parsed into a
-// recursive ProgramAst before this stage begins.
+// Semantic/codegen pass over the recursive ProgramAst. It never reparses
+// statement syntax or reconstructs parser fragments.
 void compileProgramAst(CompileContext& context, const ProgramAst& program);

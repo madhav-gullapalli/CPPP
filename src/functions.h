@@ -8,11 +8,8 @@
 
 #pragma once
 
-#include "errors.h"
 #include "expressions.h"
-#include "tokenizer.h"
 
-#include <map>
 #include <string>
 #include <vector>
 
@@ -31,23 +28,6 @@ struct FunctionSignature {
     bool returnsVoid = false;
     std::vector<FunctionParameter> parameters;
 };
-
-// ParsedFunctionHeader parses dfunctionheaders for the compiler pipeline.
-struct ParsedFunctionHeader {
-    bool matched = false;
-    bool ok = true;
-    FunctionSignature signature;
-    std::string generatedSignature;
-    int nameColumn = 0;
-};
-
-ParsedFunctionHeader parseFunctionHeader(
-    const std::string& inputFile,
-    int lineNumber,
-    int statementColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::vector<Token>& sourceTokens
-);
 
 // functionParameterTypesDescription implements the functionParameterTypesDescription behavior for the functions.h module.
 std::string functionParameterTypesDescription(const FunctionSignature& signature);

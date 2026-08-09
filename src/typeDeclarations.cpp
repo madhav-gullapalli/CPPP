@@ -28,15 +28,6 @@ struct DeclaredName {
     int column;
 };
 
-// ParsedTypeName parses dtypename for the compiler pipeline.
-struct ParsedTypeName {
-    bool ok = true;
-    Type type;
-    std::string name;
-    size_t nextTokenIndex = 0;
-    int pendingRightClosers = 0;
-};
-
 // trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
@@ -508,282 +499,6 @@ bool emitTypedListLiteralAt(
     return false;
 }
 
-bool parseTypeAt(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::vector<Token>& tokens,
-    size_t startIndex,
-    const std::map<int, std::string>& sourceLines,
-    ParsedTypeName& parsedType
-) {
-    if (startIndex >= tokens.size() || tokens[startIndex].kind != TokenKind::Identifier) {
-        return false;
-    }
-
-    const std::string typeName = tokens[startIndex].text;
-    if (typeName == "bigint" || typeName == "Bigint" || typeName == "bigfloat" || typeName == "BigFloat") {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[startIndex].span.startColumn,
-            typeName + " has been removed from CP++; use int or float instead",
-            sourceLines
-        );
-        parsedType.ok = false;
-        parsedType.nextTokenIndex = startIndex + 1;
-        return true;
-    }
-
-    const Type rootType = declaredTypeForName(typeName);
-    if (rootType == PrimitiveType::Unknown) {
-        return false;
-    }
-
-    parsedType.ok = true;
-    parsedType.type = rootType;
-    parsedType.name = typeName;
-    parsedType.nextTokenIndex = startIndex + 1;
-
-    if (typeName == "string") {
-        if (tokens.size() > startIndex + 1 &&
-            tokens[startIndex + 1].kind == TokenKind::Operator &&
-            tokens[startIndex + 1].text == "<") {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                tokens[startIndex + 1].span.startColumn,
-                "string expects 0 subtypes",
-                sourceLines
-            );
-            parsedType.ok = false;
-        }
-
-        return true;
-    }
-
-    const int arity = primitiveArity(rootType.primitive);
-    if (arity == 0) {
-        if (tokens.size() > startIndex + 1 &&
-            tokens[startIndex + 1].kind == TokenKind::Operator &&
-            tokens[startIndex + 1].text == "<") {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                tokens[startIndex + 1].span.startColumn,
-                typeName + " expects 0 subtypes",
-                sourceLines
-            );
-            parsedType.ok = false;
-        }
-
-        return true;
-    }
-
-    const std::string expectedSubtypeExample = arity == 1
-        ? typeName + "<int>"
-        : typeName + "<int, int>";
-
-    if (parsedType.nextTokenIndex >= tokens.size() ||
-        tokens[parsedType.nextTokenIndex].kind != TokenKind::Operator ||
-        tokens[parsedType.nextTokenIndex].text != "<") {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[startIndex].span.startColumn,
-            typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
-            sourceLines
-        );
-        parsedType.ok = false;
-        return true;
-    }
-
-    ++parsedType.nextTokenIndex;
-    if (parsedType.nextTokenIndex >= tokens.size() ||
-        (tokens[parsedType.nextTokenIndex].kind == TokenKind::Operator &&
-         tokens[parsedType.nextTokenIndex].text == ">")) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[startIndex].span.startColumn,
-            typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
-            sourceLines
-        );
-        parsedType.ok = false;
-        return true;
-    }
-
-    for (int subtypeIndex = 0; subtypeIndex < arity; ++subtypeIndex) {
-        if (parsedType.nextTokenIndex >= tokens.size() ||
-            (tokens[parsedType.nextTokenIndex].kind == TokenKind::Operator &&
-             (tokens[parsedType.nextTokenIndex].text == ">" || tokens[parsedType.nextTokenIndex].text == ">>"))) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                tokens[startIndex].span.startColumn,
-                typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
-                sourceLines
-            );
-            parsedType.ok = false;
-            return true;
-        }
-
-        ParsedTypeName subtype;
-        if (!parseTypeAt(inputFile, lineNumber, tokens, parsedType.nextTokenIndex, sourceLines, subtype)) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                tokens[parsedType.nextTokenIndex].span.startColumn,
-                "expected type inside " + typeName + "<...>",
-                sourceLines
-            );
-            parsedType.ok = false;
-            return true;
-        }
-        if (!subtype.ok) {
-            parsedType.ok = false;
-            parsedType.nextTokenIndex = subtype.nextTokenIndex;
-            parsedType.pendingRightClosers = subtype.pendingRightClosers;
-            return true;
-        }
-
-        parsedType.type.subtypes.push_back(subtype.type);
-        parsedType.nextTokenIndex = subtype.nextTokenIndex;
-
-        if (subtype.pendingRightClosers > 0) {
-            if (subtypeIndex != arity - 1) {
-                recordSourceError(
-                    inputFile,
-                    lineNumber,
-                    tokens[startIndex].span.startColumn,
-                    typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
-                    sourceLines
-                );
-                parsedType.ok = false;
-                return true;
-            }
-            parsedType.pendingRightClosers = subtype.pendingRightClosers - 1;
-            return true;
-        }
-
-        if (subtypeIndex != arity - 1) {
-            if (parsedType.nextTokenIndex >= tokens.size()) {
-                recordSourceError(
-                    inputFile,
-                    lineNumber,
-                    tokens[startIndex].span.startColumn,
-                    "unclosed generic type for " + typeName,
-                    sourceLines
-                );
-                parsedType.ok = false;
-                return true;
-            }
-
-            if (tokens[parsedType.nextTokenIndex].kind != TokenKind::Comma) {
-                recordSourceError(
-                    inputFile,
-                    lineNumber,
-                    tokens[startIndex].span.startColumn,
-                    typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s") + " like " + expectedSubtypeExample,
-                    sourceLines
-                );
-                parsedType.ok = false;
-                return true;
-            }
-
-            ++parsedType.nextTokenIndex;
-        }
-    }
-
-    if (parsedType.nextTokenIndex >= tokens.size()) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[startIndex].span.startColumn,
-            "unclosed generic type for " + typeName,
-            sourceLines
-        );
-        parsedType.ok = false;
-        return true;
-    }
-
-    if (tokens[parsedType.nextTokenIndex].kind == TokenKind::Comma) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[parsedType.nextTokenIndex].span.startColumn,
-            typeName + " expects " + std::to_string(arity) + " subtype" + (arity == 1 ? "" : "s"),
-            sourceLines
-        );
-        parsedType.ok = false;
-        return true;
-    }
-
-    if (tokens[parsedType.nextTokenIndex].kind != TokenKind::Operator) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[startIndex].span.startColumn,
-            "unclosed generic type for " + typeName,
-            sourceLines
-        );
-        parsedType.ok = false;
-        return true;
-    }
-
-    if (tokens[parsedType.nextTokenIndex].text == ">") {
-        ++parsedType.nextTokenIndex;
-        return true;
-    }
-
-    if (tokens[parsedType.nextTokenIndex].text == ">>") {
-        ++parsedType.nextTokenIndex;
-        parsedType.pendingRightClosers = 1;
-        return true;
-    }
-
-    recordSourceError(
-        inputFile,
-        lineNumber,
-        tokens[parsedType.nextTokenIndex].span.startColumn,
-        "expected '>' to close " + typeName + "<...>",
-        sourceLines
-    );
-    parsedType.ok = false;
-    return true;
-}
-
-[[maybe_unused]] bool parseTypeName(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::vector<Token>& tokens,
-    const std::map<int, std::string>& sourceLines,
-    ParsedTypeName& parsedType
-) {
-    if (!parseTypeAt(inputFile, lineNumber, tokens, 0, sourceLines, parsedType)) {
-        return false;
-    }
-
-    if (parsedType.ok && parsedType.pendingRightClosers > 0) {
-        recordSourceError(
-            inputFile,
-            lineNumber,
-            tokens[0].span.startColumn,
-            "unexpected '>' after type " + cpppTypeName(parsedType.type),
-            sourceLines
-        );
-        parsedType.ok = false;
-    }
-
-    return true;
-}
-
-// isVoidTypeToken returns whether the supplied input satisfies the relevant condition.
-bool isVoidTypeToken(const std::vector<Token>& tokens, size_t startIndex) {
-    return startIndex < tokens.size() &&
-        tokens[startIndex].kind == TokenKind::Identifier &&
-        tokens[startIndex].text == "void";
-}
-
 void recordConversionDiagnostic(
     const std::string& inputFile,
     int lineNumber,
@@ -950,12 +665,6 @@ std::vector<InitializerValue> splitTopLevelCommaValues(
 
     values.push_back({trim(text.substr(startIndex)), tokenRange(tokens, startToken, nonEndTokenCount(tokens)), valueColumn});
     return values;
-}
-
-bool isVarDeclaration(const std::vector<Token>& tokens) {
-    return tokens.size() >= 2 &&
-        tokens[0].kind == TokenKind::Identifier &&
-        tokens[0].text == "var";
 }
 
 bool isEmptyContainerLiteral(const std::vector<Token>& tokens) {
@@ -1169,12 +878,13 @@ ListSizeInitializerResult parseListSizeInitializer(
 }
 }
 
-TypeEmitResult emitTypeDeclaration(
+TypeEmitResult emitResolvedTypeDeclaration(
     const std::string& inputFile,
     int lineNumber,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     std::map<std::string, Type>& declaredVariables,
+    const ResolvedDeclarationSyntax& declaration,
     const std::vector<Token>& sourceTokens
 ) {
     const auto sourceColumn = [statementStartColumn](int tokenColumn) { return statementStartColumn + tokenColumn - 1; };
@@ -1184,8 +894,8 @@ TypeEmitResult emitTypeDeclaration(
         return {false, true, "", {}};
     }
 
-    if (isVarDeclaration(tokens)) {
-        if (tokens.size() < 3 || tokens[1].kind != TokenKind::Identifier) {
+    if (declaration.inferred) {
+        if (declaration.names.empty()) {
             recordSourceError(
                 inputFile,
                 lineNumber,
@@ -1196,8 +906,8 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        const std::string variableName = tokens[1].text;
-        const int variableColumn = tokens[1].span.startColumn;
+        const std::string variableName = declaration.names.front().name;
+        const int variableColumn = declaration.names.front().column;
         if (!isIdentifier(variableName)) {
             recordSourceError(
                 inputFile,
@@ -1220,11 +930,12 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        if (tokens[2].kind == TokenKind::Comma) {
+        const size_t continuation = declaration.continuationTokenIndex;
+        if (declaration.names.size() > 1 || tokens[continuation].kind == TokenKind::Comma) {
             recordSourceError(
                 inputFile,
                 lineNumber,
-                sourceColumn(tokens[2].span.startColumn),
+                sourceColumn(tokens[continuation].span.startColumn),
                 "var declarations support exactly one variable",
                 sourceLines
             );
@@ -1232,7 +943,7 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        if (tokens[2].kind == TokenKind::EndOfFile) {
+        if (tokens[continuation].kind == TokenKind::EndOfFile) {
             recordSourceError(
                 inputFile,
                 lineNumber,
@@ -1244,11 +955,11 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        if (tokens[2].kind != TokenKind::Equals) {
+        if (tokens[continuation].kind != TokenKind::Equals) {
             recordSourceError(
                 inputFile,
                 lineNumber,
-                sourceColumn(tokens[2].span.startColumn),
+                sourceColumn(tokens[continuation].span.startColumn),
                 "var declarations must use '=' with an initializer",
                 sourceLines
             );
@@ -1256,11 +967,12 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        if (tokens[3].kind == TokenKind::EndOfFile) {
+        const size_t valueStart = continuation + 1;
+        if (tokens[valueStart].kind == TokenKind::EndOfFile) {
             recordSourceError(
                 inputFile,
                 lineNumber,
-                sourceColumn(tokens[2].span.endColumn + 1),
+                sourceColumn(tokens[continuation].span.endColumn + 1),
                 "var declarations require an initializer so the type can be inferred",
                 sourceLines
             );
@@ -1268,14 +980,14 @@ TypeEmitResult emitTypeDeclaration(
             return {true, false, "", {}};
         }
 
-        const int assignedValueStartColumn = tokens[3].span.startColumn;
+        const int assignedValueStartColumn = tokens[valueStart].span.startColumn;
         const int assignedValueColumn = sourceColumn(assignedValueStartColumn);
-        size_t tokenIndex = 3;
+        size_t tokenIndex = valueStart;
         while (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
             ++tokenIndex;
         }
 
-        const std::vector<Token> assignedValueTokens = tokenRange(tokens, 3, tokenIndex + 1);
+        const std::vector<Token> assignedValueTokens = tokenRange(tokens, valueStart, tokenIndex + 1);
         const std::string assignedValue = tokenText(assignedValueTokens);
 
         std::vector<InputArgument> inputArguments;
@@ -1376,16 +1088,7 @@ TypeEmitResult emitTypeDeclaration(
         };
     }
 
-    const ParsedTypeResult parsedType = parseDeclaredTypeTokens(inputFile, lineNumber, tokens, 0, sourceLines);
-    if (!parsedType.matched) {
-        return {false, true, "", {}};
-    }
-    if (!parsedType.ok) {
-        return {true, false, "", {}};
-    }
-
-    const std::string typeName = parsedType.name;
-    const Type targetType = parsedType.type;
+    const Type& targetType = declaration.type;
     if (targetType == PrimitiveType::Void) {
         recordSourceError(inputFile, lineNumber, sourceColumn(tokens[0].span.startColumn), "variables cannot have void type", sourceLines);
         return {true, false, "", {}};
@@ -1404,123 +1107,79 @@ TypeEmitResult emitTypeDeclaration(
 
     std::vector<DeclaredName> variables;
     std::string sizedInitializer;
-    size_t tokenIndex = parsedType.nextTokenIndex;
-    while (true) {
-        if (tokens[tokenIndex].kind != TokenKind::Identifier) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                sourceColumn(tokens[tokenIndex].span.startColumn),
-                "expected variable name after " + typeName,
-                sourceLines
-            );
-            return {true, false, "", {}};
-        }
-
-        const std::string variableName = tokens[tokenIndex].text;
-        const int variableColumn = tokens[tokenIndex].span.startColumn;
-        if (!isIdentifier(variableName)) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                sourceColumn(variableColumn),
-                "expected variable name after " + typeName,
-                sourceLines
-            );
-            return {true, false, "", {}};
-        }
-
-        if (declaredVariables.count(variableName) != 0) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                sourceColumn(variableColumn),
-                "variable '" + variableName + "' is already declared",
-                sourceLines
-            );
-            return {true, false, "", {}};
-        }
-
-        for (const DeclaredName& variable : variables) {
-            if (variable.name == variableName) {
-                recordSourceError(
-                    inputFile,
-                    lineNumber,
-                    sourceColumn(variableColumn),
-                    "variable '" + variableName + "' is already declared",
-                    sourceLines
-                );
+    size_t tokenIndex = declaration.continuationTokenIndex;
+    {
+        for (const ResolvedDeclaredName& name : declaration.names) {
+            if (declaredVariables.count(name.name) != 0) {
+                recordSourceError(inputFile, lineNumber, sourceColumn(name.column),
+                    "variable '" + name.name + "' is already declared", sourceLines);
                 return {true, false, "", {}};
             }
-        }
-
-        variables.push_back({variableName, variableColumn});
-        ++tokenIndex;
-
-        if (tokens[tokenIndex].kind == TokenKind::LeftParen) {
-            if (isSetType(targetType) || isMapType(targetType) || isHeapType(targetType)) {
-                if (variables.size() != 1) {
-                    recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn), "a collection comparator can declare only one variable", sourceLines);
-                    rememberInvalidVariables(declaredVariables, variables);
+            for (const DeclaredName& variable : variables) {
+                if (variable.name == name.name) {
+                    recordSourceError(inputFile, lineNumber, sourceColumn(name.column),
+                        "variable '" + name.name + "' is already declared", sourceLines);
                     return {true, false, "", {}};
                 }
-                const size_t leftParenIndex = tokenIndex;
-                ++tokenIndex;
-                const size_t comparatorStart = tokenIndex;
-                int depth = 1;
-                while (tokens[tokenIndex].kind != TokenKind::EndOfFile && depth > 0) {
-                    if (tokens[tokenIndex].kind == TokenKind::LeftParen) ++depth;
-                    if (tokens[tokenIndex].kind == TokenKind::RightParen) --depth;
-                    if (depth == 0) break;
-                    ++tokenIndex;
-                }
-                if (tokens[tokenIndex].kind != TokenKind::RightParen || depth != 0) {
-                    recordSourceError(inputFile, lineNumber, sourceColumn(tokens[leftParenIndex].span.startColumn), "unclosed collection comparator", sourceLines);
-                    rememberInvalidVariables(declaredVariables, variables);
-                    return {true, false, "", {}};
-                }
-                const std::vector<Token> comparatorTokens = tokenRange(tokens, comparatorStart, tokenIndex);
-                const ComparatorEmitResult comparator = emitCollectionComparator(
-                    inputFile, lineNumber, comparatorTokens,
-                    sourceColumn(tokens[comparatorStart].span.startColumn), targetType.subtypes[0], sourceLines, declaredVariables
-                );
-                if (!comparator.ok) {
-                    rememberInvalidVariables(declaredVariables, variables);
-                    return {true, false, "", {}};
-                }
-                sizedInitializer = typeInfo.cppType + "(" + comparator.expression + ")";
-                ++tokenIndex;
-                if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
-                    recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn), "unexpected token after collection comparator", sourceLines);
-                    rememberInvalidVariables(declaredVariables, variables);
-                    return {true, false, "", {}};
-                }
-                break;
             }
+            variables.push_back({name.name, name.column});
+        }
+    }
+
+    if ( tokens[tokenIndex].kind == TokenKind::LeftParen) {
+        if (isSetType(targetType) || isMapType(targetType) || isHeapType(targetType)) {
+            if (variables.size() != 1) {
+                recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn),
+                    "a collection comparator can declare only one variable", sourceLines);
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            const size_t leftParenIndex = tokenIndex++;
+            const size_t comparatorStart = tokenIndex;
+            int depth = 1;
+            while (tokens[tokenIndex].kind != TokenKind::EndOfFile && depth > 0) {
+                if (tokens[tokenIndex].kind == TokenKind::LeftParen) ++depth;
+                if (tokens[tokenIndex].kind == TokenKind::RightParen) --depth;
+                if (depth == 0) break;
+                ++tokenIndex;
+            }
+            if (tokens[tokenIndex].kind != TokenKind::RightParen || depth != 0) {
+                recordSourceError(inputFile, lineNumber, sourceColumn(tokens[leftParenIndex].span.startColumn),
+                    "unclosed collection comparator", sourceLines);
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            const std::vector<Token> comparatorTokens = tokenRange(tokens, comparatorStart, tokenIndex);
+            const ComparatorEmitResult comparator = emitCollectionComparator(
+                inputFile, lineNumber, comparatorTokens,
+                sourceColumn(tokens[comparatorStart].span.startColumn), targetType.subtypes[0],
+                sourceLines, declaredVariables);
+            if (!comparator.ok) {
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+            sizedInitializer = typeInfo.cppType + "(" + comparator.expression + ")";
+            ++tokenIndex;
+            if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
+                recordSourceError(inputFile, lineNumber, sourceColumn(tokens[tokenIndex].span.startColumn),
+                    "unexpected token after collection comparator", sourceLines);
+                rememberInvalidVariables(declaredVariables, variables);
+                return {true, false, "", {}};
+            }
+        } else {
             if (variables.size() != 1) {
                 recordListSizeDiagnostic(
-                    inputFile,
-                    lineNumber,
+                    inputFile, lineNumber,
                     sourceColumn(tokens[tokenIndex].span.startColumn),
                     sourceColumn(tokens[tokenIndex].span.endColumn),
                     "a List size initializer can declare only one variable",
-                    "split sized List declarations into separate statements",
-                    sourceLines
-                );
+                    "split sized List declarations into separate statements", sourceLines);
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
             const ListSizeInitializerResult initializer = parseListSizeInitializer(
-                inputFile,
-                lineNumber,
-                statementStartColumn,
-                sourceLines,
-                declaredVariables,
-                tokens,
-                tokenIndex,
-                targetType,
-                typeInfo
-            );
+                inputFile, lineNumber, statementStartColumn, sourceLines,
+                declaredVariables, tokens, tokenIndex, targetType, typeInfo);
             if (!initializer.ok) {
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
@@ -1529,35 +1188,14 @@ TypeEmitResult emitTypeDeclaration(
             tokenIndex = initializer.nextTokenIndex;
             if (tokens[tokenIndex].kind != TokenKind::EndOfFile) {
                 recordListSizeDiagnostic(
-                    inputFile,
-                    lineNumber,
+                    inputFile, lineNumber,
                     sourceColumn(tokens[tokenIndex].span.startColumn),
                     sourceColumn(tokens[tokenIndex].span.endColumn),
                     "unexpected token after List size initializer",
-                    "end the declaration after the closing `)`",
-                    sourceLines
-                );
+                    "end the declaration after the closing `)`", sourceLines);
                 rememberInvalidVariables(declaredVariables, variables);
                 return {true, false, "", {}};
             }
-            break;
-        }
-
-        if (tokens[tokenIndex].kind != TokenKind::Comma) {
-            break;
-        }
-
-        ++tokenIndex;
-        if (tokens[tokenIndex].kind == TokenKind::EndOfFile) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                sourceColumn(tokens[tokenIndex - 1].span.endColumn + 1),
-                "expected variable name after ','",
-                sourceLines
-            );
-            rememberInvalidVariables(declaredVariables, variables);
-            return {true, false, "", {}};
         }
     }
 
@@ -2034,96 +1672,4 @@ TypeEmitResult emitTypeDeclaration(
 // cppTypeForType implements the cppTypeForType behavior for the typeDeclarations.cpp module.
 std::string cppTypeForType(const Type& type) {
     return typeInfoFor(type).cppType;
-}
-
-ParsedTypeResult parseDeclaredTypeTokens(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::vector<Token>& tokens,
-    size_t startIndex,
-    const std::map<int, std::string>& sourceLines,
-    bool allowVoid
-) {
-    ParsedTypeResult result;
-    const bool beginsWithVoid = isVoidTypeToken(tokens, startIndex);
-    if (beginsWithVoid && (allowVoid ||
-        (startIndex + 1 < tokens.size() && tokens[startIndex + 1].kind == TokenKind::LeftParen))) {
-        result.matched = true;
-        result.ok = true;
-        result.type = PrimitiveType::Void;
-        result.name = "void";
-        result.nextTokenIndex = startIndex + 1;
-    } else {
-        ParsedTypeName parsedType;
-        if (!parseTypeAt(inputFile, lineNumber, tokens, startIndex, sourceLines, parsedType)) {
-            return result;
-        }
-
-        result.matched = true;
-        result.ok = parsedType.ok;
-        result.type = parsedType.type;
-        result.name = parsedType.name;
-        result.nextTokenIndex = parsedType.nextTokenIndex;
-
-        if (result.ok && parsedType.pendingRightClosers > 0) {
-            recordSourceError(
-                inputFile,
-                lineNumber,
-                tokens[startIndex].span.startColumn,
-                "unexpected '>' after type " + cpppTypeName(parsedType.type),
-                sourceLines
-            );
-            result.ok = false;
-            return result;
-        }
-    }
-
-    if (result.ok &&
-        result.nextTokenIndex < tokens.size() &&
-        tokens[result.nextTokenIndex].kind == TokenKind::LeftParen) {
-        std::vector<Type> functionParts = {result.type};
-        std::vector<bool> functionCopies;
-        size_t index = result.nextTokenIndex + 1;
-        if (index < tokens.size() && tokens[index].kind != TokenKind::RightParen) {
-            while (true) {
-                if (index >= tokens.size()) {
-                    recordSourceError(inputFile, lineNumber, tokens[result.nextTokenIndex].span.startColumn,
-                        "unclosed parenthesis in function type", sourceLines);
-                    result.ok = false;
-                    return result;
-                }
-                bool copyParameter = false;
-                if (tokens[index].kind == TokenKind::Identifier &&
-                    (tokens[index].text == "copy" || tokens[index].text == "deep")) {
-                    copyParameter = true;
-                    ++index;
-                }
-                const ParsedTypeResult parameter = parseDeclaredTypeTokens(
-                    inputFile, lineNumber, tokens, index, sourceLines, false);
-                if (!parameter.matched || !parameter.ok) {
-                    if (!parameter.matched) recordSourceError(inputFile, lineNumber, tokens[index].span.startColumn,
-                        "expected parameter type in function type", sourceLines);
-                    result.ok = false;
-                    return result;
-                }
-                functionParts.push_back(parameter.type);
-                functionCopies.push_back(copyParameter);
-                index = parameter.nextTokenIndex;
-                if (index >= tokens.size() || tokens[index].kind != TokenKind::Comma) break;
-                ++index;
-            }
-        }
-        if (index >= tokens.size() || tokens[index].kind != TokenKind::RightParen) {
-            recordSourceError(inputFile, lineNumber, tokens[result.nextTokenIndex].span.startColumn,
-                "unclosed parenthesis in function type", sourceLines);
-            result.ok = false;
-            return result;
-        }
-        result.type = Type(PrimitiveType::Function, std::move(functionParts));
-        result.type.functionParameterCopy = std::move(functionCopies);
-        result.name = cpppTypeName(result.type);
-        result.nextTokenIndex = index + 1;
-    }
-
-    return result;
 }

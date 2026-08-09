@@ -32,13 +32,18 @@ struct RuntimeHelper {
     std::vector<std::string> triggers;
 };
 
-// ParsedTypeResult parses dtyperesult for the compiler pipeline.
-struct ParsedTypeResult {
-    bool matched = false;
-    bool ok = true;
-    Type type;
+struct ResolvedDeclaredName {
     std::string name;
-    size_t nextTokenIndex = 0;
+    int column = 1;
+};
+
+// Structural declaration prefix supplied by ProgramAst. Initializer tokens
+// remain an expression-level compatibility input.
+struct ResolvedDeclarationSyntax {
+    bool inferred = false;
+    Type type;
+    std::vector<ResolvedDeclaredName> names;
+    size_t continuationTokenIndex = 0;
 };
 
 // runtimeHelpers provides runtime support for generated code.
@@ -64,20 +69,12 @@ void requireStructMethod(const std::string& structName, const std::string& metho
 const std::set<std::string>& requiredStructMethods();
 // cppTypeForType implements the cppTypeForType behavior for the typesCppp.h module.
 std::string cppTypeForType(const Type& type);
-ParsedTypeResult parseDeclaredTypeTokens(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::vector<Token>& tokens,
-    size_t startIndex,
-    const std::map<int, std::string>& sourceLines,
-    bool allowVoid = false
-);
-
-TypeEmitResult emitTypeDeclaration(
+TypeEmitResult emitResolvedTypeDeclaration(
     const std::string& inputFile,
     int lineNumber,
     int statementStartColumn,
     const std::map<int, std::string>& sourceLines,
     std::map<std::string, Type>& declaredVariables,
+    const ResolvedDeclarationSyntax& declaration,
     const std::vector<Token>& sourceTokens
 );

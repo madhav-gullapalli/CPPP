@@ -100,8 +100,8 @@ Windows equivalents:
 `--ast` prints the recursive, syntax-only full-program AST with source-offset
 spans and exits before semantic analysis or C++ generation. Its Make equivalent
 is `make ast INPUT=in.cppp`. Normal compilation also passes through this AST;
-the current backend then uses a transitional compatibility lowering layer to
-preserve existing generated C++ exactly.
+the backend recursively lowers concrete `ProgramAst` nodes directly. Logical
+source fragments remain parser-internal and never cross the AST boundary.
 
 ## Local Codegen Freeze
 

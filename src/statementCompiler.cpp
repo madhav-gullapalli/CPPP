@@ -1,42 +1,45 @@
 /*
  * statementCompiler.cpp
  *
- * Lowers parsed statements into generated C++ code with indentation and helper tracking.
- * This file is part of the CP++ transpiler and is documented here for
- * maintainability and onboarding.
+ * Performs semantic lowering by walking the recursive ProgramAst. Statement
+ * kinds and block relationships are never rediscovered from source text.
  */
 
 #include "statementCompiler.h"
 
-#include "astParser.h"
 #include "assignmentCppp.h"
-#include "controlFlow.h"
 #include "errors.h"
 #include "functions.h"
 #include "listsCppp.h"
 #include "printCppp.h"
-#include "statementParser.h"
 #include "typesCppp.h"
 
 #include <algorithm>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
-// trim removes surrounding whitespace from a string.
 std::string trim(const std::string& text) {
     const size_t start = text.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) {
-        return "";
-    }
-
+    if (start == std::string::npos) return "";
     const size_t end = text.find_last_not_of(" \t\r\n");
     return text.substr(start, end - start + 1);
 }
 
-// indentForDepth implements the indentForDepth behavior for the statementCompiler.cpp module.
 std::string indentForDepth(int depth) {
     return std::string(static_cast<size_t>((depth + 1) * 4), ' ');
+}
+
+std::string indentGeneratedStatement(const std::string& generatedStatement, int depth) {
+    return indentForDepth(depth) + trim(generatedStatement);
+}
+
+std::string stripGeneratedStatement(const std::string& generatedStatement) {
+    std::string text = trim(generatedStatement);
+    if (!text.empty() && text.back() == ';') text.pop_back();
+    return text;
 }
 
 bool containsCustomType(const Type& type) {
@@ -47,60 +50,20 @@ bool containsCustomType(const Type& type) {
     return false;
 }
 
-// indentGeneratedStatement implements the indentGeneratedStatement behavior for the statementCompiler.cpp module.
-std::string indentGeneratedStatement(const std::string& generatedStatement, int depth) {
-    return indentForDepth(depth) + trim(generatedStatement);
-}
-
-// stripGeneratedStatement implements the stripGeneratedStatement behavior for the statementCompiler.cpp module.
-std::string stripGeneratedStatement(const std::string& generatedStatement) {
-    std::string text = trim(generatedStatement);
-    if (!text.empty() && text.back() == ';') {
-        text.pop_back();
-    }
-
-    return text;
-}
-
-// isLoopBlockKind returns whether the supplied input satisfies the relevant condition.
-bool isLoopBlockKind(const std::string& kind) {
-    return kind == "for" || kind == "while" || kind == "rep";
-}
-
-// isRepCountType returns whether the supplied input satisfies the relevant condition.
-bool isRepCountType(Type type) {
-    return type == PrimitiveType::Bool ||
-        type == PrimitiveType::Char ||
-        type == PrimitiveType::Int ||
-        type == PrimitiveType::Float;
-}
-
-// isNamedCallStatement returns whether the supplied input satisfies the relevant condition.
-bool isNamedCallStatement(const std::vector<Token>& tokens, const std::string& name) {
-    return tokens.size() >= 3 &&
-        tokens[0].kind == TokenKind::Identifier &&
-        tokens[0].text == name &&
-        tokens[1].kind == TokenKind::LeftParen;
-}
-
 std::vector<Token> withoutTrailingSemicolon(const std::vector<Token>& tokens) {
-    std::vector<Token> statementTokens;
-    statementTokens.reserve(tokens.size());
+    std::vector<Token> result;
+    result.reserve(tokens.size());
     for (const Token& token : tokens) {
-        if (token.kind == TokenKind::EndOfFile) {
-            break;
-        }
-        statementTokens.push_back(token);
+        if (token.kind == TokenKind::EndOfFile) break;
+        result.push_back(token);
     }
-    if (!statementTokens.empty() && statementTokens.back().kind == TokenKind::Semicolon) {
-        statementTokens.pop_back();
-    }
+    if (!result.empty() && result.back().kind == TokenKind::Semicolon) result.pop_back();
 
     Token eof = tokens.empty() ? Token{} : tokens.back();
     eof.kind = TokenKind::EndOfFile;
     eof.text.clear();
-    if (!statementTokens.empty()) {
-        const Token& last = statementTokens.back();
+    if (!result.empty()) {
+        const Token& last = result.back();
         eof.span.startLine = last.span.endLine;
         eof.span.endLine = last.span.endLine;
         eof.span.startColumn = last.span.endColumn + 1;
@@ -111,138 +74,149 @@ std::vector<Token> withoutTrailingSemicolon(const std::vector<Token>& tokens) {
             ? SourceSpan{last.sourceSpan.source, last.sourceSpan.endOffset, last.sourceSpan.endOffset}
             : SourceSpan{};
     }
-    statementTokens.push_back(std::move(eof));
-    return statementTokens;
-}
-
-std::vector<Token> tokenSlice(
-    const std::vector<Token>& tokens,
-    size_t startOffset,
-    size_t textLength
-) {
-    std::vector<Token> result;
-    const size_t endOffset = startOffset + textLength;
-    for (const Token& sourceToken : tokens) {
-        if (sourceToken.kind == TokenKind::EndOfFile) {
-            break;
-        }
-        if (sourceToken.span.startOffset < startOffset || sourceToken.span.endOffset > endOffset) {
-            continue;
-        }
-        Token token = sourceToken;
-        token.span.startOffset -= startOffset;
-        token.span.endOffset -= startOffset;
-        token.span.startColumn -= static_cast<int>(startOffset);
-        token.span.endColumn -= static_cast<int>(startOffset);
-        result.push_back(std::move(token));
-    }
+    result.push_back(std::move(eof));
     return result;
 }
 
-std::string tokenText(const std::vector<Token>& tokens) {
-    if (tokens.empty()) return "";
-    std::string result;
-    size_t previousEnd = tokens.front().span.startOffset;
-    for (const Token& token : tokens) {
-        if (token.kind == TokenKind::EndOfFile) break;
-        if (token.span.startOffset > previousEnd) {
-            result.append(token.span.startOffset - previousEnd, ' ');
-        }
-        result += token.text;
-        previousEnd = token.span.endOffset;
-    }
-    return result;
-}
-
-// isBuiltinCallName returns whether the supplied input satisfies the relevant condition.
 bool isBuiltinCallName(const std::string& name) {
-    return name == "print" ||
-        name == "describe" ||
-        name == "input" ||
-        name == "len" ||
-        name == "min" ||
-        name == "max" ||
-        name == "sum" ||
-        name == "abs" ||
-        name == "split" ||
-        name == "copy" ||
-        name == "range";
+    return name == "print" || name == "describe" || name == "input" ||
+        name == "len" || name == "min" || name == "max" || name == "sum" ||
+        name == "abs" || name == "split" || name == "copy" || name == "range";
 }
 
-bool isUnsupportedBareCallStatement(
-    const std::vector<Token>& tokens,
-    const std::map<std::string, Type>& declaredVariables,
-    const std::map<std::string, FunctionSignature>& declaredFunctions,
-    const std::map<std::string, std::map<std::string, Type>>& declaredStructs
+bool isNamedCall(const Expr* expression, const std::string& name) {
+    const auto* call = dynamic_cast<const CallExpr*>(expression);
+    return call && !call->receiver && call->callee == name;
+}
+
+bool isUnsupportedBareCall(
+    const Expr* expression,
+    const CompileContext& context
 ) {
-    if (tokens.size() < 4 ||
-        tokens[0].kind != TokenKind::Identifier ||
-        tokens[1].kind != TokenKind::LeftParen ||
-        tokens[tokens.size() - 2].kind != TokenKind::RightParen ||
-        tokens.back().kind != TokenKind::EndOfFile) {
-        return false;
-    }
-
-    const auto variable = declaredVariables.find(tokens[0].text);
-    return (variable == declaredVariables.end() || !isFunctionType(variable->second)) &&
-        declaredFunctions.count(tokens[0].text) == 0 &&
-        declaredStructs.count(tokens[0].text) == 0 &&
-        !isBuiltinCallName(tokens[0].text);
+    const auto* call = dynamic_cast<const CallExpr*>(expression);
+    if (!call || call->receiver) return false;
+    const auto variable = context.declaredVariables.find(call->callee);
+    return (variable == context.declaredVariables.end() || !isFunctionType(variable->second)) &&
+        context.declaredFunctions.count(call->callee) == 0 &&
+        context.declaredStructs.count(call->callee) == 0 &&
+        !isBuiltinCallName(call->callee);
 }
 
-bool recordContextualStatementSuggestion(
+bool containsIncrementOrDecrement(const Expr* expression) {
+    if (!expression) return false;
+    if (const auto* unary = dynamic_cast<const UnaryExpr*>(expression)) {
+        return unary->op == "++" || unary->op == "--" || containsIncrementOrDecrement(unary->operand.get());
+    }
+    if (const auto* field = dynamic_cast<const FieldExpr*>(expression)) return containsIncrementOrDecrement(field->base.get());
+    if (const auto* binary = dynamic_cast<const BinaryExpr*>(expression)) {
+        return containsIncrementOrDecrement(binary->left.get()) || containsIncrementOrDecrement(binary->right.get());
+    }
+    if (const auto* cast = dynamic_cast<const CastExpr*>(expression)) return containsIncrementOrDecrement(cast->operand.get());
+    if (const auto* call = dynamic_cast<const CallExpr*>(expression)) {
+        if (containsIncrementOrDecrement(call->receiver.get())) return true;
+        for (const auto& argument : call->arguments) {
+            if (containsIncrementOrDecrement(argument.get())) return true;
+        }
+    }
+    if (const auto* index = dynamic_cast<const IndexExpr*>(expression)) {
+        return containsIncrementOrDecrement(index->base.get()) || containsIncrementOrDecrement(index->index.get());
+    }
+    if (const auto* slice = dynamic_cast<const SliceExpr*>(expression)) {
+        return containsIncrementOrDecrement(slice->base.get()) ||
+            containsIncrementOrDecrement(slice->start.get()) ||
+            containsIncrementOrDecrement(slice->end.get());
+    }
+    return false;
+}
+
+bool needsCharRuntimeHelperForType(const Type& type) {
+    if (type == PrimitiveType::Char) return true;
+    for (const Type& subtype : type.subtypes) {
+        if (needsCharRuntimeHelperForType(subtype)) return true;
+    }
+    return false;
+}
+
+bool needsRangeRuntimeHelperForType(const Type& type) {
+    if (type == PrimitiveType::Range) return true;
+    for (const Type& subtype : type.subtypes) {
+        if (needsRangeRuntimeHelperForType(subtype)) return true;
+    }
+    return false;
+}
+
+bool copyParameterEligible(const Type& type) {
+    return isStringType(type) || isCollectionType(type) || isClassType(type);
+}
+
+std::string typeSyntaxDisplay(const TypeSyntax& syntax) {
+    std::string result = syntax.name;
+    if (!syntax.arguments.empty()) {
+        result += "<";
+        for (size_t index = 0; index < syntax.arguments.size(); ++index) {
+            if (index > 0) result += ", ";
+            result += typeSyntaxDisplay(syntax.arguments[index]);
+        }
+        result += ">";
+    }
+    return result;
+}
+
+int columnForSpan(const ProgramStatement& statement, SourceSpan span, int fallback = 1) {
+    for (const Token& token : statement.syntax.tokens) {
+        if (token.sourceSpan.source == span.source &&
+            token.sourceSpan.startOffset == span.startOffset &&
+            token.sourceSpan.endOffset == span.endOffset) {
+            return statement.syntax.startColumn + token.span.startColumn - 1;
+        }
+    }
+    return fallback;
+}
+
+int relativeColumnForSpan(const std::vector<Token>& tokens, SourceSpan span, int fallback = 1) {
+    for (const Token& token : tokens) {
+        if (token.sourceSpan.source == span.source &&
+            token.sourceSpan.startOffset == span.startOffset &&
+            token.sourceSpan.endOffset == span.endOffset) {
+            return token.span.startColumn;
+        }
+    }
+    return fallback;
+}
+
+std::string withComment(const std::string& text, const SyntaxSite& syntax) {
+    return syntax.commentText.empty() ? text : text + " " + syntax.commentText;
+}
+
+bool recordContextualSuggestion(
     CompileContext& context,
-    const std::vector<Token>& tokens,
+    const ProgramStatement& statement,
     bool blockHeaderOnly
 ) {
-    if (tokens.empty() ||
-        tokens[0].kind != TokenKind::Identifier ||
-        !tokens[0].sourceSpan.valid()) {
-        return false;
-    }
+    const std::vector<Token>& tokens = statement.syntax.tokens;
+    if (tokens.empty() || tokens[0].kind != TokenKind::Identifier || !tokens[0].sourceSpan.valid()) return false;
 
     const auto functionVariable = context.declaredVariables.find(tokens[0].text);
-    if (functionVariable != context.declaredVariables.end() && isFunctionType(functionVariable->second)) {
-        return false;
-    }
+    if (functionVariable != context.declaredVariables.end() && isFunctionType(functionVariable->second)) return false;
 
     std::vector<std::string> candidates;
     if (blockHeaderOnly) {
         candidates = {"if", "while", "for", "rep", "class", "struct"};
     } else if (tokens.size() >= 2 && tokens[1].kind == TokenKind::LeftParen) {
-        candidates = {
-            "print", "describe", "input", "len", "min", "max", "sum",
-            "abs", "copy", "range"
-        };
-        for (const auto& function : context.declaredFunctions) {
-            candidates.push_back(function.first);
-        }
-        for (const auto& structure : context.declaredStructs) {
-            candidates.push_back(structure.first);
-        }
+        candidates = {"print", "describe", "input", "len", "min", "max", "sum", "abs", "copy", "range"};
+        for (const auto& function : context.declaredFunctions) candidates.push_back(function.first);
+        for (const auto& structure : context.declaredStructs) candidates.push_back(structure.first);
     } else if (tokens.size() >= 2 &&
                (tokens[1].kind == TokenKind::Identifier ||
-                (tokens[1].kind == TokenKind::Operator &&
-                 tokens[1].text == "<"))) {
-        candidates = {
-            "bool", "char", "int", "float", "string", "List", "Set",
-            "Map", "Pair", "Stack", "Queue", "Deque", "return"
-        };
-        for (const auto& structure : context.declaredStructs) {
-            candidates.push_back(structure.first);
-        }
+                (tokens[1].kind == TokenKind::Operator && tokens[1].text == "<"))) {
+        candidates = {"bool", "char", "int", "float", "string", "List", "Set", "Map", "Pair", "Stack", "Queue", "Deque", "return"};
+        for (const auto& structure : context.declaredStructs) candidates.push_back(structure.first);
     } else {
         return false;
     }
 
-    const std::string closest = closestDiagnosticCandidate(
-        tokens[0].text,
-        candidates
-    );
-    if (closest.empty()) {
-        return false;
-    }
-
+    const std::string closest = closestDiagnosticCandidate(tokens[0].text, candidates);
+    if (closest.empty()) return false;
     Diagnostic diagnostic;
     diagnostic.message = "unsupported statement";
     diagnostic.labels.push_back({tokens[0].sourceSpan, "", true});
@@ -256,115 +230,53 @@ bool recordContextualStatementSuggestion(
     return true;
 }
 
-// containsIncrementOrDecrement implements the containsIncrementOrDecrement behavior for the statementCompiler.cpp module.
-bool containsIncrementOrDecrement(const std::vector<Token>& tokens) {
-    for (const Token& token : tokens) {
-        if (token.kind == TokenKind::Operator && (token.text == "++" || token.text == "--")) {
-            return true;
-        }
-    }
-    return false;
-}
+class AstLowerer {
+public:
+    explicit AstLowerer(CompileContext& context) : context(context) {}
 
-bool needsCharRuntimeHelperForType(const Type& type) {
-    if (type == PrimitiveType::Char) {
-        return true;
+    void compile(const ProgramAst& program) {
+        for (const auto& statement : program.body.statements) compileStatement(*statement);
+        if (sawUnclosedBlock) context.blockDepth = std::max(context.blockDepth, 1);
     }
 
-    for (const Type& subtype : type.subtypes) {
-        if (needsCharRuntimeHelperForType(subtype)) {
-            return true;
-        }
-    }
+private:
+    CompileContext& context;
+    bool sawUnclosedBlock = false;
 
-    return false;
-}
-
-bool needsRangeRuntimeHelperForType(const Type& type) {
-    if (type == PrimitiveType::Range) {
-        return true;
-    }
-
-    for (const Type& subtype : type.subtypes) {
-        if (needsRangeRuntimeHelperForType(subtype)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-}
-
-void compileProgramAst(CompileContext& context, const ProgramAst& program) {
-    setDeclaredStructsForExpressions(&context.declaredStructs);
-    setDeclaredClassNamesForExpressions(&context.declaredClassNames);
-    setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
-    setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
-    const std::vector<SourceFragment> sourceFragments = lowerProgramAstToFragments(program);
-    for (const SourceFragment& fragment : sourceFragments) {
-        const std::string requirementOwner = !context.currentStructMethodName.empty()
+    void setRequirementOwner() {
+        const std::string owner = !context.currentStructMethodName.empty()
             ? "method:" + context.currentStructName + "." + context.currentStructMethodName
             : (!context.currentStructName.empty()
                 ? "struct:" + context.currentStructName
-                : (context.currentTopLevelFunctionName.empty() ? "" : "function:" + context.currentTopLevelFunctionName));
-        setRuntimeRequirementOwner(requirementOwner);
-        const int lineNumber = fragment.lineNumber;
-        const std::string& commentText = fragment.commentText;
-        const bool hasComment = !commentText.empty();
-        const std::string statement = trim(fragment.codeText);
+                : (context.currentTopLevelFunctionName.empty()
+                    ? ""
+                    : "function:" + context.currentTopLevelFunctionName));
+        setRuntimeRequirementOwner(owner);
+    }
 
-        if (statement.empty()) {
-            if (hasComment) {
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + commentText, lineNumber);
-            }
-            continue;
-        }
-
-        if (context.suppressedBlockDepth > 0 && statement[0] != '}') {
-            if (statement.back() == '{') {
-                ++context.blockDepth;
-                context.pushBlock("suppressed");
-                ++context.suppressedBlockDepth;
-            }
-            continue;
-        }
-
-        const int statementStartColumn = fragment.startColumn;
-        const std::vector<Token>& lexicalTokens = fragment.tokens;
-        bool hasLexicalError = false;
-        for (const Token& token : lexicalTokens) {
+    bool checkLexicalErrors(const ProgramStatement& statement) {
+        const std::vector<Token>& tokens = statement.syntax.tokens;
+        for (const Token& token : tokens) {
             if (token.kind == TokenKind::Unknown) {
                 Diagnostic diagnostic;
                 diagnostic.message = "unrecognized token '" + token.text + "'";
                 diagnostic.labels.push_back({token.sourceSpan, "", true});
                 diagnostic.helps.push_back("remove it or replace it with a valid CP++ token");
                 recordDiagnostic(std::move(diagnostic));
-                hasLexicalError = true;
-                break;
+                return false;
             }
             if ((token.kind != TokenKind::String && token.kind != TokenKind::Char) ||
-                (token.text.size() >= 2 && token.text.front() == token.text.back())) {
-                continue;
-            }
+                (token.text.size() >= 2 && token.text.front() == token.text.back())) continue;
 
-            const bool printString =
-                token.kind == TokenKind::String &&
-                lexicalTokens.size() >= 2 &&
-                lexicalTokens[0].kind == TokenKind::Identifier &&
-                lexicalTokens[0].text == "print";
+            const bool printString = token.kind == TokenKind::String &&
+                !tokens.empty() && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "print";
             const char quote = token.kind == TokenKind::Char ? '\'' : '"';
             Diagnostic diagnostic;
             diagnostic.message = printString
                 ? "unterminated string literal in print"
-                : (token.kind == TokenKind::Char
-                    ? "unterminated char literal"
-                    : "unterminated string literal");
+                : (token.kind == TokenKind::Char ? "unterminated char literal" : "unterminated string literal");
             diagnostic.labels.push_back({token.sourceSpan, "", true});
-            const SourceSpan insertion = {
-                token.sourceSpan.source,
-                token.sourceSpan.endOffset,
-                token.sourceSpan.endOffset
-            };
+            const SourceSpan insertion = {token.sourceSpan.source, token.sourceSpan.endOffset, token.sourceSpan.endOffset};
             diagnostic.suggestions.push_back({
                 insertion,
                 std::string(1, quote),
@@ -372,1306 +284,1107 @@ void compileProgramAst(CompileContext& context, const ProgramAst& program) {
                 SuggestionApplicability::MachineApplicable
             });
             recordDiagnostic(std::move(diagnostic));
-            hasLexicalError = true;
-            break;
+            return false;
         }
-        if (hasLexicalError) {
-            context.canAttachElse = false;
-            continue;
-        }
+        return true;
+    }
 
-        StatementParseResult parsed = parseStatementAst(lexicalTokens, statementStartColumn);
-        if (parsed.statement) {
-            parsed.statement->sourceSpan = fragment.sourceSpan;
-        }
+    bool requireSemicolon(const ProgramStatement& node) {
+        if (node.syntax.terminated) return true;
+        const int insertionColumn = node.syntax.startColumn + static_cast<int>(node.syntax.codeLength);
+        const SourceSpan insertion = sourceInsertionSpan(
+            context.options.inputFile,
+            context.sourceLines,
+            node.syntax.lineNumber,
+            insertionColumn
+        );
+        Diagnostic diagnostic;
+        diagnostic.message = "missing semicolon";
+        diagnostic.labels.push_back({insertion, "statement ends here", true});
+        diagnostic.suggestions.push_back({
+            insertion,
+            ";",
+            "add `;` to terminate the statement",
+            SuggestionApplicability::MachineApplicable
+        });
+        recordDiagnostic(std::move(diagnostic));
+        return false;
+    }
 
-        if (!context.inStruct && context.blockDepth == 0) {
-            const std::vector<Token>& structTokens = lexicalTokens;
-            if (structTokens.size() >= 4 && structTokens[0].kind == TokenKind::Identifier &&
-                (structTokens[0].text == "struct" || structTokens[0].text == "class")) {
-                const bool isClass = structTokens[0].text == "class";
-                const std::string kind = isClass ? "class" : "struct";
-                if (structTokens[1].kind != TokenKind::Identifier || structTokens[2].text != "{") {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, kind + " declarations use syntax " + kind + " Name {", context.sourceLines);
-                    ++context.blockDepth;
-                    context.pushBlock("suppressed");
-                    ++context.suppressedBlockDepth;
-                    continue;
-                }
-                const std::string structName = structTokens[1].text;
-                if (context.declaredStructs.count(structName) != 0 || declaredTypeForName(structName) != PrimitiveType::Unknown) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + structTokens[1].span.startColumn - 1, kind + " '" + structName + "' is already declared", context.sourceLines);
-                    ++context.blockDepth;
-                    context.pushBlock("suppressed");
-                    ++context.suppressedBlockDepth;
-                    continue;
-                }
-                context.declaredStructs[structName] = {};
-                context.declaredStructFieldOrders[structName] = {};
-                context.declaredStructMethods[structName] = {};
-                if (isClass) context.declaredClassNames.insert(structName);
-                context.inStruct = true;
-                context.currentStructIsClass = isClass;
-                context.currentStructName = structName;
-                context.currentStructFields.clear();
-                ++context.blockDepth;
-                context.pushBlock("struct");
-                context.queueTopLevelLine("struct " + structName + " {");
-                continue;
-            }
-        }
+    void enterBlock(
+        const std::string& kind,
+        const std::string& breakFlag = "",
+        std::vector<std::string> declaredNames = {}
+    ) {
+        ++context.blockDepth;
+        context.pushBlock(kind, breakFlag, std::move(declaredNames));
+    }
 
-        if (context.inStruct && !context.inFunction && parsed.kind == StatementParseResult::Kind::CloseBrace) {
-            const std::vector<Token>& trailingTokens =
-                static_cast<const CloseBraceStmt&>(*parsed.statement).trailingTokens;
-            if (!trailingTokens.empty() && trailingTokens[0].kind != TokenKind::EndOfFile) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unexpected text after " + std::string(context.currentStructIsClass ? "class" : "struct") + " closing brace", context.sourceLines);
-            }
-            if (!context.currentStructFields.empty()) {
-                std::string constructor = "    " + context.currentStructName + "(";
-                size_t i = 0;
-                for (const std::string& fieldName : context.declaredStructFieldOrders[context.currentStructName]) {
-                    if (i > 0) {
-                        constructor += ", ";
-                    }
-                    constructor += cppTypeForType(context.declaredStructs[context.currentStructName][fieldName]) + " value_" + fieldName;
-                    ++i;
-                }
-                constructor += ") : ";
-                i = 0;
-                for (const std::string& fieldName : context.declaredStructFieldOrders[context.currentStructName]) {
-                    if (i > 0) {
-                        constructor += ", ";
-                    }
-                    constructor += fieldName + "(std::move(value_" + fieldName + "))";
-                    ++i;
-                }
-                constructor += " {}";
-                context.queueTopLevelLine(constructor, lineNumber);
-            }
-            const auto& fields = context.declaredStructs[context.currentStructName];
-            const auto& fieldOrder = context.declaredStructFieldOrders[context.currentStructName];
-            if (context.currentStructIsClass) {
-                context.queueTopLevelLine("    " + context.currentStructName + "(const " + context.currentStructName + "& other) {", lineNumber);
-                for (const std::string& fieldName : fieldOrder) {
-                    requireCopyHelpersForType(fields.at(fieldName));
-                    context.queueTopLevelLine("        " + fieldName + " = CPPPCopy(other." + fieldName + ");", lineNumber);
-                }
-                context.queueTopLevelLine("    }", lineNumber);
-                context.queueTopLevelLine("    " + context.currentStructName + "& operator=(const " + context.currentStructName + "& other) {", lineNumber);
-                context.queueTopLevelLine("        if (this == &other) return *this;", lineNumber);
-                for (const std::string& fieldName : fieldOrder) {
-                    context.queueTopLevelLine("        " + fieldName + " = other." + fieldName + ";", lineNumber);
-                }
-                context.queueTopLevelLine("        return *this;", lineNumber);
-                context.queueTopLevelLine("    }", lineNumber);
-            } else {
-                context.queueTopLevelLine("    " + context.currentStructName + "() = default;", lineNumber);
-            }
-            std::string equal = "    bool operator==(const " + context.currentStructName + "& other) const { return ";
-            if (fields.empty()) {
-                equal += "true";
-            }
-            size_t fieldIndex = 0;
-            for (const std::string& fieldName : fieldOrder) {
-                const Type& fieldType = fields.at(fieldName);
-                if (fieldIndex++ > 0) {
-                    equal += " && ";
-                }
-                if (isClassType(fieldType)) {
-                    equal += "((" + fieldName + " && other." + fieldName + ") ? (*" + fieldName + " == *other." + fieldName + ") : (!" + fieldName + " && !other." + fieldName + "))";
-                } else {
-                    if (isCollectionType(fieldType) || isPairType(fieldType)) {
-                        requireContainerMember(fieldType, "compare_eq");
-                    }
-                    if (isHeapType(fieldType)) {
-                        requireContainerMember(fieldType, "to_list");
-                        requireContainerMember(Type(PrimitiveType::List, fieldType.subtypes), "compare_eq");
-                    }
-                    equal += fieldName + " == other." + fieldName;
-                }
-            }
-            equal += "; }";
-            context.queueTopLevelLine(equal, lineNumber);
-            for (const std::string& fieldName : fieldOrder) {
-                requirePrintHelpersForType(fields.at(fieldName));
-            }
-            context.queueTopLevelLine("    friend ostream& operator<<(ostream& output, const " + context.currentStructName + "& value) {", lineNumber);
-            context.queueTopLevelLine("        output << '{';", lineNumber);
-            fieldIndex = 0;
-            for (const std::string& fieldName : fieldOrder) {
-                if (fieldIndex++ > 0) {
-                    context.queueTopLevelLine("        output << \", \";", lineNumber);
-                }
-                context.queueTopLevelLine("        output << \"" + fieldName + ": \"; CPPPPrintValue(output, value." + fieldName + ");", lineNumber);
-            }
-            context.queueTopLevelLine("        return output << '}';", lineNumber);
-            context.queueTopLevelLine("    }", lineNumber);
-            context.queueTopLevelLine("};", lineNumber);
-            if (!context.currentStructIsClass) {
-                for (const std::string& fieldName : fieldOrder) {
-                    requireCopyHelpersForType(fields.at(fieldName));
-                }
-                std::string copier = "template <> struct CPPPDeepCopier<" + context.currentStructName + "> { static " + context.currentStructName + " run(const " + context.currentStructName + "& value) { return " + context.currentStructName + "(";
-                for (size_t index = 0; index < fieldOrder.size(); ++index) {
-                    if (index > 0) copier += ", ";
-                    copier += "CPPPCopy(value." + fieldOrder[index] + ")";
-                }
-                copier += "); } };";
-                context.queueTopLevelLine(copier, lineNumber);
-            }
-            context.inStruct = false;
-            context.currentStructIsClass = false;
-            context.currentStructName.clear();
-            context.currentStructFields.clear();
-            context.outputTarget = OutputTarget::Main;
-            --context.blockDepth;
-            if (!context.blockKinds.empty()) {
-                context.blockKinds.pop_back();
-                context.blockBreakFlags.pop_back();
-                context.blockDeclaredNames.pop_back();
-            }
-            continue;
+    void leaveBlock(const BlockAst& block, bool emitClosingBrace = true) {
+        const std::vector<std::string> names = context.blockDeclaredNames.empty()
+            ? std::vector<std::string>{}
+            : context.blockDeclaredNames.back();
+        context.eraseDeclaredNames(names);
+        if (!context.blockKinds.empty()) {
+            context.blockKinds.pop_back();
+            context.blockBreakFlags.pop_back();
+            context.blockDeclaredNames.pop_back();
         }
+        --context.blockDepth;
+        if (!block.hasClosingSyntax) {
+            sawUnclosedBlock = true;
+            return;
+        }
+        if (emitClosingBrace) {
+            context.queueGeneratedLine(
+                withComment(indentForDepth(context.blockDepth) + "}", block.closingSyntax),
+                block.closingSyntax.lineNumber
+            );
+        }
+    }
 
-        if (context.inStruct && !context.inFunction) {
-            const size_t methodBrace = statement.find('{');
-            if (!context.inFunction && methodBrace != std::string::npos) {
-                const ParsedFunctionHeader methodHeader = parseFunctionHeader(
-                    context.options.inputFile,
-                    lineNumber,
-                    statementStartColumn,
-                    context.sourceLines,
-                    lexicalTokens
+    void compileOwnedBlock(
+        const BlockAst& block,
+        const std::string& kind,
+        const std::string& breakFlag = "",
+        std::vector<std::string> declaredNames = {}
+    ) {
+        enterBlock(kind, breakFlag, std::move(declaredNames));
+        for (const auto& statement : block.statements) compileStatement(*statement);
+        leaveBlock(block);
+    }
+
+    void compileStatement(const ProgramStatement& statement) {
+        setRequirementOwner();
+        if (const auto* comment = dynamic_cast<const CommentStatementAst*>(&statement)) {
+            if (!comment->syntax.commentText.empty()) {
+                context.queueGeneratedLine(
+                    indentForDepth(context.blockDepth) + comment->syntax.commentText,
+                    comment->syntax.lineNumber
                 );
-                if (methodHeader.matched && methodHeader.ok) {
-                    if (context.declaredStructMethods[context.currentStructName].count(methodHeader.signature.name) != 0) {
-                        recordSourceError(context.options.inputFile, lineNumber, methodHeader.nameColumn, "duplicate method '" + methodHeader.signature.name + "'", context.sourceLines);
-                        continue;
-                    }
-                    context.declaredStructMethods[context.currentStructName][methodHeader.signature.name] = methodHeader.signature;
-                    context.currentStructMethodName = methodHeader.signature.name;
-                    context.queueTopLevelLine("    " + methodHeader.generatedSignature, lineNumber);
-                    context.savedDeclaredVariables = context.declaredVariables;
-                    context.declaredVariables = context.declaredStructs[context.currentStructName];
-                    for (const FunctionParameter& parameter : methodHeader.signature.parameters) {
-                        context.declaredVariables[parameter.name] = parameter.type;
-                    }
-                    context.currentFunction = methodHeader.signature;
-                    context.inFunction = true;
-                    context.outputTarget = OutputTarget::TopLevel;
-                    ++context.blockDepth;
-                    context.pushBlock("function");
-                    continue;
-                }
             }
-            std::map<std::string, Type> fieldNames;
-            const std::vector<Token> fieldTokens = withoutTrailingSemicolon(lexicalTokens);
-            const TypeEmitResult fieldResult = emitTypeDeclaration(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn,
-                context.sourceLines,
-                fieldNames,
-                fieldTokens
-            );
-            if (fieldResult.matched) {
-                if (!fieldResult.ok) {
-                    continue;
-                }
-                bool fieldsAccepted = true;
-                for (const auto& field : fieldNames) {
-                    if (context.declaredStructs[context.currentStructName].count(field.first) != 0) {
-                        recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "field '" + field.first + "' is already declared", context.sourceLines);
-                        fieldsAccepted = false;
-                        continue;
-                    }
-                    if (!context.currentStructIsClass && containsCustomType(field.second)) {
-                        recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct fields cannot contain custom types; use a class for recursive or nested custom values", context.sourceLines);
-                        fieldsAccepted = false;
-                        continue;
-                    }
-                    context.declaredStructs[context.currentStructName][field.first] = field.second;
-                    context.currentStructFields.push_back(field.first);
-                    context.declaredStructFieldOrders[context.currentStructName].push_back(field.first);
-                }
-                if (fieldsAccepted) {
-                    context.queueTopLevelLine("    " + trim(fieldResult.generatedStatement), lineNumber);
-                }
-                continue;
-            }
-            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "struct bodies currently require typed fields", context.sourceLines);
-            continue;
+            return;
         }
+        if (!checkLexicalErrors(statement)) return;
 
-        const size_t functionBrace = statement.find('{');
-        if (context.blockDepth == 0 && !context.inFunction && functionBrace != std::string::npos) {
-            const ParsedFunctionHeader functionHeader = parseFunctionHeader(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn,
-                context.sourceLines,
-                lexicalTokens
-            );
-            if (functionHeader.matched) {
-                if (!functionHeader.ok) {
-                    ++context.blockDepth;
-                    context.pushBlock("suppressed");
-                    ++context.suppressedBlockDepth;
-                    context.canAttachElse = false;
-                    continue;
-                }
-                if (context.declaredFunctions.count(functionHeader.signature.name) != 0) {
-                    recordSourceError(context.options.inputFile, lineNumber, functionHeader.nameColumn, "duplicate function '" + functionHeader.signature.name + "'", context.sourceLines);
-                    ++context.blockDepth;
-                    context.pushBlock("suppressed");
-                    ++context.suppressedBlockDepth;
-                    context.canAttachElse = false;
-                    continue;
-                }
-                context.declaredFunctions[functionHeader.signature.name] = functionHeader.signature;
-                context.currentTopLevelFunctionName = functionHeader.signature.name;
-                context.queueFunctionLine(functionHeader.generatedSignature + (hasComment ? " " + commentText : ""), lineNumber);
-                context.savedDeclaredVariables = context.declaredVariables;
-                context.declaredVariables.clear();
-                for (const FunctionParameter& parameter : functionHeader.signature.parameters) {
-                    context.declaredVariables[parameter.name] = parameter.type;
-                }
-                context.currentFunction = functionHeader.signature;
-                context.inFunction = true;
-                context.outputTarget = OutputTarget::Function;
-                ++context.blockDepth;
-                context.pushBlock("function");
-                context.canAttachElse = false;
-                continue;
-            }
-        }
+        if (const auto* node = dynamic_cast<const ErrorStatementAst*>(&statement)) return compileError(*node);
+        if (const auto* node = dynamic_cast<const AggregateDeclarationAst*>(&statement)) return compileAggregate(*node);
+        if (const auto* node = dynamic_cast<const FunctionDeclarationAst*>(&statement)) return compileFunction(*node, false);
+        if (const auto* node = dynamic_cast<const IfStatementAst*>(&statement)) return compileIf(*node);
+        if (const auto* node = dynamic_cast<const WhileStatementAst*>(&statement)) return compileWhile(*node);
+        if (const auto* node = dynamic_cast<const ForStatementAst*>(&statement)) return compileFor(*node);
+        if (const auto* node = dynamic_cast<const ForEachStatementAst*>(&statement)) return compileForEach(*node);
+        if (const auto* node = dynamic_cast<const RepStatementAst*>(&statement)) return compileRep(*node);
+        if (const auto* node = dynamic_cast<const VariableDeclarationAst*>(&statement)) return compileVariable(*node);
+        if (const auto* node = dynamic_cast<const AssignmentStatementAst*>(&statement)) return compileAssignment(*node);
+        if (const auto* node = dynamic_cast<const ReturnStatementAst*>(&statement)) return compileReturn(*node);
+        if (statement.kind == ProgramStatementKind::Break) return compileBreak(statement);
+        if (statement.kind == ProgramStatementKind::Continue) return compileContinue(statement);
+        if (const auto* node = dynamic_cast<const ExpressionStatementAst*>(&statement)) return compileExpression(*node);
+    }
 
-        const auto emitConditionHeader = [&](const std::string& keyword, const ConditionHeader& header, size_t absoluteOffset = 0, const std::string& breakFlag = std::string()) {
-            const size_t conditionOffset = absoluteOffset + header.conditionOffset;
-            if (header.conditionTokens.empty()) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), "expected condition", context.sourceLines);
-                ++context.blockDepth;
-                context.pushBlock(keyword, breakFlag);
-                context.canAttachElse = false;
-                return false;
-            }
-
-            const ExpressionEmitResult condition = emitExpression(
-                context.options.inputFile,
-                lineNumber,
-                header.conditionTokens,
-                statementStartColumn + static_cast<int>(conditionOffset),
-                context.sourceLines,
-                context.declaredVariables
-            );
-            if (!condition.ok) {
-                ++context.blockDepth;
-                context.pushBlock(keyword, breakFlag);
-                context.canAttachElse = false;
-                return false;
-            }
-
-            if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(conditionOffset), keyword + " condition must be bool", context.sourceLines);
-                ++context.blockDepth;
-                context.pushBlock(keyword, breakFlag);
-                context.canAttachElse = false;
-                return false;
-            }
-
-            std::string generatedCondition = condition.generatedExpression;
-            if (condition.type != PrimitiveType::Bool) {
-                generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
-            }
-
-            if (!breakFlag.empty()) {
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", lineNumber);
-            }
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + keyword + " (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
-            ++context.blockDepth;
-            context.pushBlock(keyword, breakFlag);
-            context.canAttachElse = false;
-            context.pendingLoopElse.active = false;
-            return true;
-        };
-
-        const auto emitForPart = [&](const std::vector<Token>& partTokens, int partColumn, bool allowDeclaration, std::string& generatedPart) {
-            generatedPart.clear();
-            if (partTokens.empty()) {
-                return true;
-            }
-            const std::string part = tokenText(partTokens);
-
-            if (allowDeclaration) {
-                const TypeEmitResult typeResult = emitTypeDeclaration(context.options.inputFile, lineNumber, partColumn, context.sourceLines, context.declaredVariables, partTokens);
-                if (typeResult.matched) {
-                    if (!typeResult.ok) {
-                        return false;
-                    }
-
-                    generatedPart = stripGeneratedStatement(typeResult.generatedStatement);
-                    return true;
-                }
-            }
-
-            const AssignmentEmitResult assignmentResult = emitAssignmentStatement(
-                context.options.inputFile,
-                lineNumber,
-                partColumn,
-                context.sourceLines,
-                context.declaredVariables,
-                context.declaredFunctions,
-                !context.options.shouldSubmit,
-                partTokens
-            );
-            if (assignmentResult.matched) {
-                if (!assignmentResult.ok) {
-                    return false;
-                }
-
-                generatedPart = stripGeneratedStatement(assignmentResult.generatedStatement);
-                return true;
-            }
-
-            const ExpressionEmitResult expression = emitExpression(
-                context.options.inputFile,
-                lineNumber,
-                    partTokens,
-                partColumn,
-                context.sourceLines,
-                context.declaredVariables
-            );
-            if (!expression.ok) {
-                return false;
-            }
-
-            generatedPart = expression.generatedExpression;
-            return true;
-        };
-
-        if (parsed.kind == StatementParseResult::Kind::CloseBrace) {
-            const CloseBraceStmt& closeBrace = static_cast<const CloseBraceStmt&>(*parsed.statement);
-            if (context.blockDepth == 0) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unmatched closing brace", context.sourceLines);
-                continue;
-            }
-
-            const bool closingSuppressed = context.suppressedBlockDepth > 0;
-            if (closingSuppressed) {
-                --context.suppressedBlockDepth;
-            }
-            --context.blockDepth;
-            const std::string closedBlock = context.blockKinds.empty() ? "" : context.blockKinds.back();
-            const std::string closedBreakFlag = context.blockBreakFlags.empty() ? "" : context.blockBreakFlags.back();
-            const std::vector<std::string> closedDeclaredNames = context.blockDeclaredNames.empty() ? std::vector<std::string>{} : context.blockDeclaredNames.back();
-            if (!context.blockKinds.empty()) {
-                context.blockKinds.pop_back();
-                context.blockBreakFlags.pop_back();
-                context.blockDeclaredNames.pop_back();
-            }
-            context.eraseDeclaredNames(closedDeclaredNames);
-            context.canAttachElse = closedBlock == "if" || closedBlock == "else if";
-            context.pendingLoopElse.active = isLoopBlockKind(closedBlock);
-            context.pendingLoopElse.breakFlagName = context.pendingLoopElse.active ? closedBreakFlag : "";
-
-            const std::vector<Token>& afterBraceTokens = closeBrace.trailingTokens;
-            const bool hasAfterBrace = !afterBraceTokens.empty() && afterBraceTokens[0].kind != TokenKind::EndOfFile;
-            if (closingSuppressed) {
-                if (hasAfterBrace && afterBraceTokens[afterBraceTokens.size() - 2].kind == TokenKind::LeftBrace) {
-                    ++context.blockDepth;
-                    context.pushBlock("suppressed");
-                    ++context.suppressedBlockDepth;
-                }
-                continue;
-            }
-            if (!hasAfterBrace) {
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "}" + (hasComment ? " " + commentText : ""), lineNumber);
-                if (closedBlock == "function") {
-                    context.inFunction = false;
-                    context.outputTarget = context.inStruct ? OutputTarget::TopLevel : OutputTarget::Main;
-                    context.declaredVariables = context.savedDeclaredVariables;
-                    context.savedDeclaredVariables.clear();
-                    context.currentFunction = FunctionSignature{};
-                    if (context.inStruct) {
-                        context.currentStructMethodName.clear();
-                    } else {
-                        context.currentTopLevelFunctionName.clear();
-                    }
-                    context.canAttachElse = false;
-                    context.pendingLoopElse.active = false;
-                    context.pendingLoopElse.breakFlagName.clear();
-                }
-                continue;
-            }
-
-            if (!context.canAttachElse) {
-                if (context.pendingLoopElse.active && parseNobreakHeader(afterBraceTokens)) {
-                    context.queueGeneratedLine(indentForDepth(context.blockDepth) + "} if (" + context.pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
-                    ++context.blockDepth;
-                    context.pushBlock("loop nobreak");
-                    context.pendingLoopElse.active = false;
-                    continue;
-                }
-
-                const bool trailingNobreak = parseNobreakHeader(afterBraceTokens);
-                recordSourceError(
-                    context.options.inputFile,
-                    lineNumber,
-                    statementStartColumn + 1,
-                    trailingNobreak ? "nobreak without matching loop" : "else without matching if",
-                    context.sourceLines
-                );
-                if (parseElseHeader(afterBraceTokens) || trailingNobreak) {
-                    ++context.blockDepth;
-                    context.pushBlock(trailingNobreak ? "loop nobreak" : "else");
-                } else {
-                    const ConditionParseResult recovery = parseElseIfHeaderDetailed(afterBraceTokens);
-                    if (recovery.matched && recovery.ok) {
-                        ++context.blockDepth;
-                        context.pushBlock("else if");
-                    }
-                }
-                context.pendingLoopElse.active = false;
-                continue;
-            }
-
-            if (parseElseHeader(afterBraceTokens)) {
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "} else {" + (hasComment ? " " + commentText : ""), lineNumber);
-                ++context.blockDepth;
-                context.pushBlock("else");
-                context.canAttachElse = false;
-                context.pendingLoopElse.active = false;
-                continue;
-            }
-
-            const ConditionParseResult trailingElseIf = parseElseIfHeaderDetailed(afterBraceTokens);
-            if (trailingElseIf.matched && trailingElseIf.ok) {
-                const ConditionHeader& header = trailingElseIf.header;
-                if (header.conditionTokens.empty()) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected condition", context.sourceLines);
-                    ++context.blockDepth;
-                    context.pushBlock("else if");
-                    context.canAttachElse = false;
-                    context.pendingLoopElse.active = false;
-                    continue;
-                }
-
-                const ExpressionEmitResult condition = emitExpression(
-                    context.options.inputFile,
-                    lineNumber,
-                    header.conditionTokens,
-                    statementStartColumn + static_cast<int>(header.conditionOffset),
-                    context.sourceLines,
-                    context.declaredVariables
-                );
-                if (!condition.ok) {
-                    ++context.blockDepth;
-                    context.pushBlock("else if");
-                    context.canAttachElse = false;
-                    context.pendingLoopElse.active = false;
-                    continue;
-                }
-
-                if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "else if condition must be bool", context.sourceLines);
-                    ++context.blockDepth;
-                    context.pushBlock("else if");
-                    context.canAttachElse = false;
-                    context.pendingLoopElse.active = false;
-                    continue;
-                }
-
-                std::string generatedCondition = condition.generatedExpression;
-                if (condition.type != PrimitiveType::Bool) {
-                    generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
-                }
-
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "} else if (" + generatedCondition + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
-                ++context.blockDepth;
-                context.pushBlock("else if");
-                context.canAttachElse = false;
-                context.pendingLoopElse.active = false;
-                continue;
-            }
-
-            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + 1, "else without matching if", context.sourceLines);
-            if (parseElseHeader(afterBraceTokens)) {
-                ++context.blockDepth;
-                context.pushBlock("else");
-            }
-            context.pendingLoopElse.active = false;
-            continue;
-        }
-
-        if (context.pendingLoopElse.active) {
-            if (parseNobreakHeader(lexicalTokens)) {
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "if (" + context.pendingLoopElse.breakFlagName + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
-                ++context.blockDepth;
-                context.pushBlock("loop nobreak");
-                context.pendingLoopElse.active = false;
-                context.canAttachElse = false;
-                continue;
-            }
-
-            context.pendingLoopElse.active = false;
-        }
-
-        const ConditionParseResult elseIfResult =
-            parsed.kind == StatementParseResult::Kind::ElseIf
-                ? ConditionParseResult{true, parsed.ok, static_cast<const ElseIfStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
-                : ConditionParseResult{};
-        if (context.canAttachElse) {
-            if (parsed.kind == StatementParseResult::Kind::Else) {
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "else {" + (hasComment ? " " + commentText : ""), lineNumber);
-                ++context.blockDepth;
-                context.pushBlock("else");
-                context.canAttachElse = false;
-                continue;
-            }
-
-            if (elseIfResult.matched) {
-                if (!elseIfResult.ok) {
-                    recordSourceError(
-                        context.options.inputFile,
-                        lineNumber,
-                        statementStartColumn + static_cast<int>(elseIfResult.errorOffset),
-                        elseIfResult.message,
-                        context.sourceLines
-                    );
-                    ++context.blockDepth;
-                    context.pushBlock("else if");
-                    ++context.suppressedBlockDepth;
-                    context.pendingLoopElse.active = false;
-                    context.canAttachElse = false;
-                    continue;
-                }
-
-                emitConditionHeader("else if", elseIfResult.header);
-                continue;
-            }
-        }
-
-        if (elseIfResult.matched) {
+    void compileError(const ErrorStatementAst& node) {
+        const std::vector<Token>& tokens = node.syntax.tokens;
+        if (!tokens.empty() && tokens[0].kind == TokenKind::RightBrace) {
             recordSourceError(
                 context.options.inputFile,
-                lineNumber,
-                statementStartColumn + static_cast<int>(elseIfResult.ok ? 0 : elseIfResult.errorOffset),
-                "else without matching if",
+                node.syntax.lineNumber,
+                node.syntax.startColumn,
+                "unmatched closing brace",
                 context.sourceLines
             );
-            ++context.blockDepth;
-            context.pushBlock("else if");
-            ++context.suppressedBlockDepth;
-            context.pendingLoopElse.active = false;
-            context.canAttachElse = false;
-            continue;
+            return;
         }
-
-        if (parsed.kind == StatementParseResult::Kind::Else) {
-            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "else without matching if", context.sourceLines);
-            ++context.blockDepth;
-            context.pushBlock("else");
-            ++context.suppressedBlockDepth;
-            context.pendingLoopElse.active = false;
-            context.canAttachElse = false;
-            continue;
+        if (!tokens.empty() && tokens[0].kind == TokenKind::Identifier) {
+            const std::string& word = tokens[0].text;
+            if (word == "else") {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                    "else without matching if", context.sourceLines);
+                return;
+            }
+            if (word == "nobreak") {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                    "nobreak without matching loop", context.sourceLines);
+                return;
+            }
         }
+        if (recordContextualSuggestion(context, node, node.syntax.opensBlock)) return;
+        if (!requireSemicolon(node)) return;
+        recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+            "unsupported statement", context.sourceLines);
+    }
 
-        if (parsed.kind == StatementParseResult::Kind::Nobreak) {
-            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "nobreak without matching loop", context.sourceLines);
-            ++context.blockDepth;
-            context.pushBlock("loop nobreak");
-            ++context.suppressedBlockDepth;
-            context.pendingLoopElse.active = false;
-            context.canAttachElse = false;
-            continue;
-        }
-
-        context.pendingLoopElse.active = false;
-
-        const ForParseResult forResult =
-            parsed.kind == StatementParseResult::Kind::For
-                ? ForParseResult{true, parsed.ok, static_cast<const ForStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
-                : ForParseResult{};
-        const ForEachParseResult forEachResult =
-            parsed.kind == StatementParseResult::Kind::ForEach
-                ? ForEachParseResult{true, parsed.ok, static_cast<const ForEachStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
-                : ForEachParseResult{};
-        ForHeader forHeader;
-        if (forEachResult.matched && !forEachResult.ok) {
+    bool emitCondition(
+        const ProgramStatement& node,
+        const std::vector<Token>& tokens,
+        size_t offset,
+        const std::string& keyword,
+        std::string& generated
+    ) {
+        if (!node.syntaxOk) {
             recordSourceError(
                 context.options.inputFile,
-                lineNumber,
-                statementStartColumn + static_cast<int>(forEachResult.errorOffset),
-                forEachResult.message,
+                node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
+                node.syntaxError,
                 context.sourceLines
             );
-            ++context.blockDepth;
-            context.pushBlock("for");
-            ++context.suppressedBlockDepth;
-            context.canAttachElse = false;
-            continue;
+            return false;
+        }
+        if (tokens.empty()) {
+            recordSourceError(
+                context.options.inputFile,
+                node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(offset),
+                keyword == "rep" ? "expected rep count" : "expected condition",
+                context.sourceLines
+            );
+            return false;
+        }
+        const ExpressionEmitResult condition = emitExpression(
+            context.options.inputFile,
+            node.syntax.lineNumber,
+            tokens,
+            node.syntax.startColumn + static_cast<int>(offset),
+            context.sourceLines,
+            context.declaredVariables
+        );
+        if (!condition.ok) return false;
+        if (keyword == "rep") {
+            if (condition.type != PrimitiveType::Bool && condition.type != PrimitiveType::Char &&
+                condition.type != PrimitiveType::Int && condition.type != PrimitiveType::Float) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                    node.syntax.startColumn + static_cast<int>(offset),
+                    "rep count must be numeric", context.sourceLines);
+                return false;
+            }
+            generated = castExpressionTo(condition.generatedExpression, condition.type, PrimitiveType::Int);
+            return true;
+        }
+        if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(offset),
+                keyword + " condition must be bool", context.sourceLines);
+            return false;
+        }
+        generated = condition.type == PrimitiveType::Bool
+            ? condition.generatedExpression
+            : castExpressionTo(condition.generatedExpression, condition.type, PrimitiveType::Bool);
+        return true;
+    }
+
+    bool resolveTypeSyntax(const TypeSyntax& syntax, bool allowVoid, Type& result) {
+        if (!syntax.syntaxOk) {
+            Diagnostic diagnostic;
+            diagnostic.message = syntax.syntaxError;
+            diagnostic.labels.push_back({syntax.errorSpan.valid() ? syntax.errorSpan : syntax.nameSpan, "", true});
+            recordDiagnostic(std::move(diagnostic));
+            return false;
+        }
+        if (syntax.name == "bigint" || syntax.name == "Bigint" ||
+            syntax.name == "bigfloat" || syntax.name == "BigFloat") {
+            Diagnostic diagnostic;
+            diagnostic.message = syntax.name + " has been removed from CP++; use int or float instead";
+            diagnostic.labels.push_back({syntax.nameSpan, "", true});
+            recordDiagnostic(std::move(diagnostic));
+            return false;
+        }
+        Type base = declaredTypeForName(syntax.name);
+        if (base == PrimitiveType::Unknown) {
+            Diagnostic diagnostic;
+            diagnostic.message = "unsupported type " + syntax.spelling;
+            diagnostic.labels.push_back({syntax.nameSpan.valid() ? syntax.nameSpan : syntax.sourceSpan, "", true});
+            recordDiagnostic(std::move(diagnostic));
+            return false;
+        }
+        if (base == PrimitiveType::Void && !allowVoid) {
+            Diagnostic diagnostic;
+            diagnostic.message = "unsupported type void";
+            diagnostic.labels.push_back({syntax.nameSpan.valid() ? syntax.nameSpan : syntax.sourceSpan, "", true});
+            recordDiagnostic(std::move(diagnostic));
+            return false;
         }
 
-        if (forEachResult.matched) {
-            const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
-            const ForEachHeader& forEachHeader = forEachResult.header;
-            const ExpressionEmitResult iterable = emitExpression(
+        const int expected = syntax.name == "string" || isStructType(base)
+            ? 0
+            : primitiveArity(base.primitive);
+        if (static_cast<int>(syntax.arguments.size()) != expected) {
+            std::string example;
+            if (expected == 1) example = " like " + syntax.name + "<int>";
+            if (expected == 2) example = " like " + syntax.name + "<int, int>";
+            Diagnostic diagnostic;
+            diagnostic.message = syntax.name + " expects " + std::to_string(expected) +
+                " subtype" + (expected == 1 ? "" : "s") + example;
+            diagnostic.labels.push_back({syntax.nameSpan.valid() ? syntax.nameSpan : syntax.sourceSpan, "", true});
+            recordDiagnostic(std::move(diagnostic));
+            return false;
+        }
+
+        for (const TypeSyntax& argument : syntax.arguments) {
+            if (argument.name == "void") {
+                Diagnostic diagnostic;
+                diagnostic.message = "unsupported type " + typeSyntaxDisplay(syntax);
+                diagnostic.labels.push_back({syntax.nameSpan.valid() ? syntax.nameSpan : syntax.sourceSpan, "", true});
+                recordDiagnostic(std::move(diagnostic));
+                return false;
+            }
+        }
+
+        std::vector<Type> subtypes;
+        for (const TypeSyntax& argument : syntax.arguments) {
+            Type subtype;
+            if (!resolveTypeSyntax(argument, false, subtype)) return false;
+            subtypes.push_back(std::move(subtype));
+        }
+        if (!subtypes.empty()) base.subtypes = std::move(subtypes);
+
+        if (!syntax.functionType) {
+            result = std::move(base);
+            return true;
+        }
+
+        std::vector<Type> parts = {base};
+        for (const TypeSyntax& parameter : syntax.functionParameters) {
+            Type parameterType;
+            if (!resolveTypeSyntax(parameter, false, parameterType)) return false;
+            parts.push_back(std::move(parameterType));
+        }
+        result = Type(PrimitiveType::Function, std::move(parts));
+        result.functionParameterCopy = syntax.functionParameterCopy;
+        return true;
+    }
+
+    bool buildResolvedDeclaration(
+        const TypeSyntax& typeSyntax,
+        bool inferred,
+        const std::vector<std::string>& names,
+        const std::vector<SourceSpan>& nameSpans,
+        size_t continuationTokenIndex,
+        const std::vector<Token>& tokens,
+        ResolvedDeclarationSyntax& declaration
+    ) {
+        declaration.inferred = inferred;
+        declaration.continuationTokenIndex = continuationTokenIndex;
+        for (size_t index = 0; index < names.size(); ++index) {
+            const SourceSpan span = index < nameSpans.size() ? nameSpans[index] : SourceSpan{};
+            declaration.names.push_back({names[index], relativeColumnForSpan(tokens, span)});
+        }
+        return inferred || resolveTypeSyntax(typeSyntax, true, declaration.type);
+    }
+
+    bool buildFunctionHeader(
+        const FunctionDeclarationAst& node,
+        FunctionSignature& signature,
+        std::string& generated,
+        int& nameColumn
+    ) {
+        if (!resolveTypeSyntax(node.returnType, true, signature.returnType)) return false;
+        signature.returnsVoid = signature.returnType == PrimitiveType::Void;
+        signature.name = node.name;
+        nameColumn = columnForSpan(node, node.nameSpan, node.syntax.startColumn);
+
+        for (const ParameterSyntax& syntax : node.parameters) {
+            Type parameterType;
+            if (!resolveTypeSyntax(syntax.type, false, parameterType)) return false;
+            const int parameterColumn = columnForSpan(node, syntax.sourceSpan, node.syntax.startColumn);
+            if (syntax.modifier == "deep") {
+                Diagnostic diagnostic;
+                diagnostic.message = "deep parameter modifier has been replaced by copy";
+                diagnostic.labels.push_back({syntax.modifierSpan, "", true});
+                diagnostic.helps.push_back("replace `deep` with `copy`");
+                recordDiagnostic(std::move(diagnostic));
+                return false;
+            }
+            if (syntax.copyParameter && !copyParameterEligible(parameterType)) {
+                Diagnostic diagnostic;
+                diagnostic.message = "copy must precede a collection, string, or class parameter type";
+                diagnostic.labels.push_back({syntax.modifierSpan, "", true});
+                diagnostic.helps.push_back("remove `copy` to pass " + cpppTypeName(parameterType) + " normally");
+                recordDiagnostic(std::move(diagnostic));
+                return false;
+            }
+            signature.parameters.push_back({syntax.name, parameterType, syntax.copyParameter, parameterColumn});
+        }
+
+        const std::string returnType = signature.returnsVoid ? "void" : cppTypeForType(signature.returnType);
+        if (returnType.empty()) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                "unsupported function return type " + cpppTypeName(signature.returnType), context.sourceLines);
+            return false;
+        }
+        generated = returnType + " " + signature.name + "(";
+        for (size_t index = 0; index < signature.parameters.size(); ++index) {
+            if (index > 0) generated += ", ";
+            const FunctionParameter& parameter = signature.parameters[index];
+            const std::string parameterType = cppTypeForType(parameter.type);
+            if (parameterType.empty()) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber, parameter.column,
+                    "unsupported parameter type " + cpppTypeName(parameter.type), context.sourceLines);
+                return false;
+            }
+            generated += parameterType + " " + parameter.name;
+        }
+        generated += ") {";
+        return true;
+    }
+
+    bool emitBranchCondition(
+        const ConditionalBranchAst& branch,
+        std::string& generated
+    ) {
+        if (!branch.syntaxOk) {
+            recordSourceError(
                 context.options.inputFile,
-                lineNumber,
-                forEachHeader.iterableTokens,
-                statementStartColumn + static_cast<int>(forEachHeader.iterableOffset),
-                context.sourceLines,
-                context.declaredVariables
+                branch.headerSyntax.lineNumber,
+                branch.headerSyntax.startColumn + static_cast<int>(branch.syntaxErrorOffset),
+                branch.syntaxError,
+                context.sourceLines
             );
-            if (!iterable.ok) {
-                context.declaredVariables.erase(forEachHeader.variableName);
-                ++context.blockDepth;
-                context.pushBlock("for");
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
+            return false;
+        }
+        if (branch.conditionTokens.empty()) {
+            recordSourceError(context.options.inputFile, branch.headerSyntax.lineNumber,
+                branch.headerSyntax.startColumn + static_cast<int>(branch.conditionOffset),
+                "expected condition", context.sourceLines);
+            return false;
+        }
+        const ExpressionEmitResult condition = emitExpression(
+            context.options.inputFile,
+            branch.headerSyntax.lineNumber,
+            branch.conditionTokens,
+            branch.headerSyntax.startColumn + static_cast<int>(branch.conditionOffset),
+            context.sourceLines,
+            context.declaredVariables
+        );
+        if (!condition.ok) return false;
+        if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
+            recordSourceError(context.options.inputFile, branch.headerSyntax.lineNumber,
+                branch.headerSyntax.startColumn + static_cast<int>(branch.conditionOffset),
+                "else if condition must be bool", context.sourceLines);
+            return false;
+        }
+        generated = condition.type == PrimitiveType::Bool
+            ? condition.generatedExpression
+            : castExpressionTo(condition.generatedExpression, condition.type, PrimitiveType::Bool);
+        return true;
+    }
+
+    void compileIf(const IfStatementAst& node) {
+        if (!node.syntaxOk && !node.thenBody.hasClosingSyntax) sawUnclosedBlock = true;
+        std::string condition;
+        if (!emitCondition(node, node.conditionTokens, node.conditionOffset, "if", condition)) return;
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "if (" + condition + ") {", node.syntax),
+            node.syntax.lineNumber
+        );
+        compileOwnedBlock(node.thenBody, "if");
+        for (const ConditionalBranchAst& branch : node.elseIfBranches) {
+            std::string branchCondition;
+            if (!emitBranchCondition(branch, branchCondition)) return;
+            context.queueGeneratedLine(
+                withComment(indentForDepth(context.blockDepth) + "else if (" + branchCondition + ") {", branch.headerSyntax),
+                branch.headerSyntax.lineNumber
+            );
+            compileOwnedBlock(branch.body, "else if");
+        }
+        if (node.elseBranch) {
+            context.queueGeneratedLine(
+                withComment(indentForDepth(context.blockDepth) + "else {", node.elseBranch->headerSyntax),
+                node.elseBranch->headerSyntax.lineNumber
+            );
+            compileOwnedBlock(node.elseBranch->body, "else");
+        }
+    }
+
+    void compileWhile(const WhileStatementAst& node) {
+        if (!node.syntaxOk && !node.body.hasClosingSyntax) sawUnclosedBlock = true;
+        std::string condition;
+        if (!emitCondition(node, node.conditionTokens, node.conditionOffset, "while", condition)) return;
+        const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
+        context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "while (" + condition + ") {", node.syntax),
+            node.syntax.lineNumber
+        );
+        compileOwnedBlock(node.body, "while", breakFlag);
+        compileCompletion(node.nobreakBranch.get(), breakFlag);
+    }
+
+    bool emitForClause(
+        const ForClauseAst& clause,
+        int lineNumber,
+        int statementColumn,
+        bool allowDeclaration,
+        std::string& generated
+    ) {
+        generated.clear();
+        if (clause.kind == ForClauseKind::Empty || clause.tokens.empty()) return true;
+        if (allowDeclaration && clause.kind == ForClauseKind::VariableDeclaration) {
+            ResolvedDeclarationSyntax declaration;
+            if (!buildResolvedDeclaration(
+                    clause.type, clause.inferredType, clause.names, clause.nameSpans,
+                    clause.continuationTokenIndex, clause.tokens, declaration)) return false;
+            const TypeEmitResult result = emitResolvedTypeDeclaration(
+                context.options.inputFile, lineNumber, statementColumn,
+                context.sourceLines, context.declaredVariables, declaration, clause.tokens);
+            if (!result.ok) return false;
+            generated = stripGeneratedStatement(result.generatedStatement);
+            return true;
+        }
+        if (clause.kind == ForClauseKind::Assignment) {
+            const AssignmentEmitResult result = emitParsedAssignment(
+                context.options.inputFile, lineNumber, statementColumn,
+                context.sourceLines, context.declaredVariables, context.declaredFunctions,
+                !context.options.shouldSubmit, clause.operation, clause.operationToken,
+                clause.targetTokens, clause.targetOffsets,
+                clause.valueTokens, clause.valueOffsets);
+            if (!result.ok) return false;
+            generated = stripGeneratedStatement(result.generatedStatement);
+            return true;
+        }
+        const ExpressionEmitResult result = emitExpression(
+            context.options.inputFile, lineNumber, clause.tokens, statementColumn,
+            context.sourceLines, context.declaredVariables);
+        if (!result.ok) return false;
+        generated = result.generatedExpression;
+        return true;
+    }
+
+    void compileFor(const ForStatementAst& node) {
+        if (!node.syntaxOk) {
+            if (!node.body.hasClosingSyntax) sawUnclosedBlock = true;
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
+                node.syntaxError, context.sourceLines);
+            return;
+        }
+        const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
+        std::set<std::string> declarationsBefore;
+        for (const auto& variable : context.declaredVariables) declarationsBefore.insert(variable.first);
+
+        std::string initializer;
+        if (!emitForClause(node.initializer, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.initializer.offset), true, initializer)) return;
+        std::vector<std::string> loopNames;
+        for (const auto& variable : context.declaredVariables) {
+            if (declarationsBefore.count(variable.first) == 0) loopNames.push_back(variable.first);
+        }
+
+        std::string condition = "true";
+        if (!node.conditionTokens.empty()) {
+            const ExpressionEmitResult result = emitExpression(
+                context.options.inputFile, node.syntax.lineNumber, node.conditionTokens,
+                node.syntax.startColumn + static_cast<int>(node.conditionOffset),
+                context.sourceLines, context.declaredVariables);
+            if (!result.ok) {
+                context.eraseDeclaredNames(loopNames);
+                return;
             }
-
-            std::string loopDeclaration;
-            Type loopVariableType;
-            if (forEachHeader.usesVar) {
-                if (context.declaredVariables.count(forEachHeader.variableName) != 0) {
-                    recordSourceError(
-                        context.options.inputFile,
-                        lineNumber,
-                        statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
-                        "variable '" + forEachHeader.variableName + "' is already declared",
-                        context.sourceLines
-                    );
-                    ++context.blockDepth;
-                    context.pushBlock("for");
-                    ++context.suppressedBlockDepth;
-                    context.canAttachElse = false;
-                    continue;
-                }
-            } else {
-                const TypeEmitResult declarationResult = emitTypeDeclaration(
-                    context.options.inputFile,
-                    lineNumber,
-                    statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
-                    context.sourceLines,
-                    context.declaredVariables,
-                    forEachHeader.declarationTokens
-                );
-                if (!declarationResult.matched || !declarationResult.ok) {
-                    ++context.blockDepth;
-                    context.pushBlock("for");
-                    ++context.suppressedBlockDepth;
-                    context.canAttachElse = false;
-                    continue;
-                }
-
-                const auto loopVariable = context.declaredVariables.find(forEachHeader.variableName);
-                loopVariableType = loopVariable->second;
-                loopDeclaration = stripGeneratedStatement(declarationResult.generatedStatement);
-                const size_t initializer = loopDeclaration.find(" = ");
-                if (initializer != std::string::npos) {
-                    loopDeclaration = loopDeclaration.substr(0, initializer);
-                }
+            if (!isImplicitlyConvertible(result.type, PrimitiveType::Bool)) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                    node.syntax.startColumn + static_cast<int>(node.conditionOffset),
+                    "for condition must be bool", context.sourceLines);
+                context.eraseDeclaredNames(loopNames);
+                return;
             }
+            condition = result.type == PrimitiveType::Bool
+                ? result.generatedExpression
+                : castExpressionTo(result.generatedExpression, result.type, PrimitiveType::Bool);
+        }
 
-            if (!isListType(iterable.type) && !isSetType(iterable.type) && !isMapType(iterable.type) && !isRangeType(iterable.type)) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(forEachHeader.iterableOffset), "for-in expects a List value", context.sourceLines);
-                if (!forEachHeader.usesVar) {
-                    context.declaredVariables.erase(forEachHeader.variableName);
-                }
-                ++context.blockDepth;
-                context.pushBlock("for");
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
+        std::string iteration;
+        if (!emitForClause(node.iteration, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.iteration.offset), false, iteration)) {
+            context.eraseDeclaredNames(loopNames);
+            return;
+        }
+
+        context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "for (" + initializer + "; " + condition + "; " + iteration + ") {", node.syntax),
+            node.syntax.lineNumber
+        );
+        compileOwnedBlock(node.body, "for", breakFlag, loopNames);
+        compileCompletion(node.nobreakBranch.get(), breakFlag);
+    }
+
+    void compileForEach(const ForEachStatementAst& node) {
+        if (!node.syntaxOk) {
+            if (!node.body.hasClosingSyntax) sawUnclosedBlock = true;
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
+                node.syntaxError, context.sourceLines);
+            return;
+        }
+        const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
+        const ExpressionEmitResult iterable = emitExpression(
+            context.options.inputFile, node.syntax.lineNumber, node.iterableTokens,
+            node.syntax.startColumn + static_cast<int>(node.iterableOffset),
+            context.sourceLines, context.declaredVariables);
+        if (!iterable.ok) return;
+
+        std::string declaration;
+        Type variableType;
+        if (node.inferredVariable) {
+            if (context.declaredVariables.count(node.variableName) != 0) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                    node.syntax.startColumn + static_cast<int>(node.variableOffset),
+                    "variable '" + node.variableName + "' is already declared", context.sourceLines);
+                return;
             }
+        } else {
+            if (!resolveTypeSyntax(node.variableType, true, variableType)) return;
+            if (variableType == PrimitiveType::Void) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                    node.syntax.startColumn + static_cast<int>(node.variableOffset),
+                    "variables cannot have void type", context.sourceLines);
+                return;
+            }
+            if (context.declaredVariables.count(node.variableName) != 0) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                    node.syntax.startColumn + static_cast<int>(node.variableOffset),
+                    "variable '" + node.variableName + "' is already declared", context.sourceLines);
+                return;
+            }
+            context.declaredVariables[node.variableName] = variableType;
+            declaration = cppTypeForType(variableType) + " " + node.variableName;
+            if (needsCharRuntimeHelperForType(variableType)) requireRuntimeHelper("CPPPCharType");
+            if (needsRangeRuntimeHelperForType(variableType)) requireRuntimeHelper("CPPPRangeType");
+        }
 
-            const Type elementType = isRangeType(iterable.type)
-                ? Type(PrimitiveType::Int)
-                : (isMapType(iterable.type)
+        if (!isListType(iterable.type) && !isSetType(iterable.type) &&
+            !isMapType(iterable.type) && !isRangeType(iterable.type)) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.iterableOffset),
+                "for-in expects a List value", context.sourceLines);
+            if (!node.inferredVariable) context.declaredVariables.erase(node.variableName);
+            return;
+        }
+
+        const Type elementType = isRangeType(iterable.type)
+            ? Type(PrimitiveType::Int)
+            : (isMapType(iterable.type)
                 ? Type(PrimitiveType::Pair, {iterable.type.subtypes[0], iterable.type.subtypes[1]})
                 : iterable.type.subtypes[0]);
-            if (!isRangeType(iterable.type)) {
-                requireContainerMember(iterable.type, "begin_mut");
-                requireContainerMember(iterable.type, "end_mut");
-            }
-            if (forEachHeader.usesVar) {
-                loopVariableType = elementType;
-                loopDeclaration = cppTypeForType(loopVariableType) + " " + forEachHeader.variableName;
-                context.declaredVariables[forEachHeader.variableName] = loopVariableType;
-                if (needsCharRuntimeHelperForType(loopVariableType)) {
-                    requireRuntimeHelper("CPPPCharType");
-                }
-                if (needsRangeRuntimeHelperForType(loopVariableType)) {
-                    requireRuntimeHelper("CPPPRangeType");
-                }
-            }
+        if (!isRangeType(iterable.type)) {
+            requireContainerMember(iterable.type, "begin_mut");
+            requireContainerMember(iterable.type, "end_mut");
+        }
+        if (node.inferredVariable) {
+            variableType = elementType;
+            declaration = cppTypeForType(variableType) + " " + node.variableName;
+            context.declaredVariables[node.variableName] = variableType;
+            if (needsCharRuntimeHelperForType(variableType)) requireRuntimeHelper("CPPPCharType");
+            if (needsRangeRuntimeHelperForType(variableType)) requireRuntimeHelper("CPPPRangeType");
+        }
+        if (!isImplicitlyConvertible(elementType, variableType)) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.variableOffset),
+                "cannot implicitly convert " + cpppTypeName(elementType) + " to " + cpppTypeName(variableType),
+                context.sourceLines);
+            context.declaredVariables.erase(node.variableName);
+            return;
+        }
 
-            if (!isImplicitlyConvertible(elementType, loopVariableType)) {
-                recordSourceError(
-                    context.options.inputFile,
-                    lineNumber,
-                    statementStartColumn + static_cast<int>(forEachHeader.variableOffset),
-                    "cannot implicitly convert " + cpppTypeName(elementType) + " to " + cpppTypeName(loopVariableType),
-                    context.sourceLines
-                );
-                context.declaredVariables.erase(forEachHeader.variableName);
-                ++context.blockDepth;
-                context.pushBlock("for");
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
+        context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "for (" + declaration + " : " + iterable.generatedExpression + ") {", node.syntax),
+            node.syntax.lineNumber
+        );
+        compileOwnedBlock(node.body, "for", breakFlag, {node.variableName});
+        compileCompletion(node.nobreakBranch.get(), breakFlag);
+    }
 
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);
+    void compileRep(const RepStatementAst& node) {
+        if (!node.syntaxOk && !node.body.hasClosingSyntax) sawUnclosedBlock = true;
+        std::string count;
+        if (!emitCondition(node, node.countTokens, node.countOffset, "rep", count)) return;
+        const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
+        context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
+        if (context.options.shouldSubmit) {
+            const std::string index = "_" + std::to_string(context.repLoopIndex++);
             context.queueGeneratedLine(
-                indentForDepth(context.blockDepth) + "for (" + loopDeclaration + " : " + iterable.generatedExpression + ") {" + (hasComment ? " " + commentText : ""),
-                lineNumber
+                withComment(indentForDepth(context.blockDepth) + "for (int " + index + " = 0; " + index + " < " + count + "; ++" + index + ") {", node.syntax),
+                node.syntax.lineNumber
             );
-            ++context.blockDepth;
-            context.pushBlock("for", breakFlagName, {forEachHeader.variableName});
-            context.canAttachElse = false;
-            continue;
-        }
-
-        if (!forEachResult.matched && forResult.matched && !forResult.ok) {
-            recordSourceError(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn + static_cast<int>(forResult.errorOffset),
-                forResult.message,
-                context.sourceLines
-            );
-            ++context.blockDepth;
-            context.pushBlock("for");
-            ++context.suppressedBlockDepth;
-            context.canAttachElse = false;
-            continue;
-        }
-
-        if (!forEachResult.matched && forResult.matched) {
-            const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
-            forHeader = forResult.header;
-            std::string generatedInitializer;
-            std::string generatedIteration;
-            std::vector<std::string> loopScopedNames;
-            std::set<std::string> declarationsBefore;
-            for (const auto& variable : context.declaredVariables) {
-                declarationsBefore.insert(variable.first);
-            }
-            if (!emitForPart(
-                    forHeader.initializerTokens,
-                    statementStartColumn + static_cast<int>(forHeader.initializerOffset),
-                    true,
-                    generatedInitializer)) {
-                ++context.blockDepth;
-                context.pushBlock("for");
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
-            for (const auto& variable : context.declaredVariables) {
-                if (declarationsBefore.count(variable.first) == 0) {
-                    loopScopedNames.push_back(variable.first);
-                }
-            }
-
-            std::string generatedCondition = "true";
-            if (!forHeader.conditionTokens.empty()) {
-                const ExpressionEmitResult condition = emitExpression(
-                    context.options.inputFile,
-                    lineNumber,
-                    forHeader.conditionTokens,
-                    statementStartColumn + static_cast<int>(forHeader.conditionOffset),
-                    context.sourceLines,
-                    context.declaredVariables
-                );
-                if (!condition.ok) {
-                    context.eraseDeclaredNames(loopScopedNames);
-                    ++context.blockDepth;
-                    context.pushBlock("for");
-                    ++context.suppressedBlockDepth;
-                    context.canAttachElse = false;
-                    continue;
-                }
-
-                if (!isImplicitlyConvertible(condition.type, PrimitiveType::Bool)) {
-                    recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(forHeader.conditionOffset), "for condition must be bool", context.sourceLines);
-                    context.eraseDeclaredNames(loopScopedNames);
-                    ++context.blockDepth;
-                    context.pushBlock("for");
-                    ++context.suppressedBlockDepth;
-                    context.canAttachElse = false;
-                    continue;
-                }
-
-                generatedCondition = condition.generatedExpression;
-                if (condition.type != PrimitiveType::Bool) {
-                    generatedCondition = castExpressionTo(generatedCondition, condition.type, PrimitiveType::Bool);
-                }
-            }
-
-            if (!emitForPart(
-                    forHeader.iterationTokens,
-                    statementStartColumn + static_cast<int>(forHeader.iterationOffset),
-                    false,
-                    generatedIteration)) {
-                context.eraseDeclaredNames(loopScopedNames);
-                ++context.blockDepth;
-                context.pushBlock("for");
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
-
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + "for (" + generatedInitializer + "; " + generatedCondition + "; " + generatedIteration + ") {" + (hasComment ? " " + commentText : ""), lineNumber);
-            ++context.blockDepth;
-            context.pushBlock("for", breakFlagName, loopScopedNames);
-            context.canAttachElse = false;
-            continue;
-        }
-
-        const ConditionParseResult repResult =
-            parsed.kind == StatementParseResult::Kind::Rep
-                ? ConditionParseResult{true, parsed.ok, static_cast<const RepStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
-                : ConditionParseResult{};
-        if (repResult.matched && !repResult.ok) {
-            recordSourceError(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn + static_cast<int>(repResult.errorOffset),
-                repResult.message,
-                context.sourceLines
-            );
-            ++context.blockDepth;
-            context.pushBlock("rep");
-            ++context.suppressedBlockDepth;
-            context.canAttachElse = false;
-            continue;
-        }
-
-        if (repResult.matched) {
-            const std::string breakFlagName = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
-            const ConditionHeader& header = repResult.header;
-            if (header.conditionTokens.empty()) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "expected rep count", context.sourceLines);
-                ++context.blockDepth;
-                context.pushBlock("rep", breakFlagName);
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
-
-            const ExpressionEmitResult count = emitExpression(
-                context.options.inputFile,
-                lineNumber,
-                header.conditionTokens,
-                statementStartColumn + static_cast<int>(header.conditionOffset),
-                context.sourceLines,
-                context.declaredVariables
-            );
-            if (!count.ok) {
-                ++context.blockDepth;
-                context.pushBlock("rep", breakFlagName);
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
-
-            if (!isRepCountType(count.type)) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn + static_cast<int>(header.conditionOffset), "rep count must be numeric", context.sourceLines);
-                ++context.blockDepth;
-                context.pushBlock("rep", breakFlagName);
-                ++context.suppressedBlockDepth;
-                context.canAttachElse = false;
-                continue;
-            }
-
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlagName + " = true;", lineNumber);
-            if (context.options.shouldSubmit) {
-                const std::string indexName = "_" + std::to_string(context.repLoopIndex);
-                ++context.repLoopIndex;
-                context.queueGeneratedLine(
-                    indentForDepth(context.blockDepth) +
-                    "for (int " + indexName + " = 0; " + indexName + " < " + castExpressionTo(count.generatedExpression, count.type, PrimitiveType::Int) +
-                    "; ++" + indexName + ") {" +
-                    (hasComment ? " " + commentText : ""),
-                    lineNumber
-                );
-            } else {
-                const std::string indexName = "__cppp_rep_" + std::to_string(context.repLoopIndex);
-                const std::string limitName = "__cppp_rep_limit_" + std::to_string(context.repLoopIndex);
-                ++context.repLoopIndex;
-                context.queueGeneratedLine(
-                    indentForDepth(context.blockDepth) +
-                    "for (long long " + indexName + " = 0, " + limitName + " = " + castExpressionTo(count.generatedExpression, count.type, PrimitiveType::Int) +
-                    "; " + indexName + " < " + limitName + "; ++" + indexName + ") {" +
-                    (hasComment ? " " + commentText : ""),
-                    lineNumber
-                );
-            }
-            ++context.blockDepth;
-            context.pushBlock("rep", breakFlagName);
-            context.canAttachElse = false;
-            continue;
-        }
-
-        const ConditionParseResult ifResult =
-            parsed.kind == StatementParseResult::Kind::If
-                ? ConditionParseResult{true, parsed.ok, static_cast<const IfStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
-                : ConditionParseResult{};
-        if (ifResult.matched && !ifResult.ok) {
-            recordSourceError(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn + static_cast<int>(ifResult.errorOffset),
-                ifResult.message,
-                context.sourceLines
-            );
-            ++context.blockDepth;
-            context.pushBlock("if");
-            ++context.suppressedBlockDepth;
-            context.canAttachElse = false;
-            continue;
-        }
-
-        if (ifResult.matched) {
-            emitConditionHeader("if", ifResult.header);
-            continue;
-        }
-
-        const ConditionParseResult whileResult =
-            parsed.kind == StatementParseResult::Kind::While
-                ? ConditionParseResult{true, parsed.ok, static_cast<const WhileStmt&>(*parsed.statement).header, parsed.errorOffset, parsed.message}
-                : ConditionParseResult{};
-        if (whileResult.matched && !whileResult.ok) {
-            recordSourceError(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn + static_cast<int>(whileResult.errorOffset),
-                whileResult.message,
-                context.sourceLines
-            );
-            ++context.blockDepth;
-            context.pushBlock("while");
-            ++context.suppressedBlockDepth;
-            context.canAttachElse = false;
-            continue;
-        }
-
-        if (whileResult.matched) {
-            emitConditionHeader("while", whileResult.header, 0, "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++));
-            continue;
-        }
-
-        context.canAttachElse = false;
-
-        if (!statement.empty() &&
-            statement.back() == '{' &&
-            recordContextualStatementSuggestion(context, lexicalTokens, true)) {
-            continue;
-        }
-
-        const bool hasSemicolon = statement.back() == ';';
-        if (!hasSemicolon) {
-            const int insertionColumn =
-                statementStartColumn + static_cast<int>(statement.size());
-            const SourceSpan insertion = sourceInsertionSpan(
-                context.options.inputFile,
-                context.sourceLines,
-                lineNumber,
-                insertionColumn
-            );
-            Diagnostic diagnostic;
-            diagnostic.message = "missing semicolon";
-            diagnostic.labels.push_back({insertion, "statement ends here", true});
-            diagnostic.suggestions.push_back({
-                insertion,
-                ";",
-                "add `;` to terminate the statement",
-                SuggestionApplicability::MachineApplicable
-            });
-            recordDiagnostic(std::move(diagnostic));
-            continue;
-        }
-
-        const std::string statementBody = trim(statement.substr(0, statement.size() - 1));
-        const std::vector<Token> statementTokens = withoutTrailingSemicolon(lexicalTokens);
-        if (statementBody == "break") {
-            const std::string breakFlagName = context.nearestLoopBreakFlag();
-            if (breakFlagName.empty()) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "break can only be used inside a loop", context.sourceLines);
-                continue;
-            }
-
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + breakFlagName + " = false; break;" + (hasComment ? " " + commentText : ""), lineNumber);
-            continue;
-        }
-
-        if (statementBody == "continue") {
-            if (context.nearestLoopBreakFlag().empty()) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "continue can only be used inside a loop", context.sourceLines);
-                continue;
-            }
-
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + "continue;" + (hasComment ? " " + commentText : ""), lineNumber);
-            continue;
-        }
-
-        if (statementTokens.size() >= 2 &&
-            statementTokens[0].kind == TokenKind::Identifier &&
-            statementTokens[0].text == "return") {
-            if (!context.inFunction) {
-                recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "return can only be used inside a function", context.sourceLines);
-                continue;
-            }
-
-            const std::string returnExpressionText =
-                statementBody == "return" ? "" : trim(statementBody.substr(std::string("return").size()));
-            const int returnExpressionColumn =
-                statementStartColumn + static_cast<int>(statementBody.find("return")) + static_cast<int>(std::string("return").size());
-
-            if (returnExpressionText.empty()) {
-                if (!context.currentFunction.returnsVoid) {
-                    recordSourceError(
-                        context.options.inputFile,
-                        lineNumber,
-                        statementStartColumn,
-                        "non-void function must return a value of type " + cpppTypeName(context.currentFunction.returnType),
-                        context.sourceLines
-                    );
-                    continue;
-                }
-
-                context.queueGeneratedLine(indentForDepth(context.blockDepth) + "return;" + (hasComment ? " " + commentText : ""), lineNumber);
-                continue;
-            }
-
-            if (context.currentFunction.returnsVoid) {
-                recordSourceError(context.options.inputFile, lineNumber, returnExpressionColumn + 1, "void function cannot return a value", context.sourceLines);
-                continue;
-            }
-
-            const ExpressionEmitResult returnExpression = emitExpression(
-                context.options.inputFile,
-                lineNumber,
-                tokenSlice(
-                    lexicalTokens,
-                    static_cast<size_t>(returnExpressionColumn + 1 - statementStartColumn),
-                    returnExpressionText.size()
-                ),
-                returnExpressionColumn + 1,
-                context.sourceLines,
-                context.declaredVariables
-            );
-            if (!returnExpression.ok) {
-                continue;
-            }
-
-            if (!isImplicitlyConvertible(returnExpression.type, context.currentFunction.returnType)) {
-                recordSourceError(
-                    context.options.inputFile,
-                    lineNumber,
-                    returnExpressionColumn + 1,
-                    "cannot implicitly convert " + cpppTypeName(returnExpression.type) + " to " + cpppTypeName(context.currentFunction.returnType),
-                    context.sourceLines
-                );
-                continue;
-            }
-
-            std::string generatedReturnExpression = returnExpression.generatedExpression;
-            if (returnExpression.type != context.currentFunction.returnType) {
-                generatedReturnExpression = castExpressionTo(
-                    generatedReturnExpression,
-                    returnExpression.type,
-                    context.currentFunction.returnType
-                );
-            }
-
+        } else {
+            const std::string suffix = std::to_string(context.repLoopIndex++);
+            const std::string index = "__cppp_rep_" + suffix;
+            const std::string limit = "__cppp_rep_limit_" + suffix;
             context.queueGeneratedLine(
-                indentForDepth(context.blockDepth) + "return " + generatedReturnExpression + ";" + (hasComment ? " " + commentText : ""),
-                lineNumber
+                withComment(indentForDepth(context.blockDepth) + "for (long long " + index + " = 0, " + limit + " = " + count + "; " + index + " < " + limit + "; ++" + index + ") {", node.syntax),
+                node.syntax.lineNumber
             );
-            continue;
         }
+        compileOwnedBlock(node.body, "rep", breakFlag);
+        compileCompletion(node.nobreakBranch.get(), breakFlag);
+    }
 
-        const std::map<std::string, Type> declarationsBefore = context.declaredVariables;
-        const TypeEmitResult typeResult = emitTypeDeclaration(
+    void compileCompletion(const CompletionBranchAst* branch, const std::string& breakFlag) {
+        if (!branch) return;
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "if (" + breakFlag + ") {", branch->headerSyntax),
+            branch->headerSyntax.lineNumber
+        );
+        compileOwnedBlock(branch->body, "loop nobreak");
+    }
+
+    void compileBreak(const ProgramStatement& node) {
+        if (!requireSemicolon(node)) return;
+        const std::string breakFlag = context.nearestLoopBreakFlag();
+        if (breakFlag.empty()) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                "break can only be used inside a loop", context.sourceLines);
+            return;
+        }
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + breakFlag + " = false; break;", node.syntax),
+            node.syntax.lineNumber
+        );
+    }
+
+    void compileContinue(const ProgramStatement& node) {
+        if (!requireSemicolon(node)) return;
+        if (context.nearestLoopBreakFlag().empty()) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                "continue can only be used inside a loop", context.sourceLines);
+            return;
+        }
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "continue;", node.syntax),
+            node.syntax.lineNumber
+        );
+    }
+
+    void compileReturn(const ReturnStatementAst& node) {
+        if (!requireSemicolon(node)) return;
+        const int line = node.syntax.lineNumber;
+        const int column = node.syntax.startColumn;
+        if (!context.inFunction) {
+            recordSourceError(context.options.inputFile, line, column,
+                "return can only be used inside a function", context.sourceLines);
+            return;
+        }
+        if (!node.value) {
+            if (!context.currentFunction.returnsVoid) {
+                recordSourceError(context.options.inputFile, line, column,
+                    "non-void function must return a value of type " + cpppTypeName(context.currentFunction.returnType),
+                    context.sourceLines);
+                return;
+            }
+            context.queueGeneratedLine(withComment(indentForDepth(context.blockDepth) + "return;", node.syntax), line);
+            return;
+        }
+        const int expressionColumn = column + static_cast<int>(node.valueOffset);
+        if (context.currentFunction.returnsVoid) {
+            recordSourceError(context.options.inputFile, line, expressionColumn,
+                "void function cannot return a value", context.sourceLines);
+            return;
+        }
+        const ExpressionEmitResult expression = emitExpression(
             context.options.inputFile,
-            lineNumber,
-            statementStartColumn,
+            line,
+            node.valueTokens,
+            expressionColumn,
+            context.sourceLines,
+            context.declaredVariables
+        );
+        if (!expression.ok) return;
+        if (!isImplicitlyConvertible(expression.type, context.currentFunction.returnType)) {
+            recordSourceError(context.options.inputFile, line, expressionColumn,
+                "cannot implicitly convert " + cpppTypeName(expression.type) + " to " + cpppTypeName(context.currentFunction.returnType),
+                context.sourceLines);
+            return;
+        }
+        const std::string generated = expression.type == context.currentFunction.returnType
+            ? expression.generatedExpression
+            : castExpressionTo(expression.generatedExpression, expression.type, context.currentFunction.returnType);
+        context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + "return " + generated + ";", node.syntax),
+            line
+        );
+    }
+
+    void compileVariable(const VariableDeclarationAst& node) {
+        if (!requireSemicolon(node)) return;
+        if (!node.syntaxOk) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
+                node.syntaxError, context.sourceLines);
+            return;
+        }
+        if (!node.inferredType && declaredTypeForName(node.type.name) == PrimitiveType::Unknown &&
+            node.type.name != "bigint" && node.type.name != "Bigint" &&
+            node.type.name != "bigfloat" && node.type.name != "BigFloat" &&
+            recordContextualSuggestion(context, node, false)) return;
+        const std::map<std::string, Type> before = context.declaredVariables;
+        const std::vector<Token> tokens = withoutTrailingSemicolon(node.syntax.tokens);
+        ResolvedDeclarationSyntax declaration;
+        if (!buildResolvedDeclaration(
+                node.type, node.inferredType, node.names, node.nameSpans,
+                node.continuationTokenIndex, tokens, declaration)) return;
+        const TypeEmitResult result = emitResolvedTypeDeclaration(
+            context.options.inputFile,
+            node.syntax.lineNumber,
+            node.syntax.startColumn,
             context.sourceLines,
             context.declaredVariables,
-            statementTokens
+            declaration,
+            tokens
         );
-        if (typeResult.matched) {
-            // Invalid declarations reserve their names to suppress cascaded errors.  They
-            // still belong to the enclosing lexical block and must leave scope with it.
-            if (!context.blockDeclaredNames.empty()) {
-                for (const auto& variable : context.declaredVariables) {
-                    if (declarationsBefore.count(variable.first) == 0) {
-                        context.blockDeclaredNames.back().push_back(variable.first);
-                    }
-                }
+        if (!context.blockDeclaredNames.empty()) {
+            for (const auto& variable : context.declaredVariables) {
+                if (before.count(variable.first) == 0) context.blockDeclaredNames.back().push_back(variable.first);
             }
-            if (!typeResult.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(
-                indentGeneratedStatement(typeResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                typeResult.sourceRanges
-            );
-            continue;
         }
+        if (!result.ok) return;
+        context.queueGeneratedLine(
+            withComment(indentGeneratedStatement(result.generatedStatement, context.blockDepth), node.syntax),
+            node.syntax.lineNumber,
+            result.sourceRanges
+        );
+    }
 
-        const AssignmentEmitResult assignmentResult = emitAssignmentStatement(
+    void compileAssignment(const AssignmentStatementAst& node) {
+        if (!requireSemicolon(node)) return;
+        const AssignmentEmitResult result = emitParsedAssignment(
             context.options.inputFile,
-            lineNumber,
-            statementStartColumn,
+            node.syntax.lineNumber,
+            node.syntax.startColumn,
             context.sourceLines,
             context.declaredVariables,
             context.declaredFunctions,
             !context.options.shouldSubmit,
-            statementTokens
+            node.operation,
+            node.operationToken,
+            node.targetTokens,
+            node.targetOffsets,
+            node.valueTokens,
+            node.valueOffsets
         );
-        if (assignmentResult.matched) {
-            if (!assignmentResult.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(
-                indentGeneratedStatement(assignmentResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                assignmentResult.sourceRanges
-            );
-            continue;
-        }
-
-        const ListEmitResult listResult = emitListStatement(
-            context.options.inputFile,
-            lineNumber,
-            context.sourceLines,
-            context.declaredVariables,
-            !context.options.shouldSubmit,
-            statementTokens
-        );
-        if (listResult.matched) {
-            if (!listResult.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(
-                indentGeneratedStatement(listResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                listResult.sourceRanges
-            );
-            continue;
-        }
-
-        if (isNamedCallStatement(statementTokens, "describe")) {
-            const PrintEmitResult describeResult = emitDescribeStatement(
-                context.options.inputFile,
-                lineNumber,
-                statementStartColumn,
-                context.sourceLines,
-                context.declaredVariables,
-                statementTokens
-            );
-            if (!describeResult.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(
-                indentGeneratedStatement(describeResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                describeResult.sourceRanges
-            );
-            continue;
-        }
-
-        if (containsIncrementOrDecrement(statementTokens) &&
-            !isNamedCallStatement(statementTokens, "print") &&
-            !isNamedCallStatement(statementTokens, "describe")) {
-            const ExpressionEmitResult expression = emitExpression(
-                context.options.inputFile,
-                lineNumber,
-                statementTokens,
-                statementStartColumn,
-                context.sourceLines,
-                context.declaredVariables
-            );
-            if (!expression.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(indentForDepth(context.blockDepth) + expression.generatedExpression + ";" + (hasComment ? " " + commentText : ""), lineNumber);
-            continue;
-        }
-
-        const PrintEmitResult printResult = emitPrintStatement(
-            context.options.inputFile,
-            lineNumber,
-            statementStartColumn,
-            context.sourceLines,
-            context.declaredVariables,
-            statementTokens
-        );
-        if (isNamedCallStatement(statementTokens, "print")) {
-            if (!printResult.ok) {
-                continue;
-            }
-
-            context.queueGeneratedLine(
-                indentGeneratedStatement(printResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                printResult.sourceRanges
-            );
-            continue;
-        }
-
-        if (recordContextualStatementSuggestion(context, lexicalTokens, false)) {
-            continue;
-        }
-
-        if (isUnsupportedBareCallStatement(
-                statementTokens,
-                context.declaredVariables,
-                context.declaredFunctions,
-                context.declaredStructs)) {
-            recordSourceError(context.options.inputFile, lineNumber, statementStartColumn, "unsupported statement", context.sourceLines);
-            continue;
-        }
-
-        if (printResult.ok) {
-            context.queueGeneratedLine(
-                indentGeneratedStatement(printResult.generatedStatement, context.blockDepth) + (hasComment ? " " + commentText : ""),
-                lineNumber,
-                printResult.sourceRanges
-            );
-            continue;
-        }
-
-        const ExpressionEmitResult expressionStatement = emitExpression(
-            context.options.inputFile,
-            lineNumber,
-            statementTokens,
-            statementStartColumn,
-            context.sourceLines,
-            context.declaredVariables
-        );
-        if (!expressionStatement.ok) {
-            continue;
-        }
-
+        if (!result.ok) return;
         context.queueGeneratedLine(
-            indentForDepth(context.blockDepth) + expressionStatement.generatedExpression + ";" + (hasComment ? " " + commentText : ""),
-            lineNumber
+            withComment(indentGeneratedStatement(result.generatedStatement, context.blockDepth), node.syntax),
+            node.syntax.lineNumber,
+            result.sourceRanges
         );
     }
+
+    void compileExpression(const ExpressionStatementAst& node) {
+        if (!requireSemicolon(node)) return;
+        const std::vector<Token> tokens = withoutTrailingSemicolon(node.syntax.tokens);
+        const int line = node.syntax.lineNumber;
+        const int column = node.syntax.startColumn;
+        const bool printCall = isNamedCall(node.expression.get(), "print") ||
+            (!tokens.empty() && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "print");
+        const bool describeCall = isNamedCall(node.expression.get(), "describe") ||
+            (!tokens.empty() && tokens[0].kind == TokenKind::Identifier && tokens[0].text == "describe");
+
+        const ListEmitResult list = emitListStatement(
+            context.options.inputFile, line, context.sourceLines, context.declaredVariables,
+            !context.options.shouldSubmit, tokens);
+        if (list.matched) {
+            if (list.ok) context.queueGeneratedLine(
+                withComment(indentGeneratedStatement(list.generatedStatement, context.blockDepth), node.syntax),
+                line, list.sourceRanges);
+            return;
+        }
+
+        if (describeCall) {
+            const PrintEmitResult result = emitDescribeStatement(
+                context.options.inputFile, line, column, context.sourceLines,
+                context.declaredVariables, tokens);
+            if (result.ok) context.queueGeneratedLine(
+                withComment(indentGeneratedStatement(result.generatedStatement, context.blockDepth), node.syntax),
+                line, result.sourceRanges);
+            return;
+        }
+
+        if (containsIncrementOrDecrement(node.expression.get()) &&
+            !printCall && !describeCall) {
+            const ExpressionEmitResult result = emitExpression(
+                context.options.inputFile, line, tokens, column,
+                context.sourceLines, context.declaredVariables);
+            if (result.ok) context.queueGeneratedLine(
+                withComment(indentForDepth(context.blockDepth) + result.generatedExpression + ";", node.syntax), line);
+            return;
+        }
+
+        if (printCall) {
+            const PrintEmitResult result = emitPrintStatement(
+                context.options.inputFile, line, column, context.sourceLines,
+                context.declaredVariables, tokens);
+            if (result.ok) context.queueGeneratedLine(
+                withComment(indentGeneratedStatement(result.generatedStatement, context.blockDepth), node.syntax),
+                line, result.sourceRanges);
+            return;
+        }
+
+        if (recordContextualSuggestion(context, node, false)) return;
+        if (isUnsupportedBareCall(node.expression.get(), context)) {
+            recordSourceError(context.options.inputFile, line, column, "unsupported statement", context.sourceLines);
+            return;
+        }
+
+        const PrintEmitResult print = emitPrintStatement(
+            context.options.inputFile, line, column, context.sourceLines,
+            context.declaredVariables, tokens);
+        if (print.ok) {
+            context.queueGeneratedLine(
+                withComment(indentGeneratedStatement(print.generatedStatement, context.blockDepth), node.syntax),
+                line, print.sourceRanges);
+            return;
+        }
+
+        const ExpressionEmitResult result = emitExpression(
+            context.options.inputFile, line, tokens, column,
+            context.sourceLines, context.declaredVariables);
+        if (result.ok) context.queueGeneratedLine(
+            withComment(indentForDepth(context.blockDepth) + result.generatedExpression + ";", node.syntax), line);
+    }
+
+    void compileFunction(const FunctionDeclarationAst& node, bool method) {
+        if (!node.syntaxOk) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
+                node.syntaxError, context.sourceLines);
+            if (!node.body.hasClosingSyntax) sawUnclosedBlock = true;
+            return;
+        }
+        FunctionSignature signature;
+        std::string generatedSignature;
+        int nameColumn = node.syntax.startColumn;
+        if (!buildFunctionHeader(node, signature, generatedSignature, nameColumn)) return;
+
+        if (method) {
+            auto& methods = context.declaredStructMethods[context.currentStructName];
+            if (methods.count(signature.name) != 0) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber, nameColumn,
+                    "duplicate method '" + signature.name + "'", context.sourceLines);
+                return;
+            }
+            methods[signature.name] = signature;
+            context.currentStructMethodName = signature.name;
+            context.queueTopLevelLine("    " + generatedSignature, node.syntax.lineNumber);
+            context.savedDeclaredVariables = context.declaredVariables;
+            context.declaredVariables = context.declaredStructs[context.currentStructName];
+            for (const FunctionParameter& parameter : signature.parameters) {
+                context.declaredVariables[parameter.name] = parameter.type;
+            }
+            context.currentFunction = signature;
+            context.inFunction = true;
+            context.outputTarget = OutputTarget::TopLevel;
+            compileOwnedBlock(node.body, "function");
+            context.inFunction = false;
+            context.outputTarget = OutputTarget::TopLevel;
+            context.declaredVariables = context.savedDeclaredVariables;
+            context.savedDeclaredVariables.clear();
+            context.currentFunction = FunctionSignature{};
+            context.currentStructMethodName.clear();
+            return;
+        }
+
+        if (context.declaredFunctions.count(signature.name) != 0) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber, nameColumn,
+                "duplicate function '" + signature.name + "'", context.sourceLines);
+            return;
+        }
+        context.declaredFunctions[signature.name] = signature;
+        context.currentTopLevelFunctionName = signature.name;
+        context.queueFunctionLine(
+            withComment(generatedSignature, node.syntax),
+            node.syntax.lineNumber
+        );
+        context.savedDeclaredVariables = context.declaredVariables;
+        context.declaredVariables.clear();
+        for (const FunctionParameter& parameter : signature.parameters) {
+            context.declaredVariables[parameter.name] = parameter.type;
+        }
+        context.currentFunction = signature;
+        context.inFunction = true;
+        context.outputTarget = OutputTarget::Function;
+        compileOwnedBlock(node.body, "function");
+        context.inFunction = false;
+        context.outputTarget = OutputTarget::Main;
+        context.declaredVariables = context.savedDeclaredVariables;
+        context.savedDeclaredVariables.clear();
+        context.currentFunction = FunctionSignature{};
+        context.currentTopLevelFunctionName.clear();
+    }
+
+    void compileField(const VariableDeclarationAst& node) {
+        std::map<std::string, Type> fields;
+        const std::vector<Token> tokens = withoutTrailingSemicolon(node.syntax.tokens);
+        ResolvedDeclarationSyntax declaration;
+        if (!buildResolvedDeclaration(
+                node.type, node.inferredType, node.names, node.nameSpans,
+                node.continuationTokenIndex, tokens, declaration)) return;
+        const TypeEmitResult result = emitResolvedTypeDeclaration(
+            context.options.inputFile,
+            node.syntax.lineNumber,
+            node.syntax.startColumn,
+            context.sourceLines,
+            fields,
+            declaration,
+            tokens
+        );
+        if (!result.ok) return;
+        bool accepted = true;
+        for (const auto& field : fields) {
+            if (context.declaredStructs[context.currentStructName].count(field.first) != 0) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                    "field '" + field.first + "' is already declared", context.sourceLines);
+                accepted = false;
+                continue;
+            }
+            if (!context.currentStructIsClass && containsCustomType(field.second)) {
+                recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
+                    "struct fields cannot contain custom types; use a class for recursive or nested custom values",
+                    context.sourceLines);
+                accepted = false;
+                continue;
+            }
+            context.declaredStructs[context.currentStructName][field.first] = field.second;
+            context.currentStructFields.push_back(field.first);
+            context.declaredStructFieldOrders[context.currentStructName].push_back(field.first);
+        }
+        if (accepted) context.queueTopLevelLine("    " + trim(result.generatedStatement), node.syntax.lineNumber);
+    }
+
+    void compileAggregate(const AggregateDeclarationAst& node) {
+        const std::string kind = node.isClass ? "class" : "struct";
+        if (context.declaredStructs.count(node.name) != 0 || declaredTypeForName(node.name) != PrimitiveType::Unknown) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + 7,
+                kind + " '" + node.name + "' is already declared", context.sourceLines);
+            return;
+        }
+        context.declaredStructs[node.name] = {};
+        context.declaredStructFieldOrders[node.name] = {};
+        context.declaredStructMethods[node.name] = {};
+        if (node.isClass) context.declaredClassNames.insert(node.name);
+        context.currentStructIsClass = node.isClass;
+        context.currentStructName = node.name;
+        context.currentStructFields.clear();
+        enterBlock("struct");
+        context.queueTopLevelLine("struct " + node.name + " {", node.syntax.lineNumber);
+
+        for (const auto& member : node.body.statements) {
+            setRequirementOwner();
+            if (const auto* method = dynamic_cast<const FunctionDeclarationAst*>(member.get())) {
+                compileFunction(*method, true);
+            } else if (const auto* field = dynamic_cast<const VariableDeclarationAst*>(member.get())) {
+                if (checkLexicalErrors(*field)) compileField(*field);
+            } else if (const auto* comment = dynamic_cast<const CommentStatementAst*>(member.get())) {
+                if (!comment->syntax.commentText.empty()) {
+                    context.queueGeneratedLine(indentForDepth(context.blockDepth) + comment->syntax.commentText,
+                        comment->syntax.lineNumber);
+                }
+            } else {
+                recordSourceError(context.options.inputFile, member->syntax.lineNumber, member->syntax.startColumn,
+                    "struct bodies currently require typed fields", context.sourceLines);
+            }
+        }
+
+        finishAggregate(node.body);
+    }
+
+    void finishAggregate(const BlockAst& body) {
+        const int line = body.hasClosingSyntax ? body.closingSyntax.lineNumber : 0;
+        if (!body.hasClosingSyntax) sawUnclosedBlock = true;
+        if (!context.currentStructFields.empty()) {
+            std::string constructor = "    " + context.currentStructName + "(";
+            size_t index = 0;
+            for (const std::string& field : context.declaredStructFieldOrders[context.currentStructName]) {
+                if (index++ > 0) constructor += ", ";
+                constructor += cppTypeForType(context.declaredStructs[context.currentStructName][field]) + " value_" + field;
+            }
+            constructor += ") : ";
+            index = 0;
+            for (const std::string& field : context.declaredStructFieldOrders[context.currentStructName]) {
+                if (index++ > 0) constructor += ", ";
+                constructor += field + "(std::move(value_" + field + "))";
+            }
+            constructor += " {}";
+            context.queueTopLevelLine(constructor, line);
+        }
+
+        const auto& fields = context.declaredStructs[context.currentStructName];
+        const auto& order = context.declaredStructFieldOrders[context.currentStructName];
+        if (context.currentStructIsClass) {
+            context.queueTopLevelLine("    " + context.currentStructName + "(const " + context.currentStructName + "& other) {", line);
+            for (const std::string& field : order) {
+                requireCopyHelpersForType(fields.at(field));
+                context.queueTopLevelLine("        " + field + " = CPPPCopy(other." + field + ");", line);
+            }
+            context.queueTopLevelLine("    }", line);
+            context.queueTopLevelLine("    " + context.currentStructName + "& operator=(const " + context.currentStructName + "& other) {", line);
+            context.queueTopLevelLine("        if (this == &other) return *this;", line);
+            for (const std::string& field : order) context.queueTopLevelLine("        " + field + " = other." + field + ";", line);
+            context.queueTopLevelLine("        return *this;", line);
+            context.queueTopLevelLine("    }", line);
+        } else {
+            context.queueTopLevelLine("    " + context.currentStructName + "() = default;", line);
+        }
+        std::string equal = "    bool operator==(const " + context.currentStructName + "& other) const { return ";
+        if (fields.empty()) equal += "true";
+        size_t fieldIndex = 0;
+        for (const std::string& field : order) {
+            const Type& type = fields.at(field);
+            if (fieldIndex++ > 0) equal += " && ";
+            if (isClassType(type)) {
+                equal += "((" + field + " && other." + field + ") ? (*" + field + " == *other." + field + ") : (!" + field + " && !other." + field + "))";
+            } else {
+                if (isCollectionType(type) || isPairType(type)) requireContainerMember(type, "compare_eq");
+                if (isHeapType(type)) {
+                    requireContainerMember(type, "to_list");
+                    requireContainerMember(Type(PrimitiveType::List, type.subtypes), "compare_eq");
+                }
+                equal += field + " == other." + field;
+            }
+        }
+        equal += "; }";
+        context.queueTopLevelLine(equal, line);
+        for (const std::string& field : order) requirePrintHelpersForType(fields.at(field));
+        context.queueTopLevelLine("    friend ostream& operator<<(ostream& output, const " + context.currentStructName + "& value) {", line);
+        context.queueTopLevelLine("        output << '{';", line);
+        fieldIndex = 0;
+        for (const std::string& field : order) {
+            if (fieldIndex++ > 0) context.queueTopLevelLine("        output << \", \";", line);
+            context.queueTopLevelLine("        output << \"" + field + ": \"; CPPPPrintValue(output, value." + field + ");", line);
+        }
+        context.queueTopLevelLine("        return output << '}';", line);
+        context.queueTopLevelLine("    }", line);
+        context.queueTopLevelLine("};", line);
+        if (!context.currentStructIsClass) {
+            for (const std::string& field : order) requireCopyHelpersForType(fields.at(field));
+            std::string copier = "template <> struct CPPPDeepCopier<" + context.currentStructName + "> { static " + context.currentStructName + " run(const " + context.currentStructName + "& value) { return " + context.currentStructName + "(";
+            for (size_t index = 0; index < order.size(); ++index) {
+                if (index > 0) copier += ", ";
+                copier += "CPPPCopy(value." + order[index] + ")";
+            }
+            copier += "); } };";
+            context.queueTopLevelLine(copier, line);
+        }
+
+        const std::vector<std::string> names = context.blockDeclaredNames.back();
+        context.eraseDeclaredNames(names);
+        context.blockKinds.pop_back();
+        context.blockBreakFlags.pop_back();
+        context.blockDeclaredNames.pop_back();
+        --context.blockDepth;
+        context.currentStructIsClass = false;
+        context.currentStructName.clear();
+        context.currentStructFields.clear();
+        context.outputTarget = OutputTarget::Main;
+    }
+};
+}
+
+void compileProgramAst(CompileContext& context, const ProgramAst& program) {
+    setDeclaredStructsForExpressions(&context.declaredStructs);
+    setDeclaredClassNamesForExpressions(&context.declaredClassNames);
+    setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
+    setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
+    AstLowerer(context).compile(program);
 }

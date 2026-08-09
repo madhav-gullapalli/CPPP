@@ -23,7 +23,9 @@ struct AssignmentEmitResult {
     std::vector<SourceRange> sourceRanges;
 };
 
-AssignmentEmitResult emitAssignmentStatement(
+// Emits an assignment whose statement structure was already established by
+// ProgramAst. Token slices are expression-level adapters, not statement input.
+AssignmentEmitResult emitParsedAssignment(
     const std::string& inputFile,
     int lineNumber,
     int statementColumn,
@@ -31,5 +33,10 @@ AssignmentEmitResult emitAssignmentStatement(
     const std::map<std::string, Type>& declaredVariables,
     const std::map<std::string, FunctionSignature>& declaredFunctions,
     bool emitRuntimeChecks,
-    const std::vector<Token>& sourceTokens
+    const std::string& operation,
+    const Token& operationToken,
+    const std::vector<std::vector<Token>>& targetTokens,
+    const std::vector<size_t>& targetOffsets,
+    const std::vector<std::vector<Token>>& valueTokens,
+    const std::vector<size_t>& valueOffsets
 );
