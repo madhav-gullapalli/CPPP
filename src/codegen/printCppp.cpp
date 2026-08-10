@@ -211,7 +211,6 @@ bool parseCallArgumentAst(
     int lineNumber,
     const RawArgumentSegment& segment,
     const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
     CallArgumentAst& argument
 ) {
     argument.text = segment.text;
@@ -264,8 +263,7 @@ bool parseCallArgumentAst(
                 lineNumber,
                 argument.valueTokens,
                 valueColumn,
-                sourceLines,
-                declaredVariables
+                sourceLines
             );
             return argument.valueAst != nullptr;
         }
@@ -280,8 +278,7 @@ bool parseCallArgumentAst(
         lineNumber,
         segment.tokens,
         segment.column,
-        sourceLines,
-        declaredVariables
+        sourceLines
     );
     return argument.valueAst != nullptr;
 }
@@ -464,7 +461,7 @@ PrintEmitResult emitPrintStatement(
     arguments.reserve(rawArguments.size());
     for (const RawArgumentSegment& rawArgument : rawArguments) {
         CallArgumentAst argument;
-        if (!parseCallArgumentAst(inputFile, lineNumber, rawArgument, sourceLines, declaredVariables, argument)) {
+        if (!parseCallArgumentAst(inputFile, lineNumber, rawArgument, sourceLines, argument)) {
             return {false, "", {}};
         }
         arguments.push_back(std::move(argument));
@@ -686,7 +683,7 @@ PrintEmitResult emitDescribeStatement(
     }
 
     CallArgumentAst argument;
-    if (!parseCallArgumentAst(inputFile, lineNumber, rawArguments[0], sourceLines, declaredVariables, argument)) {
+    if (!parseCallArgumentAst(inputFile, lineNumber, rawArguments[0], sourceLines, argument)) {
         return {false, "", {}};
     }
     if (argument.kind == CallArgumentAst::Kind::Named) {

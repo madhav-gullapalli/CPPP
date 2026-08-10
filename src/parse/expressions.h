@@ -176,17 +176,7 @@ std::unique_ptr<Expr> parseExpressionAst(
     int lineNumber,
     const std::vector<Token>& expressionTokens,
     int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
-);
-std::unique_ptr<Expr> parseExpressionAst(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::vector<Token>& expressionTokens,
-    int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
-    const std::map<std::string, FunctionSignature>& declaredFunctions
+    const std::map<int, std::string>& sourceLines
 );
 
 // Parses expression structure without symbol tables, semantic validation, or

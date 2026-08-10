@@ -21,14 +21,10 @@ public:
         const std::vector<Token>& expressionTokens,
         int expressionColumn,
         const std::map<int, std::string>& sourceLines,
-        const std::map<std::string, Type>& declaredVariables,
-        const std::map<std::string, FunctionSignature>& declaredFunctions,
-        bool emitRuntimeChecks,
         bool syntaxOnly = false
     );
 
 // parse parses  for the compiler pipeline.
-    ExpressionEmitResult parse();
     std::unique_ptr<Expr> parseAst(bool& ok);
 
 private:
@@ -36,9 +32,6 @@ private:
     int lineNumber;
     int expressionColumn;
     const std::map<int, std::string>& sourceLines;
-    const std::map<std::string, Type>& declaredVariables;
-    const std::map<std::string, FunctionSignature>& declaredFunctions;
-    bool emitRuntimeChecks;
     bool syntaxOnly;
     std::vector<Token> tokens;
     size_t current = 0;
@@ -82,24 +75,3 @@ private:
     std::unique_ptr<Expr> parseMethodCall(std::unique_ptr<Expr> expression, bool& ok);
     std::unique_ptr<Expr> parseBraceLiteral(bool& ok);
 };
-
-// Semantic-only entry point. It consumes an existing expression AST and never
-// reparses tokens or emits C++.
-bool analyzeExpressionAst(
-    Expr& expression,
-    const std::string& inputFile,
-    int lineNumber,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
-    const std::map<std::string, FunctionSignature>& declaredFunctions,
-    const std::map<std::string, int>* futureVariableLines = nullptr
-);
-
-// Code-generation-only entry point for an expression already accepted by the
-// semantic pass.
-std::string generateAnalyzedExpression(
-    const Expr& expression,
-    int lineNumber,
-    bool emitRuntimeChecks,
-    const std::map<std::string, FunctionSignature>& declaredFunctions
-);

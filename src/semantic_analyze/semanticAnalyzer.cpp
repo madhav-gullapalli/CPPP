@@ -6,7 +6,7 @@
 #include "semanticAnalyzer.h"
 
 #include "errors.h"
-#include "expressionParser.h"
+#include "expressionAnalyzer.h"
 #include "expressions.h"
 #include "tokenizer.h"
 

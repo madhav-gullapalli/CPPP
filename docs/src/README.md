@@ -105,17 +105,25 @@ delimiter and list-aware behavior.
 
 ## [src/parse/expressions.cpp](../../src/parse/expressions.cpp) and [src/parse/expressions.h](../../src/parse/expressions.h)
 These files provide the shared expression/type utility layer used across the
-compiler: primitive/list type helpers, conversions, casts, and runtime-helper
-tracking.
+compiler: shared type helpers, semantic conversion predicates, runtime-helper
+tracking, and token-slice compatibility adapters used by specialized emitters.
+They are not the canonical expression pipeline.
 
 ## [src/parse/exprAst.h](../../src/parse/exprAst.h)
 This header contains the expression AST used during expression analysis and
 emission.
 
 ## [src/parse/expressionParser.cpp](../../src/parse/expressionParser.cpp) and [src/parse/expressionParser.h](../../src/parse/expressionParser.h)
-This is the main expression-analysis stage. It parses expression syntax, checks
-types, inserts conversions, and emits generated C++ expressions plus runtime
-checks when enabled.
+This module parses expression syntax into `Expr` AST nodes. It does not perform
+semantic analysis or generate C++.
+
+## [src/semantic_analyze/expressionAnalyzer.cpp](../../src/semantic_analyze/expressionAnalyzer.cpp) and [src/semantic_analyze/expressionAnalyzer.h](../../src/semantic_analyze/expressionAnalyzer.h)
+This module analyzes an existing `Expr` AST, resolving types, conversions, and
+semantic validity without reparsing tokens.
+
+## [src/codegen/expressionCodegen.cpp](../../src/codegen/expressionCodegen.cpp) and [src/codegen/expressionCodegen.h](../../src/codegen/expressionCodegen.h)
+This module emits C++ from an analyzed `Expr` AST. Its token-based lvalue entry
+point is retained only as a localized compatibility adapter.
 
 ## [src/semantic_analyze/functions.cpp](../../src/semantic_analyze/functions.cpp) and [src/semantic_analyze/functions.h](../../src/semantic_analyze/functions.h)
 These files provide function-signature and call-description metadata. Function

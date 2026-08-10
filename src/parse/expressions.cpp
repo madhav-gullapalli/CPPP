@@ -9,6 +9,8 @@
 #include "expressions.h"
 
 #include "expressionParser.h"
+#include "expressionAnalyzer.h"
+#include "expressionCodegen.h"
 #include "typesCppp.h"
 
 namespace {
@@ -1058,6 +1060,8 @@ bool emitInputCallForType(
     return true;
 }
 
+// Compatibility adapter for specialized emitters that still pass token slices.
+// The canonical pipeline calls parseAst -> analyzeExpressionAst -> codegen directly.
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,
     int lineNumber,
@@ -1069,17 +1073,32 @@ ExpressionEmitResult emitExpression(
 ) {
     static const std::map<std::string, FunctionSignature> emptyFunctions;
     const std::map<std::string, FunctionSignature>* declaredFunctions = declaredFunctionsForExpressions();
-    ExpressionParser parser(
-        inputFile,
-        lineNumber,
-        expressionTokens,
-        expressionColumn,
-        sourceLines,
-        declaredVariables,
-        declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions,
-        emitRuntimeChecks || expressionRuntimeChecksEnabled()
-    );
-    return parser.parse();
+    const auto& functions = declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions;
+    ExpressionParser parser(inputFile, lineNumber, expressionTokens, expressionColumn, sourceLines);
+    for (const Token& token : expressionTokens) {
+        if ((token.kind == TokenKind::String || token.kind == TokenKind::Char) &&
+            (token.text.size() < 2 || token.text.front() != token.text.back())) {
+            recordSourceError(inputFile, lineNumber,
+                expressionColumn + token.span.startColumn - 1,
+                token.kind == TokenKind::Char ? "unterminated char literal" : "unterminated string literal",
+                sourceLines);
+            return {false, "", PrimitiveType::Unknown, false, {}};
+        }
+    }
+    bool ok = true;
+    std::unique_ptr<Expr> expression = parser.parseAst(ok);
+    if (!ok || !expression || !analyzeExpressionAst(
+            *expression, inputFile, lineNumber, sourceLines, declaredVariables, functions)) {
+        return {false, "", PrimitiveType::Unknown, false, {}};
+    }
+    return {
+        true,
+        generateAnalyzedExpression(*expression, lineNumber,
+            emitRuntimeChecks || expressionRuntimeChecksEnabled(), functions),
+        expression->inferredType,
+        expression->explicitCast,
+        {{lineNumber, expression->sourceColumn, 0, 0, expression->sourceSpan}}
+    };
 }
 
 ExpressionEmitResult emitExpression(
@@ -1092,17 +1111,24 @@ ExpressionEmitResult emitExpression(
     const std::map<std::string, FunctionSignature>& declaredFunctions,
     bool emitRuntimeChecks
 ) {
-    ExpressionParser parser(
-        inputFile,
-        lineNumber,
-        expressionTokens,
-        expressionColumn,
-        sourceLines,
-        declaredVariables,
-        declaredFunctions.empty() && declaredFunctionsForExpressions() != nullptr ? *declaredFunctionsForExpressions() : declaredFunctions,
-        emitRuntimeChecks || expressionRuntimeChecksEnabled()
-    );
-    return parser.parse();
+    const std::map<std::string, FunctionSignature>* registered = declaredFunctionsForExpressions();
+    const auto& functions = declaredFunctions.empty() && registered != nullptr
+        ? *registered : declaredFunctions;
+    ExpressionParser parser(inputFile, lineNumber, expressionTokens, expressionColumn, sourceLines);
+    bool ok = true;
+    std::unique_ptr<Expr> expression = parser.parseAst(ok);
+    if (!ok || !expression || !analyzeExpressionAst(
+            *expression, inputFile, lineNumber, sourceLines, declaredVariables, functions)) {
+        return {false, "", PrimitiveType::Unknown, false, {}};
+    }
+    return {
+        true,
+        generateAnalyzedExpression(*expression, lineNumber,
+            emitRuntimeChecks || expressionRuntimeChecksEnabled(), functions),
+        expression->inferredType,
+        expression->explicitCast,
+        {{lineNumber, expression->sourceColumn, 0, 0, expression->sourceSpan}}
+    };
 }
 
 void setExpressionRuntimeChecksEnabled(bool enabled) {
@@ -1118,40 +1144,14 @@ std::unique_ptr<Expr> parseExpressionAst(
     int lineNumber,
     const std::vector<Token>& expressionTokens,
     int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables
-) {
-    static const std::map<std::string, FunctionSignature> emptyFunctions;
-    const std::map<std::string, FunctionSignature>* declaredFunctions = declaredFunctionsForExpressions();
-    return parseExpressionAst(
-        inputFile,
-        lineNumber,
-        expressionTokens,
-        expressionColumn,
-        sourceLines,
-        declaredVariables,
-        declaredFunctions == nullptr ? emptyFunctions : *declaredFunctions
-    );
-}
-
-std::unique_ptr<Expr> parseExpressionAst(
-    const std::string& inputFile,
-    int lineNumber,
-    const std::vector<Token>& expressionTokens,
-    int expressionColumn,
-    const std::map<int, std::string>& sourceLines,
-    const std::map<std::string, Type>& declaredVariables,
-    const std::map<std::string, FunctionSignature>& declaredFunctions
+    const std::map<int, std::string>& sourceLines
 ) {
     ExpressionParser parser(
         inputFile,
         lineNumber,
         expressionTokens,
         expressionColumn,
-        sourceLines,
-        declaredVariables,
-        declaredFunctions.empty() && declaredFunctionsForExpressions() != nullptr ? *declaredFunctionsForExpressions() : declaredFunctions,
-        expressionRuntimeChecksEnabled()
+        sourceLines
     );
     bool ok = true;
     std::unique_ptr<Expr> expression = parser.parseAst(ok);
@@ -1164,8 +1164,6 @@ std::unique_ptr<Expr> parseExpressionAst(
 std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& expressionTokens) {
     static const std::string emptyFile;
     static const std::map<int, std::string> emptyLines;
-    static const std::map<std::string, Type> emptyVariables;
-    static const std::map<std::string, FunctionSignature> emptyFunctions;
     const int line = expressionTokens.empty() ? 1 : expressionTokens.front().span.startLine;
     const int column = expressionTokens.empty() ? 1 : expressionTokens.front().span.startColumn;
     ExpressionParser parser(
@@ -1174,9 +1172,6 @@ std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& express
         expressionTokens,
         column,
         emptyLines,
-        emptyVariables,
-        emptyFunctions,
-        false,
         true
     );
     bool ok = true;

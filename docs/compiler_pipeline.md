@@ -140,6 +140,14 @@ implicit conversions, validates control-flow context and all-path returns, and
 computes aggregate dependency order. Invalid programs stop here. The
 deterministic `--semantic` mode prints these annotations without generating C++.
 
+Expression work follows the same stage boundary:
+
+- [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp) parses expression tokens into `Expr` syntax nodes only.
+- [`src/semantic_analyze/expressionAnalyzer.cpp`](../src/semantic_analyze/expressionAnalyzer.cpp) analyzes an existing `Expr` tree and records inferred types and conversions.
+- [`src/codegen/expressionCodegen.cpp`](../src/codegen/expressionCodegen.cpp) emits C++ from an analyzed `Expr`; it does not reinterpret expression tokens.
+
+The older helpers in [`src/parse/expressions.cpp`](../src/parse/expressions.cpp) remain a narrow token-slice compatibility adapter for specialized emitters that have not yet been converted to carry analyzed expression nodes directly.
+
 ## Stage 5: Analyzed AST Codegen
 
 [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp) is the center of
@@ -168,7 +176,9 @@ The file relies on helper modules for specific domains:
 
 - [`src/codegen/typeDeclarations.cpp`](../src/codegen/typeDeclarations.cpp) for declarations
 - [`src/codegen/assignmentCppp.cpp`](../src/codegen/assignmentCppp.cpp) for assignments
-- [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp) for expressions
+- [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp) for expression syntax
+- [`src/semantic_analyze/expressionAnalyzer.cpp`](../src/semantic_analyze/expressionAnalyzer.cpp) for expression semantics
+- [`src/codegen/expressionCodegen.cpp`](../src/codegen/expressionCodegen.cpp) for expression C++ emission
 - [`src/parse/controlFlow.cpp`](../src/parse/controlFlow.cpp) for parser-time control-flow headers
 - [`src/codegen/printCppp.cpp`](../src/codegen/printCppp.cpp) for `print(...)`
 - [`src/codegen/listsCppp.cpp`](../src/codegen/listsCppp.cpp) for list-specific syntax/support
@@ -263,9 +273,10 @@ wrong."
 - New statement syntax: start in [`src/parse/programAst.h`](../src/parse/programAst.h) and
   [`src/parse/astParser.cpp`](../src/parse/astParser.cpp), then add direct lowering in
   [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp).
-- New expression/operator behavior: start in
-  [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp) and
-  [`src/parse/expressions.cpp`](../src/parse/expressions.cpp).
+- New expression/operator behavior: parse syntax in
+  [`src/parse/expressionParser.cpp`](../src/parse/expressionParser.cpp), add
+  semantic rules in [`src/semantic_analyze/expressionAnalyzer.cpp`](../src/semantic_analyze/expressionAnalyzer.cpp),
+  and add C++ emission in [`src/codegen/expressionCodegen.cpp`](../src/codegen/expressionCodegen.cpp).
 - Wrong compile/runtime diagnostic location: inspect
   [`src/codegen/compileContext.h`](../src/codegen/compileContext.h),
   [`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp), and
