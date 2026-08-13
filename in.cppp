@@ -1,5 +1,6 @@
-rep(0) {
-    print("BAD");
-} nobreak {
-    print("yes");
-}
+
+Heap<int>h;
+h.push(6);
+print(h);
+h.clear();
+print(h);

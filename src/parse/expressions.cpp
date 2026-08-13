@@ -50,6 +50,11 @@ const std::map<std::string, std::map<std::string, FunctionSignature>>*& declared
     return methods;
 }
 
+const std::map<std::string, FunctionSignature>*& declaredStructConstructorsForExpressions() {
+    static const std::map<std::string, FunctionSignature>* constructors = nullptr;
+    return constructors;
+}
+
 // listDepth handles list-specific behavior for the compiler or runtime.
 int listDepth(const Type& type) {
     int depth = 0;
@@ -704,6 +709,10 @@ void setDeclaredStructMethodsForExpressions(const std::map<std::string, std::map
     declaredStructMethodsForExpressions() = methods;
 }
 
+void setDeclaredStructConstructorsForExpressions(const std::map<std::string, FunctionSignature>* constructors) {
+    declaredStructConstructorsForExpressions() = constructors;
+}
+
 const std::map<std::string, Type>* declaredStructFieldsForName(const std::string& name) {
     const auto* structs = declaredStructsForExpressions();
     if (structs == nullptr) {
@@ -732,6 +741,13 @@ const FunctionSignature* declaredStructMethodForType(const Type& type, const std
     }
     const auto method = methods->second.find(name);
     return method == methods->second.end() ? nullptr : &method->second;
+}
+
+const FunctionSignature* declaredStructConstructorForName(const std::string& name) {
+    const auto* constructors = declaredStructConstructorsForExpressions();
+    if (constructors == nullptr) return nullptr;
+    const auto found = constructors->find(name);
+    return found == constructors->end() ? nullptr : &found->second;
 }
 
 std::vector<std::string> declaredCustomTypeNames() {
@@ -1161,11 +1177,16 @@ std::unique_ptr<Expr> parseExpressionAst(
     return expression;
 }
 
-std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& expressionTokens) {
+std::unique_ptr<Expr> parseSyntaxExpressionAst(
+    const std::vector<Token>& expressionTokens,
+    int expressionColumn
+) {
     static const std::string emptyFile;
     static const std::map<int, std::string> emptyLines;
     const int line = expressionTokens.empty() ? 1 : expressionTokens.front().span.startLine;
-    const int column = expressionTokens.empty() ? 1 : expressionTokens.front().span.startColumn;
+    const int column = expressionColumn > 0
+        ? expressionColumn
+        : (expressionTokens.empty() ? 1 : expressionTokens.front().span.startColumn);
     ExpressionParser parser(
         emptyFile,
         line,

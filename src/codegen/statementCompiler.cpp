@@ -1267,6 +1267,46 @@ private:
         context.currentTopLevelFunctionName.clear();
     }
 
+    void compileConstructor(const ConstructorDeclarationAst& node) {
+        if (!node.syntaxOk) {
+            recordSourceError(context.options.inputFile, node.syntax.lineNumber,
+                node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
+                node.syntaxError, context.sourceLines);
+            if (!node.body.hasClosingSyntax) sawUnclosedBlock = true;
+            return;
+        }
+        const auto aggregate = analyzed.aggregateConstructors.find(context.currentStructName);
+        if (aggregate == analyzed.aggregateConstructors.end()) return;
+        const FunctionSignature& signature = aggregate->second;
+        std::string generated = "    " + context.currentStructName + "(";
+        for (size_t index = 0; index < signature.parameters.size(); ++index) {
+            if (index > 0) generated += ", ";
+            generated += cppTypeForType(signature.parameters[index].type) + " " +
+                signature.parameters[index].name;
+        }
+        generated += ") {";
+
+        // Constructors are retained whenever their aggregate is retained in
+        // submit mode, so keep their emitted lines owned by the aggregate
+        // rather than by the method reachability set.
+        context.queueTopLevelLine(generated, node.syntax.lineNumber);
+        context.savedDeclaredVariables = context.declaredVariables;
+        context.declaredVariables = context.declaredStructs[context.currentStructName];
+        context.declaredVariables["self"] = Type(PrimitiveType::Struct, context.currentStructName);
+        for (const FunctionParameter& parameter : signature.parameters) {
+            context.declaredVariables[parameter.name] = parameter.type;
+        }
+        context.currentFunction = signature;
+        context.inFunction = true;
+        context.outputTarget = OutputTarget::TopLevel;
+        compileOwnedBlock(node.body, "function");
+        context.inFunction = false;
+        context.outputTarget = OutputTarget::TopLevel;
+        context.declaredVariables = context.savedDeclaredVariables;
+        context.savedDeclaredVariables.clear();
+        context.currentFunction = FunctionSignature{};
+    }
+
     void compileField(const VariableDeclarationAst& node) {
         std::map<std::string, Type> fields;
         const std::vector<Token> tokens = withoutTrailingSemicolon(node.syntax.tokens);
@@ -1306,11 +1346,14 @@ private:
         context.currentStructFields.clear();
         enterBlock("struct");
         context.queueTopLevelLine("struct " + node.name + " {", node.syntax.lineNumber);
+        const bool hasUserConstructor = analyzed.aggregateConstructors.count(node.name) != 0;
 
         for (const auto& member : node.body.statements) {
             setRequirementOwner();
             if (const auto* method = dynamic_cast<const FunctionDeclarationAst*>(member.get())) {
                 compileFunction(*method, true);
+            } else if (const auto* constructor = dynamic_cast<const ConstructorDeclarationAst*>(member.get())) {
+                compileConstructor(*constructor);
             } else if (const auto* field = dynamic_cast<const VariableDeclarationAst*>(member.get())) {
                 if (checkLexicalErrors(*field)) compileField(*field);
             } else if (const auto* comment = dynamic_cast<const CommentStatementAst*>(member.get())) {
@@ -1324,13 +1367,17 @@ private:
             }
         }
 
-        finishAggregate(node.body);
+        finishAggregate(node.body, hasUserConstructor);
     }
 
-    void finishAggregate(const BlockAst& body) {
+    void finishAggregate(const BlockAst& body, bool hasUserConstructor) {
         const int line = body.hasClosingSyntax ? body.closingSyntax.lineNumber : 0;
         if (!body.hasClosingSyntax) sawUnclosedBlock = true;
-        if (!context.currentStructFields.empty()) {
+        // The generated copy/equality/print members belong to the aggregate,
+        // not to whichever user method happened to be lowered last.  Submit
+        // pruning may discard that method while retaining this class.
+        setRequirementOwner();
+        if (!hasUserConstructor && !context.currentStructFields.empty()) {
             std::string constructor = "    " + context.currentStructName + "(";
             size_t index = 0;
             for (const std::string& field : context.declaredStructFieldOrders[context.currentStructName]) {
@@ -1430,10 +1477,12 @@ void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& analyz
     context.declaredStructs = analyzed.aggregateFields;
     context.declaredStructFieldOrders = analyzed.aggregateFieldOrder;
     context.declaredStructMethods = analyzed.aggregateMethods;
+    context.declaredStructConstructors = analyzed.aggregateConstructors;
     context.declaredClassNames = analyzed.classNames;
     setDeclaredStructsForExpressions(&context.declaredStructs);
     setDeclaredClassNamesForExpressions(&context.declaredClassNames);
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
+    setDeclaredStructConstructorsForExpressions(&context.declaredStructConstructors);
     AstLowerer(context, analyzed).compile(*analyzed.program);
 }

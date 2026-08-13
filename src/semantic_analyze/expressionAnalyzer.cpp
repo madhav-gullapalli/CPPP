@@ -136,19 +136,19 @@ private:
             return declaredStructMethodNamesForType(receiverType);
         }
         if (isStackType(receiverType) || isQueueType(receiverType)) {
-            return {"add", "top", "pop"};
+            return {"add", "top", "pop", "clear"};
         }
         if (isDequeType(receiverType)) {
-            return {"addFront", "addBack", "front", "back", "popFront", "popBack"};
+            return {"addFront", "addBack", "front", "back", "popFront", "popBack", "clear"};
         }
         if (isMapType(receiverType)) {
-            return {"add", "remove", "at", "prev", "next", "hasPrev", "hasNext"};
+            return {"add", "remove", "clear", "at", "prev", "next", "hasPrev", "hasNext"};
         }
         if (isSetType(receiverType)) {
-            return {"add", "remove", "prev", "next", "hasPrev", "hasNext"};
+            return {"add", "remove", "clear", "prev", "next", "hasPrev", "hasNext"};
         }
         if (isListType(receiverType)) {
-            return {"add", "remove", "sort", "reverse", "find", "split"};
+            return {"add", "remove", "clear", "sort", "reverse", "find", "split"};
         }
         return {};
     }
@@ -390,10 +390,17 @@ private:
                 }
             }
             std::vector<std::string> candidates;
-            candidates.reserve(declaredVariables.size());
+            candidates.reserve(declaredVariables.size() + declaredFunctions.size() + 8);
             for (const auto& declared : declaredVariables) {
                 candidates.push_back(declared.first);
             }
+            for (const auto& declared : declaredFunctions) {
+                candidates.push_back(declared.first);
+            }
+            const std::vector<std::string> builtins = {
+                "len", "copy", "range", "min", "max", "sum", "abs", "input"
+            };
+            candidates.insert(candidates.end(), builtins.begin(), builtins.end());
             reportNameSuggestion(
                 expr.sourceColumn,
                 expr.sourceSpan,
@@ -685,6 +692,28 @@ private:
             }
         }
 
+        if (expr.explicitConstructedType != PrimitiveType::Unknown) {
+            expr.resolvedCallable = "constructor:" + cpppTypeName(expr.explicitConstructedType);
+            if (!isListType(expr.explicitConstructedType) || expr.explicitConstructedType.subtypes.size() != 1 ||
+                expr.arguments.empty() || expr.arguments.size() > 2) {
+                report(expr.sourceColumn, "List<T> construction expects size and an optional fill value");
+                return false;
+            }
+            if (expr.arguments[0]->inferredType != PrimitiveType::Int) {
+                report(expr.arguments[0]->sourceColumn, "List<T> size must be int");
+                return false;
+            }
+            if (expr.arguments.size() == 2 && !expr.arguments[1]->explicitCast &&
+                !isImplicitlyConvertible(expr.arguments[1]->inferredType, expr.explicitConstructedType.subtypes[0])) {
+                report(expr.arguments[1]->sourceColumn, "cannot use " +
+                    cpppTypeName(expr.arguments[1]->inferredType) + " as List element type " +
+                    cpppTypeName(expr.explicitConstructedType.subtypes[0]));
+                return false;
+            }
+            expr.inferredType = expr.explicitConstructedType;
+            return true;
+        }
+
         if (expr.receiver) {
             expr.resolvedCallable = "method:" + cpppTypeName(expr.receiver->inferredType) + "." + expr.callee;
         } else {
@@ -764,6 +793,18 @@ private:
 
         if (expr.receiver && isHeapType(expr.receiver->inferredType)) {
             const Type elementType = expr.receiver->inferredType.subtypes[0];
+            if (expr.callee == "clear") {
+                if (!expr.arguments.empty()) {
+                    report(expr.sourceColumn, "clear() does not take arguments");
+                    return false;
+                }
+                if (!expr.receiver->mutableValue) {
+                    report(expr.sourceColumn, "clear() requires a mutable collection variable");
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Void;
+                return true;
+            }
             if (expr.callee == "top" || expr.callee == "pop") {
                 if (!expr.arguments.empty()) {
                     report(expr.sourceColumn, expr.callee + "() does not take arguments");
@@ -784,7 +825,7 @@ private:
                 expr.inferredType = PrimitiveType::Void;
                 return true;
             }
-            reportNameSuggestion(expr.sourceColumn, expr.sourceSpan, cpppTypeName(expr.receiver->inferredType) + " has no method '" + expr.callee + "'", expr.callee, {"push", "pop", "top"});
+            reportNameSuggestion(expr.sourceColumn, expr.sourceSpan, cpppTypeName(expr.receiver->inferredType) + " has no method '" + expr.callee + "'", expr.callee, {"push", "pop", "top", "clear"});
             return false;
         }
 
@@ -793,6 +834,19 @@ private:
             const Type elementType = receiverType.subtypes[0];
             const bool stackOrQueue = isStackType(receiverType) || isQueueType(receiverType);
             const bool deque = isDequeType(receiverType);
+
+            if (expr.callee == "clear") {
+                if (!expr.arguments.empty()) {
+                    report(expr.sourceColumn, "clear() does not take arguments");
+                    return false;
+                }
+                if (!expr.receiver->mutableValue) {
+                    report(expr.sourceColumn, "clear() requires a mutable collection variable");
+                    return false;
+                }
+                expr.inferredType = PrimitiveType::Void;
+                return true;
+            }
 
             const bool accessor =
                 (expr.callee == "top" && stackOrQueue) ||
@@ -901,6 +955,23 @@ private:
                 }
             }
             expr.inferredType = PrimitiveType::Range;
+            return true;
+        }
+
+        if (expr.callee == "clear") {
+            if (!expr.receiver || !isCollectionType(expr.receiver->inferredType)) {
+                report(expr.sourceColumn, "clear() can only be used on List, Set, or Map values");
+                return false;
+            }
+            if (!expr.receiver->mutableValue) {
+                report(expr.sourceColumn, "clear() requires a mutable collection variable");
+                return false;
+            }
+            if (!expr.arguments.empty()) {
+                report(expr.sourceColumn, "clear() does not take arguments");
+                return false;
+            }
+            expr.inferredType = PrimitiveType::Void;
             return true;
         }
 
@@ -1135,6 +1206,29 @@ private:
 
         const Type constructedType = declaredTypeForName(expr.callee);
         if (!expr.receiver && isStructType(constructedType)) {
+            const FunctionSignature* constructor = declaredStructConstructorForName(expr.callee);
+            if (constructor != nullptr) {
+                if (expr.arguments.size() != constructor->parameters.size()) {
+                    report(expr.sourceColumn, expr.callee + " constructor expects " +
+                        std::to_string(constructor->parameters.size()) + " arguments");
+                    return false;
+                }
+                for (size_t index = 0; index < constructor->parameters.size(); ++index) {
+                    const Type& parameterType = constructor->parameters[index].type;
+                    const auto* literal = dynamic_cast<LiteralExpr*>(expr.arguments[index].get());
+                    const bool nullForClass = literal != nullptr &&
+                        literal->kind == LiteralExpr::Kind::Null && isClassType(parameterType);
+                    if (!nullForClass && !expr.arguments[index]->explicitCast &&
+                        !isImplicitlyConvertible(expr.arguments[index]->inferredType, parameterType)) {
+                        report(expr.arguments[index]->sourceColumn, "cannot use " +
+                            cpppTypeName(expr.arguments[index]->inferredType) + " as " +
+                            cpppTypeName(parameterType) + " for " + expr.callee + "()");
+                        return false;
+                    }
+                }
+                expr.inferredType = constructedType;
+                return true;
+            }
             const std::map<std::string, Type>* definition = declaredStructFieldsForName(expr.callee);
             const std::vector<std::string>* fieldOrder = declaredStructFieldOrderForName(expr.callee);
             if (definition == nullptr || fieldOrder == nullptr || expr.arguments.size() != fieldOrder->size()) {

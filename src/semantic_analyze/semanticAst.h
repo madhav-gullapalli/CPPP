@@ -17,6 +17,7 @@ struct AnalyzedProgramAst {
     std::map<std::string, std::map<std::string, Type>> aggregateFields;
     std::map<std::string, std::vector<std::string>> aggregateFieldOrder;
     std::map<std::string, std::map<std::string, FunctionSignature>> aggregateMethods;
+    std::map<std::string, FunctionSignature> aggregateConstructors;
     std::set<std::string> classNames;
     std::vector<std::string> aggregateEmissionOrder;
 };

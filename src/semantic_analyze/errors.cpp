@@ -721,6 +721,7 @@ SourceSpan sourceSpanForRange(
     );
 }
 
+
 SourceSpan sourceInsertionSpan(
     const std::string& sourceFile,
     const std::map<int, std::string>& sourceLines,

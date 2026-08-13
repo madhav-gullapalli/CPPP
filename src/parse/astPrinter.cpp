@@ -220,6 +220,15 @@ void printStatement(std::ostream& output, const ProgramStatement& statement, int
         }
         line(output, depth + 1, "Body");
         printBlock(output, node->body, depth + 2);
+    } else if (const auto* node = dynamic_cast<const ConstructorDeclarationAst*>(&statement)) {
+        line(output, depth, "ConstructorDecl " + quote(node->name), node->sourceSpan);
+        line(output, depth + 1, "Parameters");
+        for (const ParameterSyntax& parameter : node->parameters) {
+            line(output, depth + 2, std::string(parameter.copyParameter ? "CopyParam " : "Param ") + quote(parameter.name), parameter.sourceSpan);
+            printType(output, parameter.type, depth + 3);
+        }
+        line(output, depth + 1, "Body");
+        printBlock(output, node->body, depth + 2);
     } else if (const auto* node = dynamic_cast<const AggregateDeclarationAst*>(&statement)) {
         line(output, depth, std::string(node->isClass ? "ClassDecl " : "StructDecl ") + quote(node->name), node->sourceSpan);
         printBlock(output, node->body, depth + 1);

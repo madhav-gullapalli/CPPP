@@ -105,6 +105,7 @@ void printStatement(std::ostream& output, const ProgramStatement& statement, int
     else if (dynamic_cast<const ForEachStatementAst*>(&statement)) name = "ForEach";
     else if (dynamic_cast<const RepStatementAst*>(&statement)) name = "Rep";
     else if (const auto* node = dynamic_cast<const FunctionDeclarationAst*>(&statement)) name = "Function " + node->name;
+    else if (const auto* node = dynamic_cast<const ConstructorDeclarationAst*>(&statement)) name = "Constructor " + node->name;
     else if (const auto* node = dynamic_cast<const AggregateDeclarationAst*>(&statement))
         name = std::string(node->isClass ? "Class " : "Struct ") + node->name;
     line(output, depth, name);
@@ -136,6 +137,9 @@ void printStatement(std::ostream& output, const ProgramStatement& statement, int
     } else if (const auto* node = dynamic_cast<const RepStatementAst*>(&statement)) {
         printExpr(output, node->count.get(), depth + 1); printBlock(output, node->body, depth + 1);
     } else if (const auto* node = dynamic_cast<const FunctionDeclarationAst*>(&statement)) {
+        line(output, depth + 1, "signature: " + typeName(node->resolvedFunctionType));
+        printBlock(output, node->body, depth + 1);
+    } else if (const auto* node = dynamic_cast<const ConstructorDeclarationAst*>(&statement)) {
         line(output, depth + 1, "signature: " + typeName(node->resolvedFunctionType));
         printBlock(output, node->body, depth + 1);
     } else if (const auto* node = dynamic_cast<const AggregateDeclarationAst*>(&statement)) {

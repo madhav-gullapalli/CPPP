@@ -1,0 +1,14 @@
+class Box {
+    List<int> values;
+
+    Box(int count) {
+        values = List<int>(count, 4);
+    }
+
+    int unused() {
+        return values[0];
+    }
+}
+
+Box box = Box(2);
+print(box);

@@ -73,6 +73,7 @@ private:
         setDeclaredClassNamesForExpressions(&result.classNames);
         setDeclaredStructFieldOrdersForExpressions(&result.aggregateFieldOrder);
         setDeclaredStructMethodsForExpressions(&result.aggregateMethods);
+        setDeclaredStructConstructorsForExpressions(&result.aggregateConstructors);
     }
 
     void error(int line, int column, const std::string& message) {
@@ -83,6 +84,35 @@ private:
             message,
             context.sourceLines
         );
+    }
+
+    void errorWithNameSuggestion(
+        int line,
+        int column,
+        SourceSpan span,
+        const std::string& message,
+        const std::string& misspelled,
+        const std::vector<std::string>& candidates
+    ) {
+        Diagnostic diagnostic;
+        diagnostic.message = message;
+        diagnostic.labels.push_back({
+            span.valid()
+                ? span
+                : sourceTokenSpan(context.options.inputFile, context.sourceLines, line, column),
+            "",
+            true
+        });
+        const std::string closest = closestDiagnosticCandidate(misspelled, candidates);
+        if (!closest.empty()) {
+            diagnostic.suggestions.push_back({
+                diagnostic.labels.front().span,
+                closest,
+                "did you mean '" + closest + "'?",
+                SuggestionApplicability::MaybeIncorrect
+            });
+        }
+        recordDiagnostic(std::move(diagnostic));
     }
 
     int columnForOffset(size_t offset, int fallback) const {
@@ -157,7 +187,22 @@ private:
         }
         Type base = declaredTypeForName(syntax.name);
         if (base == PrimitiveType::Unknown) {
-            error(line, column, "unknown type '" + syntax.name + "'");
+            std::vector<std::string> candidates = {
+                "bool", "char", "int", "float", "string", "range",
+                "List", "Stack", "Queue", "Deque", "Heap", "Set", "Map", "Pair"
+            };
+            if (allowVoid) candidates.push_back("void");
+            for (const auto& aggregate : result.aggregateFields) {
+                candidates.push_back(aggregate.first);
+            }
+            errorWithNameSuggestion(
+                line,
+                columnForSpan(syntax.nameSpan, column),
+                syntax.nameSpan,
+                "unknown type '" + syntax.name + "'",
+                syntax.name,
+                candidates
+            );
             return PrimitiveType::Unknown;
         }
         if (base == PrimitiveType::Void && !allowVoid && !syntax.functionType) {
@@ -277,6 +322,52 @@ private:
         return valid;
     }
 
+    bool buildConstructorSignature(
+        ConstructorDeclarationAst& constructor,
+        const std::string& aggregateName,
+        FunctionSignature& signature
+    ) {
+        const int line = constructor.syntax.lineNumber;
+        const int column = constructor.syntax.startColumn;
+        signature.name = aggregateName;
+        signature.returnType = PrimitiveType::Void;
+        signature.returnsVoid = true;
+        std::set<std::string> parameters;
+        bool valid = true;
+        std::vector<Type> functionParts = {Type(PrimitiveType::Void)};
+        std::vector<bool> copyModes;
+        for (ParameterSyntax& parameter : constructor.parameters) {
+            Type type = resolveType(parameter.type, false, line, column);
+            if (type == PrimitiveType::Unknown) { valid = false; continue; }
+            if (isReservedKeyword(parameter.name)) {
+                error(line, columnForOffset(parameter.sourceSpan.endOffset - parameter.name.size(), column),
+                    "reserved keyword '" + parameter.name + "' cannot be used as a parameter name");
+                valid = false;
+                continue;
+            }
+            if (!parameters.insert(parameter.name).second) {
+                error(line, column, "duplicate parameter '" + parameter.name + "' in " + aggregateName + "()");
+                valid = false;
+                continue;
+            }
+            if (parameter.modifier == "deep") {
+                error(line, column, "deep parameter modifier has been replaced by copy");
+                valid = false;
+            }
+            if (parameter.copyParameter && !copyEligible(type)) {
+                error(line, column, "copy parameter '" + parameter.name +
+                    "' must have a collection, string, or class type; got " + cpppTypeName(type));
+                valid = false;
+            }
+            signature.parameters.push_back({parameter.name, type, parameter.copyParameter, column});
+            functionParts.push_back(type);
+            copyModes.push_back(parameter.copyParameter);
+        }
+        constructor.resolvedFunctionType = Type(PrimitiveType::Function, std::move(functionParts));
+        constructor.resolvedFunctionType.functionParameterCopy = std::move(copyModes);
+        return valid;
+    }
+
     void resolveAggregateMembers() {
         for (const auto& statement : program.body.statements) {
             auto* aggregate = dynamic_cast<AggregateDeclarationAst*>(statement.get());
@@ -329,6 +420,16 @@ private:
                     FunctionSignature signature;
                     if (buildSignature(*method, signature)) {
                         result.aggregateMethods[aggregate->name][method->name] = std::move(signature);
+                    }
+                } else if (auto* constructor = dynamic_cast<ConstructorDeclarationAst*>(member.get())) {
+                    if (result.aggregateConstructors.count(aggregate->name) != 0) {
+                        error(constructor->syntax.lineNumber, constructor->syntax.startColumn,
+                            "class '" + aggregate->name + "' has more than one constructor");
+                        continue;
+                    }
+                    FunctionSignature signature;
+                    if (buildConstructorSignature(*constructor, aggregate->name, signature)) {
+                        result.aggregateConstructors[aggregate->name] = std::move(signature);
                     }
                 } else if (!dynamic_cast<CommentStatementAst*>(member.get()) &&
                            !dynamic_cast<ErrorStatementAst*>(member.get())) {
@@ -477,6 +578,10 @@ private:
         const auto function = result.functions.find(call.callee);
         if (!call.receiver && function != result.functions.end()) {
             for (const FunctionParameter& parameter : function->second.parameters) {
+                expected.push_back(parameter.type);
+            }
+        } else if (!call.receiver && result.aggregateConstructors.count(call.callee) != 0) {
+            for (const FunctionParameter& parameter : result.aggregateConstructors[call.callee].parameters) {
                 expected.push_back(parameter.type);
             }
         } else if (!call.receiver && result.aggregateFields.count(call.callee) != 0) {
@@ -741,6 +846,31 @@ private:
         inFunction = savedInFunction;
     }
 
+    void analyzeConstructorBody(ConstructorDeclarationAst& constructor, const FunctionSignature& signature) {
+        const FunctionSignature savedFunction = currentFunction;
+        const bool savedInFunction = inFunction;
+        currentFunction = signature;
+        inFunction = true;
+        pushScope();
+        const Type selfType(PrimitiveType::Struct, currentAggregate);
+        scopes.back()["self"] = {selfType, "self", constructor.nameSpan};
+        for (const auto& field : result.aggregateFields[currentAggregate]) {
+            scopes.back()[field.first] = {field.second, "field", {}};
+        }
+        for (const FunctionParameter& parameter : signature.parameters) {
+            if (scopes.back().count(parameter.name) != 0) {
+                error(constructor.syntax.lineNumber, parameter.column,
+                    "parameter '" + parameter.name + "' conflicts with an existing constructor symbol");
+                continue;
+            }
+            scopes.back()[parameter.name] = {parameter.type, "parameter", {}};
+        }
+        analyzeBlock(constructor.body, true);
+        popScope();
+        currentFunction = savedFunction;
+        inFunction = savedInFunction;
+    }
+
     void analyzeVariable(VariableDeclarationAst& variable) {
         const int line = variable.syntax.lineNumber;
         bool valid = true;
@@ -858,7 +988,10 @@ private:
             const Type expected = assignment.resolvedTargetTypes.empty()
                 ? Type(PrimitiveType::Unknown)
                 : assignment.resolvedTargetTypes[std::min(i, assignment.resolvedTargetTypes.size() - 1)];
-            valid = analyzeExpected(*assignment.values[i], expected, line) && valid;
+            const bool valueValid = expected == PrimitiveType::Unknown
+                ? analyzeExpression(*assignment.values[i], line)
+                : analyzeExpected(*assignment.values[i], expected, line);
+            valid = valueValid && valid;
             assignment.valueConversionTargets.push_back(expected);
         }
         assignment.semanticAnalyzed = true;
@@ -922,6 +1055,16 @@ private:
                     analyzeFunctionBody(*method, found->second, true);
                     method->semanticAnalyzed = true;
                     method->semanticValid = true;
+                }
+            } else if (auto* constructor = dynamic_cast<ConstructorDeclarationAst*>(member.get())) {
+                const auto found = result.aggregateConstructors.find(aggregate.name);
+                if (found != result.aggregateConstructors.end()) {
+                    analyzeConstructorBody(*constructor, found->second);
+                    constructor->semanticAnalyzed = true;
+                    constructor->semanticValid = true;
+                } else {
+                    constructor->semanticAnalyzed = true;
+                    constructor->semanticValid = false;
                 }
             } else if (auto* field = dynamic_cast<VariableDeclarationAst*>(member.get())) {
                 field->semanticAnalyzed = true;
@@ -1181,6 +1324,8 @@ bool validateBlock(const BlockAst& block, std::string& error) {
             if (node->nobreakBranch && !validateBlock(node->nobreakBranch->body, error)) return false;
         }
         if (const auto* node = dynamic_cast<const FunctionDeclarationAst*>(statement.get()))
+            if (!validateBlock(node->body, error)) return false;
+        if (const auto* node = dynamic_cast<const ConstructorDeclarationAst*>(statement.get()))
             if (!validateBlock(node->body, error)) return false;
         if (const auto* node = dynamic_cast<const AggregateDeclarationAst*>(statement.get()))
             if (!validateBlock(node->body, error)) return false;

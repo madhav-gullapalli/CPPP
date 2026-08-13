@@ -81,6 +81,7 @@ enum class ProgramStatementKind {
     ForEach,
     Rep,
     FunctionDeclaration,
+    ConstructorDeclaration,
     AggregateDeclaration
 };
 
@@ -295,6 +296,19 @@ struct FunctionDeclarationAst : ProgramStatement {
 
     explicit FunctionDeclarationAst(StatementSyntax syntax) :
         ProgramStatement(ProgramStatementKind::FunctionDeclaration, std::move(syntax)) {}
+};
+
+// A constructor is deliberately distinct from a function: its spelling is
+// tied to the enclosing aggregate and it has no return type.
+struct ConstructorDeclarationAst : ProgramStatement {
+    std::string name;
+    SourceSpan nameSpan;
+    std::vector<ParameterSyntax> parameters;
+    BlockAst body;
+    Type resolvedFunctionType;
+
+    explicit ConstructorDeclarationAst(StatementSyntax syntax) :
+        ProgramStatement(ProgramStatementKind::ConstructorDeclaration, std::move(syntax)) {}
 };
 
 struct AggregateDeclarationAst : ProgramStatement {

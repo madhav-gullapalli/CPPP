@@ -330,10 +330,11 @@ SourceSpan normalizeExpressionSpan(Expr& expression) {
 std::unique_ptr<Expr> parseExpressionSlice(
     const std::vector<Token>& tokens,
     size_t begin,
-    size_t end
+    size_t end,
+    int expressionColumn = 0
 ) {
     std::vector<Token> slice = tokenSlice(tokens, begin, end);
-    std::unique_ptr<Expr> expression = parseSyntaxExpressionAst(slice);
+    std::unique_ptr<Expr> expression = parseSyntaxExpressionAst(slice, expressionColumn);
     if (expression) {
         normalizeExpressionSpan(*expression);
         const SourceSpan fullSpan = tokensSpan(tokens, begin, end);
@@ -511,6 +512,33 @@ ForClauseAst parseForClause(const std::vector<Token>& tokens) {
     return clause;
 }
 
+std::vector<ParameterSyntax> parseParameters(
+    const std::vector<Token>& tokens,
+    size_t begin,
+    size_t end
+) {
+    std::vector<ParameterSyntax> parameters;
+    for (const auto& part : splitTypeComponents(tokens, begin, end)) {
+        if (part.first >= part.second) continue;
+        ParameterSyntax parameter;
+        size_t parameterStart = part.first;
+        if (tokens[parameterStart].kind == TokenKind::Identifier &&
+            (tokens[parameterStart].text == "copy" || tokens[parameterStart].text == "deep")) {
+            parameter.copyParameter = true;
+            parameter.modifier = tokens[parameterStart].text;
+            parameter.modifierSpan = tokens[parameterStart].sourceSpan;
+            ++parameterStart;
+        }
+        size_t parameterName = parameterStart;
+        if (parseDeclarationShape(tokens, parameterStart, part.second, parameter.type, parameterName)) {
+            parameter.name = tokens[parameterName].text;
+            parameter.sourceSpan = tokensSpan(tokens, part.first, part.second);
+        }
+        parameters.push_back(std::move(parameter));
+    }
+    return parameters;
+}
+
 class Parser {
 public:
     explicit Parser(const TokenStream& stream) : fragments(splitTokenStream(stream)) {}
@@ -526,6 +554,7 @@ public:
 private:
     std::vector<SourceFragment> fragments;
     size_t current = 0;
+    std::vector<std::string> enclosingAggregates;
 
     StatementParseResult parsedKind(const SourceFragment& fragment) const {
         return parseStatementAst(fragment.tokens, fragment.startColumn);
@@ -590,9 +619,36 @@ private:
                 aggregate->name = tokens[1].text;
                 aggregate->nameSpan = tokens[1].sourceSpan;
             }
+            enclosingAggregates.push_back(aggregate->name);
             aggregate->body = parseBlock(true);
+            enclosingAggregates.pop_back();
             aggregate->sourceSpan = mergeSpans(aggregate->sourceSpan, aggregate->body.sourceSpan);
             return aggregate;
+        }
+
+        // Constructors are valid only as members of the aggregate they name.
+        // Keeping them distinct from functions prevents parser recovery from
+        // silently ending the enclosing class at the constructor body.
+        if (!enclosingAggregates.empty() && count >= 3 &&
+            tokens[0].kind == TokenKind::Identifier &&
+            tokens[0].text == enclosingAggregates.back() &&
+            tokens[1].kind == TokenKind::LeftParen) {
+            const size_t close = findMatchingParen(tokens, 1, count);
+            if (close < count && close + 1 < count && tokens[close + 1].kind == TokenKind::LeftBrace) {
+                auto constructor = std::make_unique<ConstructorDeclarationAst>(statementSyntax(fragment));
+                constructor->name = tokens[0].text;
+                constructor->nameSpan = tokens[0].sourceSpan;
+                constructor->parameters = parseParameters(tokens, 2, close);
+                if (close > 2 && tokens[close - 1].kind == TokenKind::Comma) {
+                    constructor->syntaxOk = false;
+                    constructor->syntaxError = "expected parameter after ','";
+                    constructor->syntaxErrorOffset = static_cast<size_t>(
+                        std::max(0, tokens[close - 1].span.startColumn - 1));
+                }
+                constructor->body = parseBlock(true);
+                constructor->sourceSpan = mergeSpans(constructor->sourceSpan, constructor->body.sourceSpan);
+                return constructor;
+            }
         }
 
         TypeSyntax returnType;
@@ -624,24 +680,7 @@ private:
                     function->syntaxErrorOffset = static_cast<size_t>(
                         std::max(0, tokens[close - 1].span.startColumn - 1));
                 }
-                for (const auto& part : splitTypeComponents(tokens, functionName + 2, close)) {
-                    if (part.first >= part.second) continue;
-                    ParameterSyntax parameter;
-                    size_t parameterStart = part.first;
-                    if (tokens[parameterStart].kind == TokenKind::Identifier &&
-                        (tokens[parameterStart].text == "copy" || tokens[parameterStart].text == "deep")) {
-                        parameter.copyParameter = true;
-                        parameter.modifier = tokens[parameterStart].text;
-                        parameter.modifierSpan = tokens[parameterStart].sourceSpan;
-                        ++parameterStart;
-                    }
-                    size_t parameterName = parameterStart;
-                    if (parseDeclarationShape(tokens, parameterStart, part.second, parameter.type, parameterName)) {
-                        parameter.name = tokens[parameterName].text;
-                        parameter.sourceSpan = tokensSpan(tokens, part.first, part.second);
-                    }
-                    function->parameters.push_back(std::move(parameter));
-                }
+                function->parameters = parseParameters(tokens, functionName + 2, close);
                 if (close < count) function->body = parseBlock(true);
                 function->sourceSpan = mergeSpans(function->sourceSpan, function->body.sourceSpan);
                 return function;
@@ -656,7 +695,8 @@ private:
             result->syntaxError = parsed.message;
             result->conditionTokens = header.conditionTokens;
             result->conditionOffset = header.conditionOffset;
-            result->condition = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size());
+            result->condition = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size(),
+                fragment.startColumn + static_cast<int>(header.conditionOffset));
             result->thenBody = parseBlock(true);
             while (nextIs(StatementParseResult::Kind::ElseIf)) {
                 ConditionalBranchAst branch;
@@ -669,7 +709,8 @@ private:
                 branch.syntaxError = branchParsed.message;
                 branch.conditionTokens = branchHeader.conditionTokens;
                 branch.conditionOffset = branchHeader.conditionOffset;
-                branch.condition = parseExpressionSlice(branchHeader.conditionTokens, 0, branchHeader.conditionTokens.size());
+                branch.condition = parseExpressionSlice(branchHeader.conditionTokens, 0, branchHeader.conditionTokens.size(),
+                    branchFragment.startColumn + static_cast<int>(branchHeader.conditionOffset));
                 branch.body = parseBlock(true);
                 branch.sourceSpan = mergeSpans(branch.headerSyntax.sourceSpan, branch.body.sourceSpan);
                 result->elseIfBranches.push_back(std::move(branch));
@@ -697,7 +738,8 @@ private:
             result->syntaxError = parsed.message;
             result->conditionTokens = header.conditionTokens;
             result->conditionOffset = header.conditionOffset;
-            result->condition = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size());
+            result->condition = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size(),
+                fragment.startColumn + static_cast<int>(header.conditionOffset));
             result->body = parseBlock(true);
             attachCompletion(result->nobreakBranch);
             result->sourceSpan = mergeSpans(result->sourceSpan, result->body.sourceSpan);
@@ -713,7 +755,8 @@ private:
             result->syntaxError = parsed.message;
             result->countTokens = header.conditionTokens;
             result->countOffset = header.conditionOffset;
-            result->count = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size());
+            result->count = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size(),
+                fragment.startColumn + static_cast<int>(header.conditionOffset));
             result->body = parseBlock(true);
             attachCompletion(result->nobreakBranch);
             result->sourceSpan = mergeSpans(result->sourceSpan, result->body.sourceSpan);
@@ -736,7 +779,8 @@ private:
                 size_t name = 0;
                 parseDeclarationShape(header.declarationTokens, 0, header.declarationTokens.size(), result->variableType, name);
             }
-            result->iterable = parseExpressionSlice(header.iterableTokens, 0, header.iterableTokens.size());
+            result->iterable = parseExpressionSlice(header.iterableTokens, 0, header.iterableTokens.size(),
+                fragment.startColumn + static_cast<int>(header.iterableOffset));
             result->body = parseBlock(true);
             attachCompletion(result->nobreakBranch);
             result->sourceSpan = mergeSpans(result->sourceSpan, result->body.sourceSpan);
@@ -755,7 +799,8 @@ private:
             result->conditionTokens = header.conditionTokens;
             result->conditionOffset = header.conditionOffset;
             if (!header.conditionTokens.empty()) {
-                result->condition = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size());
+                result->condition = parseExpressionSlice(header.conditionTokens, 0, header.conditionTokens.size(),
+                    fragment.startColumn + static_cast<int>(header.conditionOffset));
             }
             result->iteration = parseForClause(header.iterationTokens);
             result->iteration.offset = header.iterationOffset;
@@ -927,6 +972,8 @@ bool validateBlock(const BlockAst& block, SourceSpan parent, std::string& messag
         } else if (const auto* node = dynamic_cast<const ReturnStatementAst*>(statement.get())) {
             if (node->value && !validateExpression(node->value.get(), statement->sourceSpan, message)) return false;
         } else if (const auto* node = dynamic_cast<const FunctionDeclarationAst*>(statement.get())) {
+            if (!validateBlock(node->body, statement->sourceSpan, message)) return false;
+        } else if (const auto* node = dynamic_cast<const ConstructorDeclarationAst*>(statement.get())) {
             if (!validateBlock(node->body, statement->sourceSpan, message)) return false;
         } else if (const auto* node = dynamic_cast<const AggregateDeclarationAst*>(statement.get())) {
             if (!validateBlock(node->body, statement->sourceSpan, message)) return false;

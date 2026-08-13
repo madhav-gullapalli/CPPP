@@ -166,9 +166,11 @@ void setDeclaredStructsForExpressions(const std::map<std::string, std::map<std::
 void setDeclaredClassNamesForExpressions(const std::set<std::string>* declaredClassNames);
 void setDeclaredStructFieldOrdersForExpressions(const std::map<std::string, std::vector<std::string>>* fieldOrders);
 void setDeclaredStructMethodsForExpressions(const std::map<std::string, std::map<std::string, FunctionSignature>>* methods);
+void setDeclaredStructConstructorsForExpressions(const std::map<std::string, FunctionSignature>* constructors);
 const std::map<std::string, Type>* declaredStructFieldsForName(const std::string& name);
 const std::vector<std::string>* declaredStructFieldOrderForName(const std::string& name);
 const FunctionSignature* declaredStructMethodForType(const Type& type, const std::string& name);
+const FunctionSignature* declaredStructConstructorForName(const std::string& name);
 std::vector<std::string> declaredCustomTypeNames();
 std::vector<std::string> declaredStructMethodNamesForType(const Type& type);
 std::unique_ptr<Expr> parseExpressionAst(
@@ -181,7 +183,10 @@ std::unique_ptr<Expr> parseExpressionAst(
 
 // Parses expression structure without symbol tables, semantic validation, or
 // user-facing diagnostics. On recovery, callers receive ErrorExpr.
-std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& expressionTokens);
+std::unique_ptr<Expr> parseSyntaxExpressionAst(
+    const std::vector<Token>& expressionTokens,
+    int expressionColumn = 0
+);
 
 ExpressionEmitResult emitExpression(
     const std::string& inputFile,

@@ -18,6 +18,10 @@
 struct Expr {
     int sourceColumn = 0;
     SourceSpan sourceSpan;
+    // The token that introduced this expression. Unlike sourceSpan, this is
+    // never expanded to include child expressions and is used by runtime
+    // diagnostics that need one precise source location.
+    SourceSpan originSpan;
     Type inferredType = PrimitiveType::Unknown;
     bool mutableValue = false;
     bool explicitCast = false;
@@ -42,6 +46,7 @@ struct ErrorExpr : Expr {
         reason(std::move(reason)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -64,6 +69,7 @@ struct LiteralExpr : Expr {
         text(std::move(text)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -74,6 +80,7 @@ struct VariableExpr : Expr {
     VariableExpr(std::string name, int sourceColumn, SourceSpan sourceSpan = {}) : name(std::move(name)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -87,6 +94,7 @@ struct FieldExpr : Expr {
         base(std::move(base)), field(std::move(field)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -108,6 +116,7 @@ struct UnaryExpr : Expr {
         postfix(postfix) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -129,6 +138,7 @@ struct BinaryExpr : Expr {
         right(std::move(right)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -142,6 +152,7 @@ struct CastExpr : Expr {
         operand(std::move(operand)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
         explicitCast = true;
     }
 };
@@ -150,6 +161,10 @@ struct CastExpr : Expr {
 struct CallExpr : Expr {
     std::string callee;
     Type functionType;
+    // Set only for explicit generic construction such as List<int>(n, 0).
+    // The parser records the spelling-selected type; semantic analysis still
+    // validates its arguments and codegen consumes the analyzed node.
+    Type explicitConstructedType;
     std::unique_ptr<Expr> receiver;
     std::vector<std::unique_ptr<Expr>> arguments;
     // Empty entries are positional arguments. This is syntax-only metadata for
@@ -172,6 +187,7 @@ struct CallExpr : Expr {
         argumentNames(std::move(argumentNames)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -191,6 +207,7 @@ struct IndexExpr : Expr {
         index(std::move(index)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -212,6 +229,7 @@ struct SliceExpr : Expr {
         end(std::move(end)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -227,6 +245,7 @@ struct ListLiteralExpr : Expr {
         elements(std::move(elements)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -242,6 +261,7 @@ struct SetLiteralExpr : Expr {
         elements(std::move(elements)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -263,6 +283,7 @@ struct MapLiteralExpr : Expr {
         entries(std::move(entries)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };
 
@@ -281,5 +302,6 @@ struct PairLiteralExpr : Expr {
         second(std::move(second)) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
+        this->originSpan = sourceSpan;
     }
 };

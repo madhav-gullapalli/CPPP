@@ -6,6 +6,7 @@
 
 #include "expressionParser.h"
 
+#include <functional>
 #include <memory>
 
 ExpressionParser::ExpressionParser(
@@ -100,10 +101,32 @@ bool ExpressionParser::isUnterminatedQuotedToken(const Token& token) const {
 }
 
 int ExpressionParser::absoluteColumn(const Token& token) const {
+    // Tokens forwarded from the whole-source tokenizer retain canonical source
+    // offsets, while their TokenSpan may be relative to a sliced expression.
+    // Runtime checks must use the canonical location, especially for a nested
+    // condition whose expression starts after a block header.
+    if (token.sourceSpan.valid()) {
+        size_t lineStart = 0;
+        for (const auto& sourceLine : sourceLines) {
+            if (sourceLine.first == lineNumber) {
+                return static_cast<int>(token.sourceSpan.startOffset - lineStart + 1);
+            }
+            lineStart += sourceLine.second.size() + 1;
+        }
+    }
     return expressionColumn + token.span.startColumn - 1;
 }
 
 int ExpressionParser::absoluteEndColumn(const Token& token) const {
+    if (token.sourceSpan.valid() && token.sourceSpan.endOffset > token.sourceSpan.startOffset) {
+        size_t lineStart = 0;
+        for (const auto& sourceLine : sourceLines) {
+            if (sourceLine.first == lineNumber) {
+                return static_cast<int>(token.sourceSpan.endOffset - lineStart);
+            }
+            lineStart += sourceLine.second.size() + 1;
+        }
+    }
     return expressionColumn + token.span.endColumn - 1;
 }
 
@@ -664,6 +687,58 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
 }
 
 std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
+    // Generic container construction is an expression (unlike a declaration),
+    // so it must be recognized before '<' is parsed as a comparison operator.
+    // Keep this narrowly scoped to the concrete List<T>(size[, value]) form.
+    if (check(TokenKind::Identifier, "List") && current + 3 < tokens.size() &&
+        tokens[current + 1].kind == TokenKind::Operator && tokens[current + 1].text == "<") {
+        size_t typeCursor = current;
+        std::function<bool(Type&)> parseListType = [&](Type& type) {
+            if (typeCursor >= tokens.size() || tokens[typeCursor].kind != TokenKind::Identifier ||
+                tokens[typeCursor].text != "List") return false;
+            ++typeCursor;
+            if (typeCursor >= tokens.size() || tokens[typeCursor].kind != TokenKind::Operator ||
+                tokens[typeCursor].text != "<") return false;
+            ++typeCursor;
+            Type element;
+            if (typeCursor < tokens.size() && tokens[typeCursor].kind == TokenKind::Identifier &&
+                tokens[typeCursor].text == "List") {
+                if (!parseListType(element)) return false;
+            } else if (typeCursor < tokens.size() && tokens[typeCursor].kind == TokenKind::Identifier) {
+                element = declaredTypeForName(tokens[typeCursor].text);
+                if (element == PrimitiveType::Unknown || isStructType(element)) return false;
+                ++typeCursor;
+            } else {
+                return false;
+            }
+            if (typeCursor >= tokens.size() || tokens[typeCursor].kind != TokenKind::Operator ||
+                tokens[typeCursor].text != ">") return false;
+            ++typeCursor;
+            type = Type(PrimitiveType::List, {element});
+            return true;
+        };
+        Type constructed;
+        if (parseListType(constructed) && typeCursor < tokens.size() &&
+            tokens[typeCursor].kind == TokenKind::LeftParen) {
+            const Token typeToken = tokens[current];
+            current = typeCursor + 1;
+            std::vector<std::unique_ptr<Expr>> arguments;
+            if (!match(TokenKind::RightParen)) {
+                arguments.push_back(parseExpression(ok));
+                while (ok && match(TokenKind::Comma)) arguments.push_back(parseExpression(ok));
+                if (ok && !match(TokenKind::RightParen)) {
+                    report(typeToken, "unclosed parenthesis in List construction");
+                    ok = false;
+                    return nullptr;
+                }
+            }
+            auto call = std::make_unique<CallExpr>("List", nullptr, std::move(arguments),
+                absoluteColumn(typeToken), typeToken.sourceSpan);
+            call->explicitConstructedType = std::move(constructed);
+            return call;
+        }
+    }
+
     if (check(TokenKind::Identifier) &&
         peek().text != "range" &&
         isTypeName(peek().text) &&

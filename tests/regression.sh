@@ -43,7 +43,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=33
+TOTAL_STEPS=37
 CURRENT_STEP=0
 
 progress() {
@@ -187,6 +187,30 @@ run_submit_ok "$indexed_class_method_case" "$LOG_DIR/indexed_class_method_submit
 assert_contains "${indexed_class_method_case%.cppp}.cpp" "auto&__cppp_list" "method receiver uses mutable list access"
 pass "indexed class method receivers use mutable access"
 
+progress "custom class constructors"
+custom_constructor_case="$(stage_case "$TEST_DIR/custom_constructor.cppp")"
+run_program_ok "$custom_constructor_case" "$LOG_DIR/custom_constructor.log" "custom constructor program runs"
+assert_contains "$LOG_DIR/custom_constructor.log" "7" "custom constructor initializes fields"
+run_submit_ok "$custom_constructor_case" "$LOG_DIR/custom_constructor_submit.log" "custom constructor submit builds"
+assert_contains "${custom_constructor_case%.cppp}.cpp" "Box(long long count,long long value)" "custom constructor is emitted"
+pass "custom constructors parse, analyze, and emit"
+
+progress "class copy helper submit retention"
+class_copy_submit_case="$(stage_case "$TEST_DIR/class_copy_submit.cppp")"
+run_submit_ok "$class_copy_submit_case" "$LOG_DIR/class_copy_submit.log" "class copy helper submit builds with unused methods pruned"
+assert_contains "${class_copy_submit_case%.cppp}.cpp" "CPPPCopy" "class copy helper is retained for generated class copy support"
+pass "submit retains class-level copy helpers independently of methods"
+
+progress "type and variable name suggestions"
+type_name_suggestion_case="$(stage_case "$TEST_DIR/type_name_suggestion.cppp")"
+run_failure "$type_name_suggestion_case" "$LOG_DIR/type_name_suggestion.log" "misspelled type should fail"
+assert_contains "$LOG_DIR/type_name_suggestion.log" "did you mean 'List'?" "misspelled type suggests the closest type"
+variable_name_suggestion_case="$(stage_case "$TEST_DIR/variable_name_suggestion.cppp")"
+run_failure "$variable_name_suggestion_case" "$LOG_DIR/variable_name_suggestion.log" "misspelled variable should fail"
+assert_contains "$LOG_DIR/variable_name_suggestion.log" "did you mean 'count'?" "misspelled variable suggests a visible variable"
+assert_not_contains "$LOG_DIR/variable_name_suggestion.log" "to unknown" "misspelled assignment does not produce an unknown-type cascade"
+pass "malformed type and variable names receive edit-distance suggestions"
+
 progress "partial function standard-name collision"
 partial_std_name_collision_case="$(stage_case "$TEST_DIR/partial_std_name_collision.cppp")"
 run_program_ok "$partial_std_name_collision_case" "$LOG_DIR/partial_std_name_collision.log" "partial function named get runs"
@@ -194,6 +218,22 @@ assert_contains "$LOG_DIR/partial_std_name_collision.log" "99" "partial applicat
 run_submit_ok "$partial_std_name_collision_case" "$LOG_DIR/partial_std_name_collision_submit.log" "partial function named get submit builds"
 assert_contains "${partial_std_name_collision_case%.cppp}.cpp" "static_cast<long long(*)(CPPPList<long long>,long long)>(&get)" "partial function resolves the declared get overload"
 pass "partial functions disambiguate standard-library name collisions"
+
+progress "nested runtime source columns"
+nested_runtime_source_column_case="$(stage_case "$TEST_DIR/nested_runtime_source_column.cppp")"
+run_runtime_error "$nested_runtime_source_column_case" "$LOG_DIR/nested_runtime_source_column.log" "empty heap top reports a runtime error"
+assert_contains "$LOG_DIR/nested_runtime_source_column.log" ":4:17" "nested heap top reports its actual source column"
+run_compile_ok "$nested_runtime_source_column_case" "$LOG_DIR/nested_runtime_source_column_compile.log" "nested runtime column fixture compiles"
+assert_contains "${nested_runtime_source_column_case%.cppp}.cpp" ".top(4, 17)" "generated heap check uses the canonical source column"
+pass "nested runtime checks retain canonical source columns"
+
+progress "container clear"
+container_clear_case="$(stage_case "$TEST_DIR/container_clear.cppp")"
+run_program_ok "$container_clear_case" "$LOG_DIR/container_clear.log" "container clear program runs"
+assert_contains "$LOG_DIR/container_clear.log" "0 0 0 0 0 0 0" "clear empties every container type"
+run_submit_ok "$container_clear_case" "$LOG_DIR/container_clear_submit.log" "container clear submit builds"
+assert_contains "${container_clear_case%.cppp}.cpp" ".clear()" "submit output retains clear methods"
+pass "clear empties every container type"
 
 progress "class and inline struct behavior"
 class_struct_case="$(stage_case "$TEST_DIR/class_struct_split.cppp")"

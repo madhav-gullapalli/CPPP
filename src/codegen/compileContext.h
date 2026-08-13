@@ -65,6 +65,7 @@ struct CompileContext {
     std::set<std::string> declaredClassNames;
     std::map<std::string, std::vector<std::string>> declaredStructFieldOrders;
     std::map<std::string, std::map<std::string, FunctionSignature>> declaredStructMethods;
+    std::map<std::string, FunctionSignature> declaredStructConstructors;
     std::vector<GeneratedLine> generatedTopLevelLines;
     std::vector<GeneratedLine> generatedFunctionLines;
     std::vector<GeneratedLine> generatedMainLines;

@@ -175,6 +175,7 @@ SourceSpan sourceSpanForRange(
     int endColumn
 );
 
+
 SourceSpan sourceInsertionSpan(
     const std::string& sourceFile,
     const std::map<int, std::string>& sourceLines,

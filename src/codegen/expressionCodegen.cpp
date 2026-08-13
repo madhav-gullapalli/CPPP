@@ -390,6 +390,20 @@ private:
 
 // generateCall implements the generateCall behavior for the expressionCodegen.cpp module.
     std::string generateCall(const CallExpr& expr) const {
+        if (expr.explicitConstructedType != PrimitiveType::Unknown) {
+            requireContainerMember(expr.explicitConstructedType, "ctor_size");
+            std::string generated = cppTypeForType(expr.explicitConstructedType) + "(";
+            for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                if (i > 0) generated += ", ";
+                std::string argument = generate(*expr.arguments[i]);
+                if (i == 1 && expr.arguments[i]->inferredType != expr.explicitConstructedType.subtypes[0]) {
+                    argument = castExpressionTo(argument, expr.arguments[i]->inferredType,
+                        expr.explicitConstructedType.subtypes[0]);
+                }
+                generated += argument;
+            }
+            return generated + ")";
+        }
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
             const std::map<std::string, Type>* fields = declaredStructFieldsForName(expr.receiver->inferredType.name);
             const auto field = fields == nullptr ? std::map<std::string, Type>::const_iterator{} : fields->find(expr.callee);
@@ -507,6 +521,7 @@ private:
         }
         const Type constructedType = declaredTypeForName(expr.callee);
         if (isStructType(constructedType) && !expr.receiver) {
+            const FunctionSignature* constructor = declaredStructConstructorForName(expr.callee);
             std::string generated = isClassType(constructedType)
                 ? "cppp_smart_pointer<" + constructedType.name + ">::make("
                 : constructedType.name + "(";
@@ -515,6 +530,16 @@ private:
                     generated += ", ";
                 }
                 std::string argument = generate(*expr.arguments[i]);
+                if (constructor != nullptr && i < constructor->parameters.size()) {
+                    const FunctionParameter& parameter = constructor->parameters[i];
+                    if (expr.arguments[i]->inferredType != parameter.type) {
+                        argument = castExpressionTo(argument, expr.arguments[i]->inferredType, parameter.type);
+                    }
+                    if (parameter.copyParameter) {
+                        requireCopyHelpersForType(parameter.type);
+                        argument = "CPPPCopy(" + argument + ")";
+                    }
+                }
                 generated += argument;
             }
             return generated + ")";
@@ -530,9 +555,19 @@ private:
             return "CPPPCopy(" + generate(*expr.arguments[0]) + ")";
         }
 
+        if (expr.receiver && expr.callee == "clear" && isCollectionType(expr.receiver->inferredType)) {
+            const std::string receiver = generateMutableAccess(*expr.receiver);
+            requireContainerMember(expr.receiver->inferredType, "clear");
+            return "(" + receiver + ").clear()";
+        }
+
         if (expr.receiver && isHeapType(expr.receiver->inferredType)) {
             const std::string receiver = generate(*expr.receiver);
             const Type heapType = expr.receiver->inferredType;
+            if (expr.callee == "clear") {
+                requireContainerMember(heapType, "clear");
+                return "(" + receiver + ").clear()";
+            }
             if (expr.callee == "top" || expr.callee == "pop") {
                 const std::string method = expr.callee == "pop" ? "pop_value" : "top";
                 requireContainerMember(heapType, method);
@@ -549,6 +584,10 @@ private:
         if (expr.receiver && isLinearDataStructureType(expr.receiver->inferredType)) {
             const std::string receiver = generate(*expr.receiver);
             const Type receiverType = expr.receiver->inferredType;
+            if (expr.callee == "clear") {
+                requireContainerMember(receiverType, "clear");
+                return "(" + receiver + ").clear()";
+            }
             if (expr.callee == "top" || expr.callee == "front" || expr.callee == "back" ||
                 expr.callee == "pop" || expr.callee == "popFront" || expr.callee == "popBack") {
                 std::string method = expr.callee;

@@ -1,0 +1,17 @@
+List<int> list = [1];
+Stack<int> stack = Stack([1]);
+Queue<int> queue = Queue([1]);
+Deque<int> deque = Deque([1]);
+Heap<int> heap = Heap([1]);
+Set<int> set = {1};
+Map<int, int> map = {1:1};
+
+list.clear();
+stack.clear();
+queue.clear();
+deque.clear();
+heap.clear();
+set.clear();
+map.clear();
+
+print(len(list), len(stack), len(queue), len(deque), len(heap), len(set), len(map));
