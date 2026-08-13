@@ -1,53 +1,38 @@
 # CP++ Language Reference
 
-This document describes the implemented CP++ language surface as it exists today, based on `errors.txt` and `correct.txt`.
+This document describes the CP++ language surface for contest users.
 
-CP++ is a competitive-programming-oriented language that transpiles to C++. It focuses on making algorithm-heavy code shorter to write, easier to read, and easier to debug than raw contest-style C++, while still lowering to simple generated C++.
+CP++ is a competitive-programming-oriented language that transpiles to C++. It
+focuses on making algorithm-heavy code shorter to write, easier to read, and
+easier to debug than raw contest-style C++.
 
-Complexities below describe the CP++ operation itself at the language level. Generated C++ details may vary a little, but the intent is the standard competitive-programming cost model.
+Complexities use the usual competitive-programming cost model.
 
-## Compilation Modes
+## Using the compiler
 
 ### Source files
 
 - Syntax: `program.cppp`
-- What it does: CP++ source files are transpiled to adjacent generated `.cpp` files.
-- Notes: The compiler can also compile and run the generated C++.
+- What it does: CP++ source files transpile to adjacent `.cpp` files.
 - Complexity: N/A
 
 ### Transpile
 
 - Syntax: `build/cppp --cppp file.cppp`
 - What it does: Generates `file.cpp`.
-- Notes: Good for inspecting lowered C++.
-- Complexity: proportional to source size
-
-### Token stream
-
-- Syntax: `build/cppp --cppp file.cppp --tokens`
-- What it does: Prints the canonical whole-file token stream as one JSON object per line, including each token's kind, text, source coordinates, and byte offsets.
-- Notes: This is a compiler inspection/testing mode and does not generate C++. The Make equivalent is `make tokens INPUT=file.cppp`.
-- Complexity: proportional to source size
-
-### Full-program AST
-
-- Syntax: `build/cppp --cppp file.cppp --ast`
-- What it does: Parses the canonical token stream into CP++'s recursive full-program syntax tree and prints a deterministic tree containing node kinds, important fields, expressions, and source-offset spans.
-- Notes: AST inspection stops before semantic checks and does not generate C++. Invalid semantic relationships may therefore still appear structurally in this output. The Make equivalent is `make ast INPUT=file.cppp`.
 - Complexity: proportional to source size
 
 ### Run mode
 
 - Syntax: `build/cppp --cppp file.cppp --run`
-- What it does: Transpiles, compiles, and runs with extra CP++ runtime checks.
-- Notes: This mode is where readable runtime diagnostics are preserved for list bounds, empty operations, division by zero, and similar checked behavior.
-- Complexity: proportional to source size plus downstream C++ compile/runtime cost
+- What it does: Transpiles, compiles, and runs with CP++ runtime diagnostics.
+- Complexity: proportional to source size plus compilation and execution time
 
 ### Submit mode
 
 - Syntax: `build/cppp --cppp file.cppp --submit [--readable]`
-- What it does: Emits compact contest-oriented generated C++ and prunes unreachable functions, unused container classes, runtime helpers, and individual container methods.
-- Notes: By default, submit output removes comments, indentation, blank lines, and every token separator that C++ does not require. Preprocessor directives retain their required terminating newlines; the remaining C++ is emitted on one line. String and character literal contents are unchanged. Add `--readable` to inspect the same pruned submit program with ordinary formatting, for example `build/cppp --cppp file.cppp --submit --readable`. For the Make targets, use `make submit INPUT=file.cppp READABLE=1` or `make subrun INPUT=file.cppp READABLE=1`. Method overloads and comparison operators are retained independently; using `List.size()` does not retain unrelated `List` methods. Requirements inside unreachable functions do not keep methods or classes alive. Some extra runtime checking present in `--run` is intentionally not carried into submit-oriented output. Normal transpile and `--run` modes remain readable and retain the complete runtime support surface for diagnostics and debugging.
+- What it does: Emits compact C++ intended for contest submission.
+- Notes: Add `--readable` to inspect the submit output without minification.
 - Complexity: proportional to source size
 
 ## General Syntax
@@ -98,21 +83,21 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `int x = 42;`
 - What it does: Default integer type.
-- Notes: Lowers to C++ `long long`, so this is a 64-bit integer type, not a 32-bit `int`.
+- Notes: This is a 64-bit signed integer type.
 - Complexity: O(1)
 
 ### `float`
 
 - Syntax: `float x = 3.14;`
 - What it does: Floating-point numeric type.
-- Notes: Lowers to C++ `long double`.
+- Notes: Use it for floating-point calculations.
 - Complexity: O(1)
 
 ### `string`
 
 - Syntax: `string s = "hello";`
 - What it does: Built-in text type.
-- Notes: Lowers to `List<char>`-style behavior with string-aware printing. Supports indexing, slicing, `add(...)`, `len(...)`, `in`, and `find(...)`.
+- Notes: Supports indexing, slicing, `add(...)`, `len(...)`, `in`, and `find(...)`.
 - Complexity: O(1) for the type itself; operations vary
 
 ### `List<T>`
@@ -140,7 +125,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `Stack<int> stack;`, `Queue<int> queue;`, `Deque<int> deque;`
 - What it does: Declares an empty linear data structure with one element type.
-- Notes: These values are heap-backed by CP++ smart pointers and alias on ordinary assignment. Stack lowers to C++ `stack`, Queue to C++ `queue`, and Deque to C++ `deque`.
+- Notes: Ordinary assignment aliases these values; use `copy(...)` for an independent value.
 - Complexity: O(1) construction
 
 ## Declarations and Assignment
@@ -276,7 +261,7 @@ Complexities below describe the CP++ operation itself at the language level. Gen
 
 - Syntax: `int("42")`, `char(65)`, `string(2.5)`
 - What it does: Converts among implemented scalar types.
-- Notes: `bool`, `char`, `int`, `float`, and `string` are cast functions, not C++-style `(Type)value` syntax. String-to-scalar casts validate their input and report CP++ runtime errors in `--run` for invalid text.
+- Notes: `bool`, `char`, `int`, `float`, and `string` are cast functions, not `(Type)value` syntax. String-to-scalar casts validate their input.
 - Complexity: O(1), except proportional to string length for string parsing/formatting
 
 ### Container and range casts
@@ -360,7 +345,7 @@ List element is the top; for Queue, the first List element is the top/front.
 
 - Syntax: `++x`, `x++`, `--x`, `x--`
 - What it does: Mutates mutable numeric-like variables in place.
-- Notes: Supported for mutable `char`, `int`, and `float` values in the current implementation.
+- Notes: Supported for mutable `char`, `int`, and `float` values.
 - Complexity: O(1)
 
 ### Absolute value
@@ -1011,14 +996,14 @@ runtime error.
 
 - Syntax: `Point p = Point(2, 3);`, `Point empty;`
 - What it does: Constructs a class from its fields, or declares a null class when no constructor value is supplied.
-- Notes: A constructed class lowers to CP++'s reference-counted pointer handle. A default-initialized class is `NULL`. Constructor arguments must match field types and declaration order. Acyclic composite values are reclaimed automatically when their final alias is released; cycles remain allocated.
+- Notes: A default-initialized class is `NULL`. Constructor arguments must match field types and declaration order.
 - Complexity: O(number of fields), excluding recursive container-copy cost.
 
 ### Class fields
 
 - Syntax: `p.x`, `p.x = 7`
 - What it does: Reads and writes public class fields.
-- Notes: Class fields can be primitive values, containers, classes, or structs. Recursive fields are allowed because class-valued fields use owned pointer representation.
+- Notes: Class fields can be primitive values, containers, classes, or structs. Recursive fields are allowed.
 - Complexity: O(1) for a direct field access, excluding the value being assigned.
 
 ### Class methods
@@ -1030,10 +1015,6 @@ runtime error.
 - What it does: Calls a method declared inside the class.
 - Notes: Method arguments must match their declared types. Methods may read and update the receiver's fields directly. Calling a method on `NULL` is a runtime error.
 - Complexity: The complexity of the method body.
-
-In `--submit` output, reachability is tracked at function granularity. Unused
-class methods, entirely unused classes, and unreachable top-level functions
-are omitted; methods and functions reached from retained code remain available.
 
 ### Class aliasing and reassignment
 
@@ -1054,7 +1035,7 @@ are omitted; methods and functions reached from retained code remain available.
   Node head = Node(1, tail);
   ```
 - What it does: Allows a class to contain a field of its own type or another custom type.
-- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Class links use CP++'s reference-counted pointer handle, so structures can contain back-links and cycles, including doubly linked lists. Acyclic links are reclaimed automatically; cycles are intentionally not collected. Printing, equality, or deep-copying a cycle recursively is not cycle-terminating; operate on its fields or break the cycle first.
+- Notes: Recursive fields default to `NULL`; recursive construction, field access, explicit copying, and nested printing are supported. Structures can contain back-links and cycles, including doubly linked lists. Printing, equality, or deep-copying a cycle is not cycle-terminating; operate on its fields or break the cycle first.
 - Complexity: Proportional to the traversed recursive structure.
 
 ### Class printing
@@ -1082,14 +1063,14 @@ are omitted; methods and functions reached from retained code remain available.
   }
   ```
 - What it does: Passes a class to a function so the function can inspect and update its fields.
-- Notes: Class parameters share the same referenced object in generated C++, while CP++ source uses ordinary class syntax.
+- Notes: Class parameters share the same referenced object, so field mutations are visible to the caller.
 - Complexity: O(1) to pass the reference; operations inside the function determine total cost.
 
 ### Inline struct declaration
 
 - Syntax: `struct Point { int x; int y; }`
 - What it does: Declares an inline value type with public fields and methods.
-- Notes: Struct fields may use primitives, `List`, `Set`, `Map`, and `Pair` of non-custom values. A struct cannot contain a struct, a class, itself, or a collection containing either; use `class` for those layouts. Structs are never `NULL`, do not use reference-counted handles, and ordinary assignment copies their fields.
+- Notes: Struct fields may use primitives, `List`, `Set`, `Map`, and `Pair` of non-custom values. A struct cannot contain a struct, a class, itself, or a collection containing either; use `class` for those layouts. Structs are never `NULL`, and ordinary assignment copies their fields.
 
 ### Inline struct construction, fields, and methods
 
@@ -1134,7 +1115,7 @@ are omitted; methods and functions reached from retained code remain available.
   List<int> values;
   ```
 - What it does: Declares a variable using its type's default value.
-- Notes: The exact default value behavior is defined by the implementation and demonstrated in the executable docs.
+- Notes: See the type-specific sections above for the relevant defaults.
 - Complexity: O(1)
 
 ## Runtime-Checked Behavior in `--run`
@@ -1164,7 +1145,7 @@ are omitted; methods and functions reached from retained code remain available.
 
 - Syntax: `a / b`, `a % b`
 - What it does: Checks dangerous integer cases in `--run`.
-- Notes: `--submit` lowers these as ordinary C++ operations.
+- Notes: Submit mode favors compact contest output over these diagnostics.
 - Complexity: O(1)
 
 ### Integer overflow checks
