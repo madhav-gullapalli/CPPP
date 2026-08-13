@@ -6,7 +6,7 @@ loops, ranges, and functions.
 
 ## Get started
 
-You need a C++17-capable `g++` compiler and `make` (or `mingw32-make` on some
+You need a C++17-capable compiler and `make` (or `mingw32-make` on some
 Windows MinGW installations).
 
 Build the CP++ compiler:
