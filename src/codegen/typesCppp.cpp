@@ -116,6 +116,18 @@ void collectContainerMemberUses(const std::string& line, std::set<std::string>& 
     if (line.find(" : ") != std::string::npos) { members.insert("begin"); members.insert("end"); }
 }
 
+const std::set<std::string>& explicitHelperContainerMembers(const std::string& helperName) {
+    static const std::map<std::string, std::set<std::string>> requirements = {
+        // The split-sublist helper constructs List values from iterator
+        // variables held across multiple statements. Text scanning cannot
+        // reliably infer that constructor dependency.
+        {"CPPPListSplitSublist", {"CPPPList.ctor_iterator"}},
+    };
+    static const std::set<std::string> none;
+    const auto found = requirements.find(helperName);
+    return found == requirements.end() ? none : found->second;
+}
+
 bool declaresDefaultConstructedContainer(const std::string& line, const std::string& typeName) {
     size_t searchFrom = 0;
     while (true) {
@@ -1518,6 +1530,8 @@ std::vector<std::string> typeSupportPreambleForSubmit(
     for (const RuntimeHelper& helper : helpers) {
         if (resolvedHelpers.count(helper.name) == 0) continue;
         if (helper.name == "CPPPPrintValueBase") continue;
+        const auto& explicitMembers = explicitHelperContainerMembers(helper.name);
+        containerMembers.insert(explicitMembers.begin(), explicitMembers.end());
         std::set<std::string> helperTypes;
         std::set<std::string> helperMembers;
         for (const std::string& line : helper.code) {

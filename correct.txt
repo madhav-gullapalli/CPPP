@@ -3057,8 +3057,7 @@ class fields, aliases, and recursive links output
 
 class equality output
   Class equality compares every field, including recursively owned fields.
-  `NULL` is a sentinel and is never equal to any value, including another
-  null class handle.
+  A null class handle equals `NULL`, but not an instance.
 
   Example:
     class Point {
@@ -3072,7 +3071,7 @@ class equality output
     print(a == b, a == c, empty == NULL);
 
   Output:
-    1 0 0
+    1 0 1
 
 class function parameter output
   Class parameters are passed by reference, so a function can update fields.
@@ -4296,15 +4295,15 @@ bitwise result keeps left type
   Output:
     A
 
-NULL comparisons are universal and never equal
-  Any value may be compared with `NULL`. Equality is always false and
-  inequality is always true, including `NULL == NULL`.
+NULL comparisons are universal
+  Any value may be compared with `NULL`. A non-null value is unequal to
+  `NULL`; two `NULL` literals and a null class handle equal `NULL`.
 
   Example:
     print(1 == NULL, NULL != "x", NULL == NULL);
 
   Output:
-    0 1 0
+    0 1 1
 
 all-path function return
   A non-void function is valid when every branch returns a compatible value.

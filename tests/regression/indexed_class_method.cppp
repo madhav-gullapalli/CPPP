@@ -1,0 +1,11 @@
+class Counter {
+    int x;
+
+    void inc() {
+        x++;
+    }
+}
+
+List<Counter> counters = [Counter(0)];
+counters[0].inc();
+print(counters[0].x);

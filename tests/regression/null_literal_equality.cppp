@@ -1,0 +1,6 @@
+class Node {
+    int value;
+}
+List<Node> nodes(3);
+nodes[-1] = Node(5);
+print(nodes[0] == NULL, nodes[-1] == NULL, NULL == NULL, NULL != NULL);

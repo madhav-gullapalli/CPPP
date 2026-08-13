@@ -1,0 +1,8 @@
+int get(List<int> values, int index) {
+    return values[index];
+}
+
+List<int> values = [10, 20];
+int(int) fromValues = get(values);
+values[0] = 99;
+print(fromValues(0));

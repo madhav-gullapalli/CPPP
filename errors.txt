@@ -13,6 +13,69 @@ fixes appear below the frame as `= note:` and `= help:`.
 General syntax
 --------------
 
+reserved keywords cannot be variable names
+  Every CP++ keyword is reserved. A declaration using one is rejected at that
+  name; it is never silently emitted as malformed C++ or treated as a
+  different construct. This coverage case deliberately checks every reserved
+  spelling and therefore expects every diagnostic below.
+
+  Example:
+    int if = 0;
+    int else = 0;
+    int while = 0;
+    int for = 0;
+    int rep = 0;
+    int nobreak = 0;
+    int return = 0;
+    int break = 0;
+    int continue = 0;
+    int struct = 0;
+    int class = 0;
+    int var = 0;
+    int bool = 0;
+    int char = 0;
+    int int = 0;
+    int float = 0;
+    int string = 0;
+    int range = 0;
+    int void = 0;
+    int List = 0;
+    int Stack = 0;
+    int Queue = 0;
+    int Deque = 0;
+    int Heap = 0;
+    int Set = 0;
+    int Map = 0;
+    int Pair = 0;
+    int copy = 0;
+    int deep = 0;
+    int bigint = 0;
+    int Bigint = 0;
+    int bigfloat = 0;
+    int BigFloat = 0;
+    int true = 0;
+    int false = 0;
+    int NULL = 0;
+    int in = 0;
+    int len = 0;
+    int min = 0;
+    int max = 0;
+    int sum = 0;
+    int abs = 0;
+    int input = 0;
+    int print = 0;
+    int describe = 0;
+    int end = 0;
+    int delim = 0;
+    int flush = 0;
+    int compare = 0;
+    int default = 0;
+    int greater = 0;
+    int self = 0;
+
+  Diagnostic:
+    error: reserved keyword 'if' cannot be used as a variable name
+
 full-program AST inspection
   `--ast` parses the complete source into a recursive syntax tree and exits
   before semantic analysis or C++ generation. The output includes stable node

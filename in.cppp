@@ -1,3 +1,5 @@
-string f(int x){
-    return "go";
+rep(0) {
+    print("BAD");
+} nobreak {
+    print("yes");
 }

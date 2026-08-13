@@ -41,7 +41,7 @@ $(wildcard $(SRC_DIR)/codegen/*.h)
 INPUT ?= in.cppp
 PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
-.PHONY: all tokens ast semantic ast-invariants semantic-invariants transpile compile run submit subrun test codegen-freeze codegen-freeze-record clean
+.PHONY: all tokens ast semantic ast-invariants semantic-invariants transpile compile run submit subrun test submit-catalog codegen-freeze codegen-freeze-record clean
 
 all: $(COMPILER)
 
@@ -84,6 +84,9 @@ subrun: $(COMPILER)
 
 test: $(COMPILER)
 	bash tests/regression.sh
+
+submit-catalog: $(COMPILER)
+	$(PYTHON) tests/submit_catalog.py
 
 codegen-freeze: $(COMPILER)
 	$(PYTHON) tests/codegen_freeze.py check --skip-build

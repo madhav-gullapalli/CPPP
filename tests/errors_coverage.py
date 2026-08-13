@@ -41,6 +41,9 @@ class Case:
 
 SECTION_RULES: Dict[str, Dict[str, Dict[str, object]]] = {
     "errors.txt": {
+        "reserved keywords cannot be variable names": {
+            "mode": "all_reserved_keyword_errors",
+        },
         "loop else": {
             "example": "int x = 0;\nwhile (x < 3) {\n    x++;\n} else {\n    print(\"finished\");\n}",
             "mode": "run_ok",
@@ -554,6 +557,20 @@ def main() -> int:
                         error_snapshots[case.key],
                         case.title,
                     )
+            elif mode == "all_reserved_keyword_errors":
+                code = run_command(args, log)
+                if code == 0:
+                    raise AssertionError(f"{case.title}: expected compile failure")
+                actual_output = log.read_text(encoding="utf-8")
+                for line_number, spelling in enumerate([
+                    "if", "else", "while", "for", "rep", "nobreak", "return", "break", "continue", "struct", "class",
+                    "var", "bool", "char", "int", "float", "string", "range", "void",
+                    "List", "Stack", "Queue", "Deque", "Heap", "Set", "Map", "Pair", "copy", "deep",
+                    "bigint", "Bigint", "bigfloat", "BigFloat", "true", "false", "NULL", "in", "len", "min", "max",
+                    "sum", "abs", "input", "print", "describe", "end", "delim", "flush", "compare", "default", "greater", "self",
+                ], start=1):
+                    expected = f"error: reserved keyword '{spelling}' cannot be used as a variable name"
+                    expect_contains(actual_output, expected, f"{case.title} line {line_number}")
             elif mode == "run_runtime_error":
                 args.append("--run")
                 code = run_command(args, log)

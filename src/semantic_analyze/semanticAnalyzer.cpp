@@ -8,6 +8,7 @@
 #include "errors.h"
 #include "expressionAnalyzer.h"
 #include "expressions.h"
+#include "keywords.h"
 #include "tokenizer.h"
 
 #include <algorithm>
@@ -84,6 +85,22 @@ private:
         );
     }
 
+    int columnForOffset(size_t offset, int fallback) const {
+        size_t lineStart = 0;
+        for (const auto& sourceLine : context.sourceLines) {
+            const size_t lineEnd = lineStart + sourceLine.second.size();
+            if (offset <= lineEnd) {
+                return static_cast<int>(offset - lineStart + 1);
+            }
+            lineStart = lineEnd + 1;
+        }
+        return fallback;
+    }
+
+    int columnForSpan(SourceSpan span, int fallback) const {
+        return span.valid() ? columnForOffset(span.startOffset, fallback) : fallback;
+    }
+
     void pushScope() { scopes.emplace_back(); }
     void popScope() { scopes.pop_back(); }
 
@@ -111,6 +128,12 @@ private:
         int line,
         int column
     ) {
+        if (isReservedKeyword(name)) {
+            error(line, columnForSpan(span, column),
+                "reserved keyword '" + name + "' cannot be used as a " + kind + " name");
+            poisonedNames.insert(name);
+            return false;
+        }
         if (scopes.back().count(name) != 0 || result.functions.count(name) != 0 ||
             result.aggregateFields.count(name) != 0) {
             error(line, column, kind + " '" + name + "' conflicts with an existing symbol in this scope");
@@ -185,6 +208,13 @@ private:
             }
             if (!aggregate) continue;
             const std::string& name = aggregate->name;
+            if (isReservedKeyword(name)) {
+                error(aggregate->syntax.lineNumber,
+                    columnForSpan(aggregate->nameSpan, aggregate->syntax.startColumn),
+                    std::string(aggregate->isClass ? "class" : "struct") +
+                    " name '" + name + "' cannot be a reserved keyword");
+                continue;
+            }
             if (declaredTypeForName(name) != PrimitiveType::Unknown ||
                 result.aggregateFields.count(name) != 0) {
                 error(aggregate->syntax.lineNumber, aggregate->syntax.startColumn,
@@ -218,6 +248,12 @@ private:
         for (ParameterSyntax& parameter : function.parameters) {
             Type type = resolveType(parameter.type, false, line, column);
             if (type == PrimitiveType::Unknown) { valid = false; continue; }
+            if (isReservedKeyword(parameter.name)) {
+                error(line, columnForOffset(parameter.sourceSpan.endOffset - parameter.name.size(), column),
+                    "reserved keyword '" + parameter.name + "' cannot be used as a parameter name");
+                valid = false;
+                continue;
+            }
             if (!parameters.insert(parameter.name).second) {
                 error(line, column, "duplicate parameter '" + parameter.name + "' in " + function.name + "()");
                 valid = false;
@@ -260,7 +296,16 @@ private:
                     Type type = resolveType(field->type, false, field->syntax.lineNumber,
                         field->syntax.startColumn);
                     field->resolvedType = type;
-                    for (const std::string& name : field->names) {
+                    for (size_t index = 0; index < field->names.size(); ++index) {
+                        const std::string& name = field->names[index];
+                        if (isReservedKeyword(name)) {
+                            const SourceSpan span = index < field->nameSpans.size()
+                                ? field->nameSpans[index] : SourceSpan{};
+                            error(field->syntax.lineNumber,
+                                columnForSpan(span, field->syntax.startColumn),
+                                "reserved keyword '" + name + "' cannot be used as a field name");
+                            continue;
+                        }
                         if (!memberNames.insert(name).second) {
                             error(field->syntax.lineNumber, field->syntax.startColumn,
                                 "duplicate aggregate member '" + name + "'");
@@ -270,6 +315,12 @@ private:
                         result.aggregateFieldOrder[aggregate->name].push_back(name);
                     }
                 } else if (auto* method = dynamic_cast<FunctionDeclarationAst*>(member.get())) {
+                    if (isReservedKeyword(method->name)) {
+                        error(method->syntax.lineNumber,
+                            columnForSpan(method->nameSpan, method->syntax.startColumn),
+                            "reserved keyword '" + method->name + "' cannot be used as a method name");
+                        continue;
+                    }
                     if (!memberNames.insert(method->name).second) {
                         error(method->syntax.lineNumber, method->syntax.startColumn,
                             "aggregate member '" + method->name + "' conflicts with an existing field or method");
@@ -841,7 +892,12 @@ private:
         FunctionSignature signature;
         bool valid = buildSignature(function, signature);
         if (!method) {
-            if (lookup(function.name) != nullptr || result.functions.count(function.name) != 0 ||
+            if (isReservedKeyword(function.name)) {
+                error(function.syntax.lineNumber,
+                    columnForSpan(function.nameSpan, function.syntax.startColumn),
+                    "reserved keyword '" + function.name + "' cannot be used as a function name");
+                valid = false;
+            } else if (lookup(function.name) != nullptr || result.functions.count(function.name) != 0 ||
                 result.aggregateFields.count(function.name) != 0) {
                 error(function.syntax.lineNumber, function.syntax.startColumn,
                     "function '" + function.name + "' conflicts with an existing symbol in this scope");
@@ -991,8 +1047,11 @@ private:
                 valid = false;
             }
             ++loopDepth; pushScope();
-            declareValue(loop->variableName, variableType, "loop variable", {}, loop->syntax.lineNumber,
-                loop->syntax.startColumn);
+            SourceSpan variableSpan = loop->syntax.sourceSpan;
+            variableSpan.startOffset = loop->variableOffset;
+            variableSpan.endOffset = loop->variableOffset + loop->variableName.size();
+            declareValue(loop->variableName, variableType, "loop variable", variableSpan,
+                loop->syntax.lineNumber, loop->syntax.startColumn);
             analyzeBlock(loop->body, true); popScope(); --loopDepth;
             if (loop->nobreakBranch) analyzeBlock(loop->nobreakBranch->body, false);
             loop->semanticAnalyzed = true; loop->semanticValid = valid;
@@ -1007,9 +1066,12 @@ private:
                         type = expression->inferredType;
                     else valid = analyzeExpected(*expression, type, loop->syntax.lineNumber) && valid;
                 }
-                for (const std::string& name : loop->initializer.names)
-                    valid = declareValue(name, type, "loop variable", {}, loop->syntax.lineNumber,
-                        loop->syntax.startColumn) && valid;
+                for (size_t index = 0; index < loop->initializer.names.size(); ++index) {
+                    const SourceSpan span = index < loop->initializer.nameSpans.size()
+                        ? loop->initializer.nameSpans[index] : SourceSpan{};
+                    valid = declareValue(loop->initializer.names[index], type, "loop variable", span,
+                        loop->syntax.lineNumber, loop->syntax.startColumn) && valid;
+                }
             } else {
                 for (auto& expression : loop->initializer.expressions)
                     valid = analyzeExpression(*expression, loop->syntax.lineNumber) && valid;

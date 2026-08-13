@@ -43,7 +43,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=29
+TOTAL_STEPS=33
 CURRENT_STEP=0
 
 progress() {
@@ -179,6 +179,22 @@ assert_not_contains "${container_aliases_case%.cppp}.cpp" "shared_ptr" "object p
 assert_not_contains "${container_aliases_case%.cppp}.cpp" "make_shared" "object programs contain no make_shared"
 pass "reference-counted containers and objects alias correctly"
 
+progress "indexed class method receivers"
+indexed_class_method_case="$(stage_case "$TEST_DIR/indexed_class_method.cppp")"
+run_program_ok "$indexed_class_method_case" "$LOG_DIR/indexed_class_method.log" "indexed class method receiver runs"
+assert_contains "$LOG_DIR/indexed_class_method.log" "1" "indexed class method mutates the list element"
+run_submit_ok "$indexed_class_method_case" "$LOG_DIR/indexed_class_method_submit.log" "indexed class method submit builds"
+assert_contains "${indexed_class_method_case%.cppp}.cpp" "auto&__cppp_list" "method receiver uses mutable list access"
+pass "indexed class method receivers use mutable access"
+
+progress "partial function standard-name collision"
+partial_std_name_collision_case="$(stage_case "$TEST_DIR/partial_std_name_collision.cppp")"
+run_program_ok "$partial_std_name_collision_case" "$LOG_DIR/partial_std_name_collision.log" "partial function named get runs"
+assert_contains "$LOG_DIR/partial_std_name_collision.log" "99" "partial application captures the List alias"
+run_submit_ok "$partial_std_name_collision_case" "$LOG_DIR/partial_std_name_collision_submit.log" "partial function named get submit builds"
+assert_contains "${partial_std_name_collision_case%.cppp}.cpp" "static_cast<long long(*)(CPPPList<long long>,long long)>(&get)" "partial function resolves the declared get overload"
+pass "partial functions disambiguate standard-library name collisions"
+
 progress "class and inline struct behavior"
 class_struct_case="$(stage_case "$TEST_DIR/class_struct_split.cppp")"
 run_program_ok "$class_struct_case" "$LOG_DIR/class_struct_split.log" "class and inline struct program runs"
@@ -277,6 +293,20 @@ run_submit_ok "$print_range_case" "$LOG_DIR/print_range_submit.log" "ranges prin
 assert_contains "$LOG_DIR/print_range.log" $'[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]\n[5, 4, 3, 2]\n[2, 5, 8]' "range printing output"
 assert_contains "${print_range_case%.cppp}.cpp" "CPPPPrintValue(ostream&output,const CPPPRange&values)" "submit output keeps range printing helper"
 pass "ranges print as list-style integer sequences"
+
+progress "NULL literal equality"
+null_literal_equality_case="$(stage_case "$TEST_DIR/null_literal_equality.cppp")"
+run_program_ok "$null_literal_equality_case" "$LOG_DIR/null_literal_equality.log" "NULL literal equality runs"
+run_submit_ok "$null_literal_equality_case" "$LOG_DIR/null_literal_equality_submit.log" "NULL literal equality submit builds"
+assert_contains "$LOG_DIR/null_literal_equality.log" "1 0 1 0" "NULL compares equal to null class handles and literals"
+assert_contains "${null_literal_equality_case%.cppp}.cpp" "==nullptr" "submit lowering checks class handles against null"
+pass "NULL compares equal to null class handles and literals"
+
+progress "split sublist submit helper dependencies"
+split_sublist_submit_case="$(stage_case "$TEST_DIR/split_sublist_submit.cppp")"
+run_submit_ok "$split_sublist_submit_case" "$LOG_DIR/split_sublist_submit.log" "sublist split submit builds"
+assert_contains "${split_sublist_submit_case%.cppp}.cpp" "CPPPList(It first,It last)" "sublist split submit keeps List iterator constructor"
+pass "sublist split submit keeps its internal List constructor dependency"
 
 progress "expression type errors"
 expression_error_case="$(stage_case "$TEST_DIR/expression_error.cppp")"

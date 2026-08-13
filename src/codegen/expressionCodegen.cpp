@@ -358,21 +358,19 @@ private:
         const bool leftNull = leftLiteral != nullptr && leftLiteral->kind == LiteralExpr::Kind::Null;
         const bool rightNull = rightLiteral != nullptr && rightLiteral->kind == LiteralExpr::Kind::Null;
         if ((expr.op == "==" || expr.op == "!=") && (leftNull || rightNull)) {
-            if (leftNull && rightNull) return expr.op == "==" ? "false" : "true";
+            if (leftNull && rightNull) return expr.op == "==" ? "true" : "false";
+            const bool classHandle =
+                (leftNull && isClassType(expr.right->inferredType)) ||
+                (rightNull && isClassType(expr.left->inferredType));
+            if (classHandle) {
+                const std::string& handle = leftNull ? right : left;
+                const std::string equal = "(" + handle + " == nullptr)";
+                return expr.op == "==" ? equal : "(!" + equal + ")";
+            }
             const std::string& value = leftNull ? right : left;
             return "([&]() { (void)(" + value + "); return " +
                 (expr.op == "==" ? "false" : "true") + "; }())";
         }
-        if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.left->inferredType) && rightNull) {
-            const std::string equal = "(" + left + " == nullptr)";
-            return expr.op == "==" ? equal : "(!" + equal + ")";
-        }
-
-        if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.right->inferredType) && leftNull) {
-            const std::string equal = "(" + right + " == nullptr)";
-            return expr.op == "==" ? equal : "(!" + equal + ")";
-        }
-
         if ((expr.op == "==" || expr.op == "!=") && isClassType(expr.left->inferredType)) {
             const std::string equal = "((" + left + " && " + right + ") ? (*" + left + " == *" + right + ") : (!" + left + " && !" + right + "))";
             return expr.op == "==" ? equal : "(!" + equal + ")";
@@ -413,18 +411,36 @@ private:
         }
         if (!expr.receiver && expr.partialApplication) {
             requireRuntimeHelper("CPPPFunctionType");
-            std::string generated = "([&]() { auto __cppp_callable = " + expr.callee + ";";
+            const auto declaredFunction = declaredFunctions.find(expr.callee);
+            std::string callable = expr.callee;
+            if (declaredFunction != declaredFunctions.end()) {
+                const FunctionSignature& signature = declaredFunction->second;
+                callable = "static_cast<" +
+                    (signature.returnsVoid ? "void" : cppTypeForType(signature.returnType)) +
+                    " (*) (";
+                for (size_t i = 0; i < signature.parameters.size(); ++i) {
+                    if (i > 0) callable += ", ";
+                    callable += cppTypeForType(signature.parameters[i].type);
+                }
+                callable += ")>(&" + signature.name + ")";
+            }
+            std::string generated = "([&]() { auto __cppp_callable = " + callable + ";";
             std::vector<std::string> stateTypes = {"decltype(__cppp_callable)"};
             std::vector<std::string> stateValues = {"__cppp_callable"};
             for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                // CPPPPartialClosureState compares every captured value, even
+                // when the program does not explicitly compare function values.
+                if (isCollectionType(expr.arguments[i]->inferredType) ||
+                    isPairType(expr.arguments[i]->inferredType)) {
+                    requireContainerMember(expr.arguments[i]->inferredType, "compare_eq");
+                }
                 std::string bound = generate(*expr.arguments[i]);
-                const auto function = declaredFunctions.find(expr.callee);
                 const bool copyBound =
                     (isFunctionType(expr.functionType) && i < expr.functionType.functionParameterCopy.size() && expr.functionType.functionParameterCopy[i]) ||
-                    (function != declaredFunctions.end() && function->second.parameters[i].copyParameter);
+                    (declaredFunction != declaredFunctions.end() && declaredFunction->second.parameters[i].copyParameter);
                 if (copyBound) {
-                    const Type& parameterType = function != declaredFunctions.end()
-                        ? function->second.parameters[i].type
+                    const Type& parameterType = declaredFunction != declaredFunctions.end()
+                        ? declaredFunction->second.parameters[i].type
                         : expr.functionType.subtypes[i + 1];
                     requireCopyHelpersForType(parameterType);
                     bound = "CPPPCopy(" + bound + ")";
@@ -465,7 +481,9 @@ private:
             return generated + ")); }())";
         }
         if (expr.receiver && isStructType(expr.receiver->inferredType)) {
-            const std::string receiver = generate(*expr.receiver);
+            // Methods may mutate their receiver. Indexed class values must
+            // therefore use mutable list access instead of the const read path.
+            const std::string receiver = generateMutableAccess(*expr.receiver);
             requireStructMethod(expr.receiver->inferredType.name, expr.callee);
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             const bool isClass = isClassType(expr.receiver->inferredType);
@@ -906,7 +924,7 @@ private:
             return "((" + base + ")[" + generatedIndex + "])";
         }
         if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
-            const std::string base = generate(*field->base);
+            const std::string base = generateMutableAccess(*field->base);
             return "((" + base + ")" +
                 (isClassType(field->base->inferredType) ? "->" : ".") +
                 field->field + ")";
@@ -1069,7 +1087,8 @@ std::string generateMutableAccessExpression(
         return "((" + base + ")[" + generatedIndex + "])";
     }
     if (const auto* field = dynamic_cast<const FieldExpr*>(&expr)) {
-        const std::string base = ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(*field->base);
+        const std::string base = generateMutableAccessExpression(
+            *field->base, lineNumber, emitRuntimeChecks, declaredFunctions);
         return "((" + base + ")" + (isClassType(field->base->inferredType) ? "->" : ".") + field->field + ")";
     }
     return ExpressionCodegen(lineNumber, emitRuntimeChecks, declaredFunctions).generate(expr);
