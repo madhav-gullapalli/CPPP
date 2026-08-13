@@ -469,9 +469,11 @@ private:
             }
             if (!reportedUnknownToken) {
                 error(line, std::max(1, recovered->sourceColumn),
-                    recovered->sourceSpan.valid()
-                        ? "unexpected token in expression"
-                        : "expected expression");
+                    recovered->reason == "expression syntax recovery"
+                        ? (recovered->sourceSpan.valid()
+                            ? "unexpected token in expression"
+                            : "expected expression")
+                        : recovered->reason);
             }
             recovered->inferredType = PrimitiveType::Unknown;
             recovered->semanticAnalyzed = true;

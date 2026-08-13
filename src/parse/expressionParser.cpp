@@ -52,6 +52,18 @@ std::unique_ptr<Expr> ExpressionParser::parseAst(bool& ok) {
     return expression;
 }
 
+int ExpressionParser::failureColumn() const {
+    return firstFailureColumn;
+}
+
+SourceSpan ExpressionParser::failureSpan() const {
+    return firstFailureSpan;
+}
+
+const std::string& ExpressionParser::failureMessage() const {
+    return firstFailureMessage;
+}
+
 bool ExpressionParser::atEnd() const {
     return peek().kind == TokenKind::EndOfFile;
 }
@@ -95,7 +107,15 @@ int ExpressionParser::absoluteEndColumn(const Token& token) const {
     return expressionColumn + token.span.endColumn - 1;
 }
 
+void ExpressionParser::recordFailure(const Token& token, const std::string& message) const {
+    if (firstFailureColumn != 0) return;
+    firstFailureColumn = absoluteColumn(token);
+    firstFailureSpan = token.sourceSpan;
+    firstFailureMessage = message;
+}
+
 void ExpressionParser::report(const Token& token, const std::string& message) const {
+    recordFailure(token, message);
     if (syntaxOnly) return;
     const SourceSpan tokenSpan = token.sourceSpan.valid()
         ? token.sourceSpan
@@ -136,6 +156,7 @@ void ExpressionParser::report(const Token& token, const std::string& message) co
 }
 
 void ExpressionParser::reportUnexpectedTrailingToken(const Token& token) const {
+    recordFailure(token, "unexpected token in expression");
     if (syntaxOnly) return;
     Diagnostic diagnostic;
     diagnostic.message = "unexpected token in expression";
@@ -784,7 +805,13 @@ std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
                     if (!ok) return nullptr;
                 }
                 if (!match(TokenKind::RightParen)) {
-                    report(leftParen, "unclosed parenthesis in function call");
+                    if (atEnd()) {
+                        report(leftParen, "unclosed parenthesis in function call");
+                    } else {
+                        report(peek(), identifier.text == "print"
+                            ? "expected ',' between print arguments"
+                            : "expected ',' or ')' after function argument");
+                    }
                     ok = false;
                     return nullptr;
                 }

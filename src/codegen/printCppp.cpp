@@ -607,7 +607,7 @@ PrintEmitResult emitPrintStatement(
         const bool stringArgument = isStringType(expression.type);
         const bool delimitedArgument = (isListType(expression.type) && !stringArgument) || isSetType(expression.type) || (stringArgument && hasDelim);
         const bool helperArgument = delimitedArgument || isLinearDataStructureType(expression.type) || isHeapType(expression.type) ||
-            isMapType(expression.type) || isPairType(expression.type) || isStructType(expression.type);
+            isMapType(expression.type) || isPairType(expression.type) || isRangeType(expression.type) || isStructType(expression.type);
         if (helperArgument) {
             requirePrintHelpersForType(expression.type);
             if (hasDelim) {

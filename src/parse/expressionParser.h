@@ -26,6 +26,9 @@ public:
 
 // parse parses  for the compiler pipeline.
     std::unique_ptr<Expr> parseAst(bool& ok);
+    int failureColumn() const;
+    SourceSpan failureSpan() const;
+    const std::string& failureMessage() const;
 
 private:
     const std::string& inputFile;
@@ -35,6 +38,9 @@ private:
     bool syntaxOnly;
     std::vector<Token> tokens;
     size_t current = 0;
+    mutable int firstFailureColumn = 0;
+    mutable SourceSpan firstFailureSpan;
+    mutable std::string firstFailureMessage;
 
 // atEnd implements the atEnd behavior for the expressionParser.h module.
     bool atEnd() const;
@@ -51,6 +57,7 @@ private:
 // absoluteColumn implements the absoluteColumn behavior for the expressionParser.h module.
     int absoluteColumn(const Token& token) const;
     int absoluteEndColumn(const Token& token) const;
+    void recordFailure(const Token& token, const std::string& message) const;
     void report(const Token& token, const std::string& message) const;
     void reportUnexpectedTrailingToken(const Token& token) const;
 // reportInputUsageError implements the reportInputUsageError behavior for the expressionParser.h module.

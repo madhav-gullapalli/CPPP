@@ -1194,7 +1194,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
             {"CPPPCharType"},
             {"CPPPPrintValueString("}
         },
-        {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPHeap; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPHeap<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const cppp_smart_pointer<T>& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
+        {"CPPPPrintValueBase", {"template <typename A, typename B> class CPPPPair; template <typename T> class CPPPList; template <typename T> class CPPPHeap; template <typename T> class CPPPSet; template <typename K, typename V> class CPPPMap; struct CPPPRange;", "template <typename T> void CPPPPrintValue(ostream& output, const T& value);", "template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPHeap<T>& values);", "template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values);", "template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values);", "void CPPPPrintValue(ostream& output, const CPPPRange& values);", "template <typename T> void CPPPPrintValue(ostream& output, const cppp_smart_pointer<T>& value) { if (!value) { output << \"NULL\"; return; } CPPPPrintValue(output, *value); }", ""}, {}, {}},
         {"CPPPPrintValuePair", {"template <typename A, typename B> void CPPPPrintValue(ostream& output, const CPPPPair<A, B>& value) { output << '('; CPPPPrintValue(output, value.first()); output << ','; CPPPPrintValue(output, value.second()); output << ')'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueList", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPList<T>& values) { output << '['; for (size_t i = 0; i < values.size(); ++i) { if (i > 0) output << \", \"; CPPPPrintValue(output, values[i]); } output << ']'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueStack", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPStack<T>& values) { CPPPPrintValue(output, values.to_list()); }", ""}, {"CPPPPrintValueBase", "CPPPPrintValueList"}, {}},
@@ -1203,6 +1203,7 @@ std::vector<RuntimeHelper> runtimeHelpers() {
         {"CPPPPrintValueHeap", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPHeap<T>& values) { output << \"[*\"; for (const auto& value : values.raw_items()) { output << ','; CPPPPrintValue(output, value); } output << ']'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueSet", {"template <typename T> void CPPPPrintValue(ostream& output, const CPPPSet<T>& values) { output << '{'; bool first = true; for (const auto& value : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, value); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
         {"CPPPPrintValueMap", {"template <typename K, typename V> void CPPPPrintValue(ostream& output, const CPPPMap<K, V>& values) { output << '{'; bool first = true; for (const auto& entry : values) { if (!first) output << \", \"; first = false; CPPPPrintValue(output, entry.first); output << ':'; CPPPPrintValue(output, entry.second); } output << '}'; }", ""}, {"CPPPPrintValueBase"}, {}},
+        {"CPPPPrintValueRange", {"void CPPPPrintValue(ostream& output, const CPPPRange& values) { output << '['; bool first = true; for (long long value : values) { if (!first) output << \", \"; first = false; output << value; } output << ']'; }", ""}, {"CPPPPrintValueBase", "CPPPRangeType"}, {}},
         {"CPPPPrintValue", {"template <typename T> void CPPPPrintValue(ostream& output, const T& value) { output << value; }", ""}, {"CPPPPrintValueBase"}, {"CPPPPrintValue("}},
         {
             "CPPPStructClone",
@@ -1412,6 +1413,8 @@ void requirePrintHelpersForType(const Type& type) {
         requireRuntimeHelper("CPPPPrintValueSet");
     } else if (isMapType(type)) {
         requireRuntimeHelper("CPPPPrintValueMap");
+    } else if (isRangeType(type)) {
+        requireRuntimeHelper("CPPPPrintValueRange");
     }
     for (const Type& subtype : type.subtypes) {
         requirePrintHelpersForType(subtype);

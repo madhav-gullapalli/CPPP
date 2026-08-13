@@ -43,7 +43,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=28
+TOTAL_STEPS=29
 CURRENT_STEP=0
 
 progress() {
@@ -269,6 +269,14 @@ expression_behavior_case="$(stage_case "$TEST_DIR/expression_behavior.cppp")"
 run_program_ok "$expression_behavior_case" "$LOG_DIR/expression_behavior.log" "expression behavior program runs"
 assert_contains "$LOG_DIR/expression_behavior.log" "14 20 9 30 2" "expression behavior output"
 pass "expression precedence, variables, calls, and nested indexing are preserved"
+
+progress "range printing"
+print_range_case="$(stage_case "$TEST_DIR/print_range.cppp")"
+run_program_ok "$print_range_case" "$LOG_DIR/print_range.log" "ranges print in ordinary mode"
+run_submit_ok "$print_range_case" "$LOG_DIR/print_range_submit.log" "ranges print in submit mode"
+assert_contains "$LOG_DIR/print_range.log" $'[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]\n[5, 4, 3, 2]\n[2, 5, 8]' "range printing output"
+assert_contains "${print_range_case%.cppp}.cpp" "CPPPPrintValue(ostream&output,const CPPPRange&values)" "submit output keeps range printing helper"
+pass "ranges print as list-style integer sequences"
 
 progress "expression type errors"
 expression_error_case="$(stage_case "$TEST_DIR/expression_error.cppp")"

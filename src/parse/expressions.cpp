@@ -1179,13 +1179,23 @@ std::unique_ptr<Expr> parseSyntaxExpressionAst(const std::vector<Token>& express
     if (ok && expression) {
         return expression;
     }
-    SourceSpan span;
-    for (const Token& token : expressionTokens) {
-        if (!token.sourceSpan.valid()) continue;
-        if (!span.valid()) span = token.sourceSpan;
-        else span.endOffset = token.sourceSpan.endOffset;
+    const bool hasSpecificRecovery =
+        parser.failureMessage() == "expected ',' between print arguments";
+    SourceSpan span = hasSpecificRecovery ? parser.failureSpan() : SourceSpan{};
+    if (!span.valid()) {
+        for (const Token& token : expressionTokens) {
+            if (!token.sourceSpan.valid()) continue;
+            if (!span.valid()) span = token.sourceSpan;
+            else span.endOffset = token.sourceSpan.endOffset;
+        }
     }
-    return std::make_unique<ErrorExpr>("expression syntax recovery", column, span);
+    const int failureColumn = hasSpecificRecovery && parser.failureColumn() != 0
+        ? parser.failureColumn()
+        : column;
+    const std::string reason = hasSpecificRecovery
+        ? parser.failureMessage()
+        : "expression syntax recovery";
+    return std::make_unique<ErrorExpr>(reason, failureColumn, span);
 }
 
 // hasArithmeticOperator returns whether the supplied input satisfies the relevant condition.

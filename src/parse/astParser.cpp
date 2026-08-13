@@ -337,7 +337,9 @@ std::unique_ptr<Expr> parseExpressionSlice(
     if (expression) {
         normalizeExpressionSpan(*expression);
         const SourceSpan fullSpan = tokensSpan(tokens, begin, end);
-        if (fullSpan.valid()) expression->sourceSpan = fullSpan;
+        if (fullSpan.valid() && dynamic_cast<ErrorExpr*>(expression.get()) == nullptr) {
+            expression->sourceSpan = fullSpan;
+        }
     }
     return expression;
 }

@@ -1155,7 +1155,7 @@ expected ',' between print arguments
      --> example.cppp:1:7
       |
     1 | print(wrote char);
-      |       ^~~~~
+      |             ^~~~
 
 use of undeclared variable '<name>'
   A bare identifier passed to print must refer to a declared variable.
@@ -1179,7 +1179,7 @@ expected ',' before flush
     print("answer" flush);
 
   Diagnostic:
-    error: use end = flush instead of flush argument
+    error: expected ',' between print arguments
      --> example.cppp:1:16
       |
     1 | print("answer" flush);
