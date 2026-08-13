@@ -1,143 +1,38 @@
 # CP++
 
-CP++ is a competitive-programming-optimized language that transpiles to C++.
+CP++ is a language for competitive programming. It keeps C++ performance while
+providing shorter syntax for common contest tasks: containers, input, printing,
+loops, ranges, and functions.
 
-The point is not to replace C++ everywhere. The point is to keep the parts that are useful in contests and algorithm work, while cutting down on the parts that are noisy, verbose, or hostile when something goes wrong.
+## Get started
 
-CP++ is aimed at maximal algorithmic expressiveness:
+You need a C++17-capable `g++` compiler and `make` (or `mingw32-make` on some
+Windows MinGW installations).
 
-- C++ speed and ecosystem on the back end
-- shorter, more direct source on the front end
-- friendlier CP++-level diagnostics instead of raw generated-C++ confusion
-- built-in support for common data structures and algorithmic primitives
-- no attempt to stuff full algorithms into the language itself
-
-That means things like lists, slicing, membership checks, target-typed input, loop forms, small utility operations, and lightweight user-defined functions are part of the language, while the actual algorithm is still yours to write.
-
-Implemented highlights include:
-
-- nested `List<T>` support with indexing, slicing, membership, `find(...)`, and `split(...)`
-- target-typed scalar, string, and list `input(...)`
-- list-aware `print(...)`, normal string printing, and `delim = ...`
-- top-level functions, recursion, and `deep` pass-by-copy container parameters
-
-## Running CP++
-
-Requirements:
-
-- `g++` with C++17 support
-- `make`, or `mingw32-make` on some Windows MinGW setups
-
-Build the compiler:
+Build the CP++ compiler:
 
 ```sh
 make
 ```
 
-On some Windows setups:
+On Windows, use:
 
 ```sh
 mingw32-make
 ```
 
-This produces:
-
-```text
-build/cppp.exe    on Windows
-build/cppp        on Linux/macOS
-```
-
-Transpile a CP++ program to C++:
+Write CP++ in a `.cppp` file, then choose a workflow:
 
 ```sh
-make transpile INPUT=in.cppp
+make transpile INPUT=solution.cppp  # create solution.cpp
+make compile INPUT=solution.cppp    # create a native executable
+make run INPUT=solution.cppp        # compile and run it
+make submit INPUT=solution.cppp     # create compact submission C++
 ```
 
-Compile the generated C++:
-
-```sh
-make compile INPUT=in.cppp
-```
-
-Transpile, compile, and run:
-
-```sh
-make run INPUT=in.cppp
-```
-
-Generate submit-style output:
-
-```sh
-make submit INPUT=in.cppp
-```
-
-Direct compiler usage:
-
-```sh
-build/cppp --cppp in.cppp
-build/cppp --cppp in.cppp --tokens
-build/cppp --cppp in.cppp --ast
-build/cppp --cppp in.cppp --semantic
-build/cppp --cppp in.cppp --compile
-build/cppp --cppp in.cppp --run
-build/cppp --cppp in.cppp --submit
-build/cppp --cppp in.cppp --submit --readable
-```
-
-Windows equivalents:
-
-```sh
-.\build\cppp.exe --cppp in.cppp
-.\build\cppp.exe --cppp in.cppp --tokens
-.\build\cppp.exe --cppp in.cppp --ast
-.\build\cppp.exe --cppp in.cppp --semantic
-.\build\cppp.exe --cppp in.cppp --compile
-.\build\cppp.exe --cppp in.cppp --run
-.\build\cppp.exe --cppp in.cppp --submit
-.\build\cppp.exe --cppp in.cppp --submit --readable
-```
-
-`--run` keeps extra runtime checks and CP++-style runtime diagnostics. `--submit` prunes unused support and whitespace-minifies the generated contest C++. Add `--readable` after `--submit` to inspect the same pruned program without compaction. The Make equivalents are `make submit INPUT=in.cppp READABLE=1` and `make subrun INPUT=in.cppp READABLE=1`.
-
-`--ast` prints the recursive, syntax-only full-program AST with source-offset
-spans and exits before semantic analysis or C++ generation. Its Make equivalent
-is `make ast INPUT=in.cppp`. Normal compilation also passes through this AST;
-the backend recursively lowers concrete `ProgramAst` nodes directly. Logical
-source fragments remain parser-internal and never cross the AST boundary.
-
-`--semantic` runs the dedicated semantic pass, prints resolved types, symbols,
-calls, lvalue state, and conversion decisions, then exits before C++ codegen.
-Its Make equivalent is `make semantic INPUT=in.cppp`.
-
-## Local Codegen Freeze
-
-Before changing the AST or lowering pipeline, record the current generated C++
-for every example in `correct.txt`:
-
-```sh
-make codegen-freeze-record
-```
-
-Use the standalone freeze suite for local migration testing:
-
-```sh
-make codegen-freeze
-```
-
-The deterministic AST stress suite samples 100 programs from `correct.txt`,
-checks structural invariants, parses each twice, and verifies that AST mode does
-not emit C++:
-
-```sh
-make ast-invariants
-```
-
-The baseline is stored in the ignored `tests/codegen_snapshots/` directory. The
-check freezes both default transpilation and compact `--submit` output for every
-`correct.txt` example and compares the generated C++
-byte-for-byte. Record a new baseline only after reviewing an intentional codegen
-change. This suite is separate from `make test` and CI, and it does not snapshot
-`errors.txt`.
+`--run` keeps CP++ runtime diagnostics enabled. `--submit` produces compact
+C++ suitable for contest submission; add `READABLE=1` to inspect the pruned
+output without minification.
 
 ## A Small Example
 
@@ -175,8 +70,11 @@ dfs(adj, vis, 0);
 print();
 ```
 
-## Language Docs
+## Learn CP++
 
-The implemented language surface lives in [cppp_language.md](cppp_language.md).
+Read the [CP++ language reference](cppp_language.md) for syntax, types,
+containers, input/output, functions, and control flow. The executable examples
+in `correct.txt` and diagnostics in `errors.txt` define the supported surface.
 
-That file is the readable language reference. Its content is based on the executable documentation in `errors.txt` and `correct.txt`, which are still the best source for exact implemented behavior, but the guide now also calls out the newer function surface, `deep` parameters, list/string printing, `split(...)`, and the recent input forms more directly.
+Compiler architecture, inspection modes, and development/test workflows live
+in [docs/](docs/), starting with [the compiler pipeline](docs/compiler_pipeline.md).
