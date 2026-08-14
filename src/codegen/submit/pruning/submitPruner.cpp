@@ -294,7 +294,14 @@ std::unique_ptr<Expr> cloneExpr(const Expr* source) {
     if (!source) return nullptr;
     std::unique_ptr<Expr> result;
     if (const auto* node = dynamic_cast<const ErrorExpr*>(source)) {
-        result = std::make_unique<ErrorExpr>(node->reason, node->sourceColumn, node->sourceSpan);
+        result = std::make_unique<ErrorExpr>(
+            node->reason,
+            node->sourceColumn,
+            node->sourceSpan,
+            node->suggestedReplacement,
+            node->suggestionMessage,
+            node->suggestionIsMachineApplicable
+        );
     } else if (const auto* node = dynamic_cast<const LiteralExpr*>(source)) {
         result = std::make_unique<LiteralExpr>(node->kind, node->text, node->sourceColumn, node->sourceSpan);
     } else if (const auto* node = dynamic_cast<const VariableExpr*>(source)) {

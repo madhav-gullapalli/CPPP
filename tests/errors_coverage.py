@@ -400,6 +400,19 @@ def main() -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     cases = parse_cases(doc_path)
+    if doc_path.name == "errors.txt":
+        missing_diagnostics = [
+            case.title
+            for case in cases
+            if choose_mode(case, rules) in {
+                "compile_fail", "run_runtime_error", "all_reserved_keyword_errors"
+            } and not case.diagnostic
+        ]
+        if missing_diagnostics:
+            raise SystemExit(
+                "Every failing errors.txt example must document a Diagnostic: "
+                + ", ".join(missing_diagnostics)
+            )
     if doc_path.name == "errors.txt" and start_line is None and not update_snapshots:
         failing_case_keys = {
             case.key
@@ -547,6 +560,7 @@ def main() -> int:
                 if code == 0:
                     raise AssertionError(f"{case.title}: expected compile failure")
                 actual_output = log.read_text(encoding="utf-8")
+                expect_contains(actual_output, "error:", f"{case.title} user diagnostic")
                 if update_snapshots:
                     updated_snapshots[case.key] = normalized_error_output(actual_output)
                 else:
@@ -577,6 +591,7 @@ def main() -> int:
                 if code == 0:
                     raise AssertionError(f"{case.title}: expected runtime failure")
                 actual_output = log.read_text(encoding="utf-8")
+                expect_contains(actual_output, "error:", f"{case.title} user diagnostic")
                 if update_snapshots:
                     updated_snapshots[case.key] = normalized_error_output(actual_output)
                 else:

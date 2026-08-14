@@ -1,6 +1,1 @@
-
-Heap<int>h;
-h.push(6);
-print(h);
-h.clear();
-print(h);
+Lst<int> x;

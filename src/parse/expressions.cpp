@@ -1187,6 +1187,14 @@ std::unique_ptr<Expr> parseSyntaxExpressionAst(
     const int column = expressionColumn > 0
         ? expressionColumn
         : (expressionTokens.empty() ? 1 : expressionTokens.front().span.startColumn);
+    const bool hasExpressionToken = std::any_of(
+        expressionTokens.begin(),
+        expressionTokens.end(),
+        [](const Token& token) { return token.kind != TokenKind::EndOfFile; }
+    );
+    if (!hasExpressionToken) {
+        return std::make_unique<ErrorExpr>("expected expression", column);
+    }
     ExpressionParser parser(
         emptyFile,
         line,
@@ -1200,9 +1208,7 @@ std::unique_ptr<Expr> parseSyntaxExpressionAst(
     if (ok && expression) {
         return expression;
     }
-    const bool hasSpecificRecovery =
-        parser.failureMessage() == "expected ',' between print arguments";
-    SourceSpan span = hasSpecificRecovery ? parser.failureSpan() : SourceSpan{};
+    SourceSpan span = parser.failureSpan();
     if (!span.valid()) {
         for (const Token& token : expressionTokens) {
             if (!token.sourceSpan.valid()) continue;
@@ -1210,13 +1216,20 @@ std::unique_ptr<Expr> parseSyntaxExpressionAst(
             else span.endOffset = token.sourceSpan.endOffset;
         }
     }
-    const int failureColumn = hasSpecificRecovery && parser.failureColumn() != 0
+    const int failureColumn = parser.failureColumn() != 0
         ? parser.failureColumn()
         : column;
-    const std::string reason = hasSpecificRecovery
+    const std::string reason = !parser.failureMessage().empty()
         ? parser.failureMessage()
-        : "expression syntax recovery";
-    return std::make_unique<ErrorExpr>(reason, failureColumn, span);
+        : (span.valid() ? "unexpected token in expression" : "expected expression");
+    return std::make_unique<ErrorExpr>(
+        reason,
+        failureColumn,
+        span,
+        parser.failureReplacement(),
+        parser.failureSuggestion(),
+        parser.failureSuggestionIsMachineApplicable()
+    );
 }
 
 // hasArithmeticOperator returns whether the supplied input satisfies the relevant condition.

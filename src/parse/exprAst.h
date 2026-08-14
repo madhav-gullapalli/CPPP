@@ -41,9 +41,24 @@ struct Expr {
 // that statement node to report the established error.
 struct ErrorExpr : Expr {
     std::string reason;
+    // Syntax recovery keeps the parser's actionable edit so semantic analysis
+    // can report it without parsing the expression a second time.
+    std::string suggestedReplacement;
+    std::string suggestionMessage;
+    bool suggestionIsMachineApplicable = false;
 
-    ErrorExpr(std::string reason, int sourceColumn, SourceSpan sourceSpan = {}) :
-        reason(std::move(reason)) {
+    ErrorExpr(
+        std::string reason,
+        int sourceColumn,
+        SourceSpan sourceSpan = {},
+        std::string suggestedReplacement = {},
+        std::string suggestionMessage = {},
+        bool suggestionIsMachineApplicable = false
+    ) :
+        reason(std::move(reason)),
+        suggestedReplacement(std::move(suggestedReplacement)),
+        suggestionMessage(std::move(suggestionMessage)),
+        suggestionIsMachineApplicable(suggestionIsMachineApplicable) {
         this->sourceColumn = sourceColumn;
         this->sourceSpan = sourceSpan;
         this->originSpan = sourceSpan;

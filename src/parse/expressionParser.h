@@ -29,6 +29,9 @@ public:
     int failureColumn() const;
     SourceSpan failureSpan() const;
     const std::string& failureMessage() const;
+    const std::string& failureReplacement() const;
+    const std::string& failureSuggestion() const;
+    bool failureSuggestionIsMachineApplicable() const;
 
 private:
     const std::string& inputFile;
@@ -41,6 +44,9 @@ private:
     mutable int firstFailureColumn = 0;
     mutable SourceSpan firstFailureSpan;
     mutable std::string firstFailureMessage;
+    mutable std::string firstFailureReplacement;
+    mutable std::string firstFailureSuggestion;
+    mutable bool firstFailureSuggestionIsMachineApplicable = false;
 
 // atEnd implements the atEnd behavior for the expressionParser.h module.
     bool atEnd() const;
@@ -58,6 +64,11 @@ private:
     int absoluteColumn(const Token& token) const;
     int absoluteEndColumn(const Token& token) const;
     void recordFailure(const Token& token, const std::string& message) const;
+    void recordFailureSuggestion(
+        const std::string& replacement,
+        const std::string& message,
+        bool machineApplicable
+    ) const;
     void report(const Token& token, const std::string& message) const;
     void reportUnexpectedTrailingToken(const Token& token) const;
 // reportInputUsageError implements the reportInputUsageError behavior for the expressionParser.h module.

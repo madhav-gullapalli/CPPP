@@ -1,0 +1,475 @@
+CP++ Error Inventory
+====================
+
+Scope: every `error:` headline currently documented in errors.txt, deduplicated
+within each documentation section. There are 229 documented error occurrences
+and 196 globally unique headline texts. Concrete variable names, type names,
+method names, and values are shown exactly as they appear in the current
+examples.
+
+`help: (none)` means the diagnostic currently has no explicit `= help:` line.
+Primary-span labels are not counted as help suggestions.
+
+General syntax
+--------------
+- error: missing semicolon
+  help: add `;` to terminate the statement
+- error: unsupported statement
+  help: (various) //The interpreter should keep track of valid symbols in this con text to check if a mispelling is liklely. Do this by Levenstiehn counting
+
+Primitive type errors
+---------------------
+- error: expected variable name after int
+  help: (none) //no help needed 
+- error: variable 'x' is already declared
+  help: x is already declared (values) //show explicitly where x is declared.
+- error: expected value after '='
+  help: (none) //no help needed
+- error: expected ';' or '=' after variable name
+  help: (none) //no help needed
+- error: expected variable name after ','
+  help: (none) //no help needed
+- error: int requires an integer literal
+  help: (depends) //if teh type can be converted with a cast, suggest int(expr). Otherwise keep blank.
+- error: integer literal overflows CP++ int
+  help: (none) // this is a runtime errors, these are not in the same system as CTE
+- error: bigint has been removed from CP++; use int or float instead
+  help: ( -> ) //suggest int x;
+- error: int expects 0 subtypes
+  help: ( -> ) // suggest int x; 
+- error: string expects 0 subtypes
+  help: ( -> ) // suggest string x;
+- error: List expects 1 subtype like List<int>
+  help: (none) // no hint here is fine, I dont want to do extreme semantic analysis for you to figure out what type of list it is.
+- error: List expects 1 subtype
+  help: ( -> ) //suggest the list type with the first subtype declaration i.e List<int, int> gets List<int> as a suggestion
+- error: empty list literal needs a declared List type
+  help: (none) // no hint here please
+- error: cannot implicitly convert float to int in list literal
+  help: ( depends ) // suggest wrapping the float (or any type in general) in int() if possible, otherwise suggest nothing.
+- error: expected expression after ',' in list literal
+  help: (none) //keep blank
+- error: unclosed bracket in list literal
+  help: ( -> ) //Suggest the fix 
+- error: List values must use a list literal like [1, 2] or another List expression
+  help: (none) //keep this blank
+- error: cannot add float to List<int>
+  help: (depends) //see above for cases
+- error: remove() expects no arguments or index
+  help: (none) //keep blank, its hard to find intent
+- error: sort() does not take arguments
+  help: (none) // this error will be deprecated soon, so keep blank for now
+- error: reverse() does not take arguments
+  help: ( -> ) //suggest remove() with no args
+- error: list index must be int
+  help: (depends) //remember, suggest an int() wrapping if one makes sense under CP++ casting rules.
+- error: slicing requires a List value
+  help: (none) //keep blank, idk how one would end up here normally
+- error: slice start must be int
+  help: (depends) //on CP++ cast rulings
+- error: slice end must be int
+  help: (depends) //on CP++ cast rulings
+- error: unclosed bracket in list slice
+  help: ( -> ) //suggest the fix
+- error: indexing requires a List value
+  help: (depends) //on CP++ cast rulings
+- error: cannot append List<float> to List<int>
+  help: (depends) //on CP++ cast rulings, in this case no suggestion since int(List<float>) does not make sense.
+- error: unclosed bracket in list index
+  help: ( -> )//on CP++ cast rulings
+- error: len() expects a List, Set, or Map value
+  help: (none) //keep blank, again how does one end in this situatopn
+- error: min() expects a List, Set, or Map value, or a list of multiple values of the same type
+  help: (depends) //if empty do nothing, 
+  //if one sca;lar, suggest replacing the exprerssion with just the scalar. 
+  //if more than one comtainer types, suggest keeeping only first.
+  //else do nothing
+- error: max() expects a List, Set, or Map value, or a list of multiple values of the same type
+  help: (depends)  //see min
+- error: sum() expects a List of numeric values
+  help: (none) //again how
+- error: right side of 'in' must be a List
+  help: (none) //none here, but rewrite the error message to container type.
+- error: cannot check membership of float in List<int>
+  help: (depends) //on CP++ cast riles
+- error: cannot find float in List<int>
+  help: (depends) //on CP++ cast rules
+- error: for-in expects a List value
+  help: (none) //for-in also works with Ranges, Sets, MAp replace with iterable type.
+- error: runtime error: invalid list index
+  help: (none)
+- error: runtime error: cannot remove from empty list
+  help: (none)
+- error: runtime error: cannot take min of empty list
+  help: (none)
+- error: runtime error: cannot take max of empty list
+  help: (none)
+- error: min() expects all items in sequence to be of same type
+  help: (none) //no fix here
+- error: cannot implicitly convert string to char
+  help: (none) //no fix here
+- error: unterminated char literal
+  help: add a closing `'`
+- error: unexpected characters after char literal
+  help: ( -> ) //suggest simply deleting said charcatres
+- error: char literal contains too many characters
+  help: ( -> ) //suggest representing as a string
+
+Print errors
+------------
+- error: unclosed parenthesis in print
+  help: (-> ) suggest cl;osing paranthesis
+- error: empty print argument
+  help: (none)
+- error: unterminated string literal in print
+  help: add a closing `"` (NOTE: this should apply to all strings)
+- error: expected ',' between print arguments
+  help: ( -> ) suggest the print stament with the appropriate ,
+- error: use of undeclared variable 'wrote'
+  help: (-> ) do the same Levenstien distance.
+- error: use end = flush instead of flush argument
+  help: ( -> ) //again extremely self explanatory
+- error: print options must come after all printed values
+  help: (-> ) //suggest the appriopriate reording
+- error: print end must be a string, char, or flush
+  help: (none) 
+- error: print delim must be a string or char
+  help: (none)
+- error: print delim requires a List value
+  help: (none)
+- error: print requires at least one value
+  help: (none) //does it?, print() is valid.
+- error: describe requires a value
+  help: (none)
+
+Expression and assignment errors
+--------------------------------
+- error: use of undeclared variable 'missing'
+  help: (-> ) //fix by Levenstien
+- error: expected expression
+  help: (none) //yeah chif I got no clue how to fix it
+- error: unexpected token in expression
+  help: (->) //use Levenstien on nearest valiud token 
+- error: unclosed parenthesis in expression
+  help: (->) //suggest putting all parenthesis at end, this is iffy
+- error: expected expression after assignment
+  help: (none)
+- error: multi-declaration requires the same number of values as variables
+  help: (none)
+- error: multi-assignment requires the same number of values as targets
+  help: (none)
+- error: cannot implicitly convert int to List<int>
+  help: (none)
+- error: cannot cast int to Set
+  help: (none)
+- error: cannot cast List<int> to Map
+  help: (none)
+- error: cannot cast List<int> to List
+  help: (none)
+- error: cannot cast List<int> to int
+  help: (none)
+- error: cannot cast Set<int> to char
+  help: (none)
+- error: cannot cast Map<int, int> to float
+  help: (none)
+- error: cannot cast List<int> to string
+  help: (none)
+- error: unclosed parenthesis in range
+  help: (->) // suggest the obvious fix
+- error: range() arguments must be int
+  help: (depends) //by CP++ acast rukles
+- error: cannot check membership of string in range
+  help: (depends) //by CP++ cats rules, in this case  help, since int(string) is valid.
+- error: cannot cast List<int> to List<bool>
+  help: (none)
+- error: cannot cast Set<int> to Set<char>
+  help: (none)
+- error: runtime error: invalid int string
+  help: (none)
+- error: runtime error: invalid char string
+  help: (none)
+- error: runtime error: invalid bool string
+  help: (none)
+- error: runtime error: invalid float string
+  help: (none)
+
+Functions
+---------
+- error: expected parameter after ','
+  help: (none)
+- error: unclosed parenthesis in function declaration
+  help: (->) //return the obvious closed function headinf
+- error: unclosed block
+  help: (none) //suggesting to close the block is nontrivial since we dont know where the block should end.,
+- error: unclosed parenthesis in function call
+  help: (->) //return obvious fix
+- error: solve expected parameters of int and char type got string and int
+  help: (none) //function mismatches get no suggestions
+- error: add expected 2 parameters of int and int type got 1
+  help: (none)
+- error: return can only be used inside a function
+  help: (none)
+- error: non-void function must return a value of type int
+  help: (->) //suggest replacing } with return 0;}
+- error: void function cannot return a value
+  help: (none) //self explanatory
+- error: cannot implicitly convert string to int
+  help: (none)
+- error: deep must precede a collection
+  help: (->) //suggest the function decleration without deep
+
+Operator support
+----------------
+- error: cannot use '&' with float and int
+  help: (none) 
+- error: cannot use '++' with bool
+  help: (none)
+- error: expected variable before '++'
+  help: (none)
+- error: expected variable after '++'
+  help: (none)
+- error: cannot compare List<int> and List<float>
+  help: (none)
+
+Control flow
+------------
+- error: expected '(' after if
+  help: (-> ) //suggest teh obvious fix
+- error: expected condition
+  help: (none)
+- error: missing '{' after if
+  help: (none)
+- error: unclosed block
+  help: (none)
+- error: missing '{' after while
+  help: (none)
+- error: missing '{' after rep
+  help: (none)
+- error: missing '{' after for loop
+  help: (none)
+- error: for loop must use syntax for (init; condition; step)
+  help: (none)
+- error: expected 'in' after loop variable
+  help: (none)
+- error: expected rep count
+  help: (none)
+- error: rep count must be numeric
+  help: (none)
+- error: else without matching if
+  help: (none)
+- error: nobreak without matching loop
+  help: (none)
+- error: break can only be used inside a loop
+  help: (none)
+- error: continue can only be used inside a loop
+  help: (none)
+- error: unmatched closing brace
+  help: (none)
+
+Input
+-----
+- error: input must be called as input()
+  help: (none)
+- error: input() does not take arguments
+  help: (none)
+- error: unclosed parenthesis in input
+  help: (none)
+- error: input() can only be used as the entire value in an assignment or declaration
+  help: (none)
+- error: input(count) is only supported for List targets
+  help: (none)
+- error: List input() without sizes only supports one-dimensional Lists; use input(n) or one size per List dimension
+  help: (none)
+- error: string input needs exactly 1 size argument
+  help: (none)
+- error: List input needs exactly 0 or 1 size argument
+  help: (none)
+- error: input() size must be int
+  help: (none)
+- error: split must be called as list.split(delimiter)
+  help: (none)
+- error: split() delimiter must be int or List<int>
+  help: (none)
+
+Copy errors
+-----------
+- error: expected expression
+  help: (none)
+- error: copy() cannot infer the type of an empty list; declare the list type first
+  help: (none)
+
+Runtime errors
+--------------
+- error: runtime error: cannot access a field on null Point
+  help: (none)
+- error: cannot use string for field 'x' of Point
+  help: (none)
+- error: class Point has no field 'zz'
+  help: available field: 'x'
+- error: class Point has no method 'move'
+  help: (none)
+- error: cannot use string as int for add()
+  help: (none)
+- error: use of undeclared variable 'x'
+  help: (none)
+- error: use of undeclared variable 'local'
+  help: (none)
+- error: runtime error: cannot call increment() on null Counter
+  help: (none)
+- error: struct fields cannot contain custom types; use a class for recursive or nested custom values
+  help: (none)
+- error: runtime error: division by zero
+  help: (none)
+- error: runtime error: modulo by zero
+  help: (none)
+- error: runtime error: integer overflow
+  help: (none)
+
+Whitespace-insensitive parsing
+------------------------------
+- error: expected condition
+  help: (none)
+
+Sets and Maps
+-------------
+- error: Set expects 1 subtype like Set<int>
+  help: (none)
+- error: Set expects 1 subtype
+  help: (none)
+- error: unclosed generic type for Set
+  help: (none)
+- error: cannot add string to Set<int>
+  help: (none)
+- error: cannot remove string from Set<int>
+  help: (none)
+- error: cannot check membership of string in Set<int>
+  help: (none)
+- error: Map expects 2 subtypes like Map<int, int>
+  help: (none)
+- error: Map expects 2 subtypes
+  help: (none)
+- error: add() can only be used on List or Set values
+  help: (none)
+- error: cannot remove string from Map<int, int>
+  help: (none)
+- error: cannot use key of type string with Map<int, int>
+  help: (none)
+- error: map key type must be int
+  help: (none)
+
+Set and Map runtime errors
+--------------------------
+- error: runtime error: key not found in set
+  help: (none)
+- error: runtime error: key not found in map
+  help: (none)
+
+Set, Map, and Pair literals
+---------------------------
+- error: unclosed brace in set or map literal
+  help: (none)
+- error: cannot implicitly convert string to int in set literal
+  help: (none)
+- error: Set values must use a set literal like {1, 2} or another Set expression
+  help: (none)
+- error: cannot implicitly convert string to int in map literal key
+  help: (none)
+- error: cannot implicitly convert int to Set<int> in map literal value
+  help: (none)
+- error: Map values must use a map literal like {1:'a'} or another Map expression
+  help: (none)
+- error: print delim requires a List value
+  help: (none)
+- error: Pair expects 2 subtypes like Pair<int, int>
+  help: (none)
+- error: Pair expects 2 subtypes
+  help: (none)
+- error: unclosed generic type for Pair
+  help: (none)
+- error: unsupported type Pair<void, int>
+  help: (none)
+- error: cannot implicitly convert string to int
+  help: (none)
+- error: pair index must be 0 or 1
+  help: (none)
+
+Ordered collection helpers
+--------------------------
+- error: cannot use key of type string with Set<int>
+  help: (none)
+- error: cannot use key of type string with Map<int, int>
+  help: (none)
+- error: unclosed parenthesis in prev
+  help: (none)
+- error: cannot check membership of Pair<int, Set<int>> in Map<Pair<int, Set<char>>, int>
+  help: (none)
+- error: runtime error: cannot take max of empty set
+  help: (none)
+- error: runtime error: no next value in set
+  help: (none)
+- error: runtime error: no previous key in map
+  help: (none)
+- error: runtime error: cannot call hasNext() with a key that is not in map
+  help: (none)
+- error: runtime error: cannot call hasPrev() with a value that is not in set
+  help: (none)
+
+Type inference errors
+---------------------
+- error: var declarations require an initializer so the type can be inferred
+  help: (none)
+- error: var cannot be initialized with input(); declare the type explicitly
+  help: (none)
+- error: var cannot infer a type from an empty container; declare the type explicitly
+  help: (none)
+- error: var declarations support exactly one variable
+  help: (none)
+- error: var declarations must use '=' with an initializer
+  help: (none)
+- error: cannot implicitly convert string to int
+  help: (none)
+- error: int requires an integer literal
+  help: (none)
+
+Linear data structure errors
+----------------------------
+- error: Stack expects 1 subtype like Stack<int>
+  help: (none)
+- error: Queue expects 1 subtype
+  help: (none)
+- error: Deque expects 1 subtype
+  help: (none)
+- error: cannot cast Deque<int> to Set
+  help: (none)
+- error: cannot cast List<string> to Stack<int>
+  help: (none)
+- error: cannot cast List<string> to Queue<float>
+  help: (none)
+- error: cannot cast List<int> to Deque<List<int>>
+  help: (none)
+- error: cannot cast Stack<int> to List<List<int>>
+  help: (none)
+- error: cannot cast Stack<int> to List<Point>
+  help: (none)
+- error: cannot add string to Stack<int>
+  help: (none)
+- error: cannot add string to Queue<int>
+  help: (none)
+- error: cannot add string to Deque<int>
+  help: (none)
+- error: cannot implicitly convert int to string
+  help: (none)
+- error: cannot implicitly convert float to int
+  help: (none)
+- error: cannot implicitly convert string to int
+  help: (none)
+- error: cannot implicitly convert float to string
+  help: (none)
+- error: runtime error: cannot pop empty Stack
+  help: (none)
+- error: runtime error: cannot pop empty Queue
+  help: (none)
+- error: runtime error: cannot popBack() empty Deque
+  help: (none)
+- error: runtime error: cannot popFront() empty Deque
+  help: (none)

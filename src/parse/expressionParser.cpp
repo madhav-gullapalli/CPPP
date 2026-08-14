@@ -65,6 +65,18 @@ const std::string& ExpressionParser::failureMessage() const {
     return firstFailureMessage;
 }
 
+const std::string& ExpressionParser::failureReplacement() const {
+    return firstFailureReplacement;
+}
+
+const std::string& ExpressionParser::failureSuggestion() const {
+    return firstFailureSuggestion;
+}
+
+bool ExpressionParser::failureSuggestionIsMachineApplicable() const {
+    return firstFailureSuggestionIsMachineApplicable;
+}
+
 bool ExpressionParser::atEnd() const {
     return peek().kind == TokenKind::EndOfFile;
 }
@@ -137,6 +149,17 @@ void ExpressionParser::recordFailure(const Token& token, const std::string& mess
     firstFailureMessage = message;
 }
 
+void ExpressionParser::recordFailureSuggestion(
+    const std::string& replacement,
+    const std::string& message,
+    bool machineApplicable
+) const {
+    if (firstFailureColumn == 0 || !firstFailureSuggestion.empty()) return;
+    firstFailureReplacement = replacement;
+    firstFailureSuggestion = message;
+    firstFailureSuggestionIsMachineApplicable = machineApplicable;
+}
+
 void ExpressionParser::report(const Token& token, const std::string& message) const {
     recordFailure(token, message);
     if (syntaxOnly) return;
@@ -180,6 +203,12 @@ void ExpressionParser::report(const Token& token, const std::string& message) co
 
 void ExpressionParser::reportUnexpectedTrailingToken(const Token& token) const {
     recordFailure(token, "unexpected token in expression");
+    if (token.kind == TokenKind::Equals) {
+        recordFailureSuggestion("==", "use `==` to compare values", true);
+    } else if (current + 1 < tokens.size() &&
+        tokens[current + 1].kind == TokenKind::EndOfFile) {
+        recordFailureSuggestion("", "remove unexpected '" + token.text + "'", true);
+    }
     if (syntaxOnly) return;
     Diagnostic diagnostic;
     diagnostic.message = "unexpected token in expression";
@@ -687,6 +716,17 @@ std::unique_ptr<Expr> ExpressionParser::parseBraceLiteral(bool& ok) {
 }
 
 std::unique_ptr<Expr> ExpressionParser::parsePrimary(bool& ok) {
+    if (isUnterminatedQuotedToken(peek())) {
+        report(
+            peek(),
+            peek().kind == TokenKind::Char
+                ? "unterminated char literal"
+                : "unterminated string literal"
+        );
+        ok = false;
+        return nullptr;
+    }
+
     // Generic container construction is an expression (unlike a declaration),
     // so it must be recognized before '<' is parsed as a comparison operator.
     // Keep this narrowly scoped to the concrete List<T>(size[, value]) form.

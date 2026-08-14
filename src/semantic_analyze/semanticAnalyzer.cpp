@@ -624,12 +624,24 @@ private:
                 }
             }
             if (!reportedUnknownToken) {
-                error(line, std::max(1, recovered->sourceColumn),
-                    recovered->reason == "expression syntax recovery"
-                        ? (recovered->sourceSpan.valid()
-                            ? "unexpected token in expression"
-                            : "expected expression")
-                        : recovered->reason);
+                if (recovered->sourceSpan.valid()) {
+                    Diagnostic diagnostic;
+                    diagnostic.message = recovered->reason;
+                    diagnostic.labels.push_back({recovered->sourceSpan, "", true});
+                    if (!recovered->suggestionMessage.empty()) {
+                        diagnostic.suggestions.push_back({
+                            recovered->sourceSpan,
+                            recovered->suggestedReplacement,
+                            recovered->suggestionMessage,
+                            recovered->suggestionIsMachineApplicable
+                                ? SuggestionApplicability::MachineApplicable
+                                : SuggestionApplicability::Unspecified
+                        });
+                    }
+                    recordDiagnostic(std::move(diagnostic));
+                } else {
+                    error(line, std::max(1, recovered->sourceColumn), recovered->reason);
+                }
             }
             recovered->inferredType = PrimitiveType::Unknown;
             recovered->semanticAnalyzed = true;
@@ -797,6 +809,15 @@ private:
         return true;
     }
 
+    bool markSyntaxRecoveryInvalid(Expr* expression) {
+        auto* recovered = dynamic_cast<ErrorExpr*>(expression);
+        if (!recovered) return false;
+        recovered->inferredType = PrimitiveType::Unknown;
+        recovered->semanticAnalyzed = true;
+        recovered->semanticValid = false;
+        return true;
+    }
+
     bool blockAlwaysReturns(const BlockAst& block) const {
         for (const auto& statement : block.statements) {
             if (dynamic_cast<const ReturnStatementAst*>(statement.get())) return true;
@@ -880,13 +901,22 @@ private:
             valid = type != PrimitiveType::Unknown;
         }
         if (variable.inferredType) {
+            if (variable.names.size() != 1) {
+                error(line, variable.syntax.startColumn,
+                    "var declarations support exactly one variable");
+                valid = false;
+            }
             if (variable.initializers.empty()) {
                 error(line, variable.syntax.startColumn, "var requires an initializer");
                 valid = false;
-            } else if (analyzeExpression(*variable.initializers.front(), line)) {
-                type = variable.initializers.front()->inferredType;
             } else {
-                valid = false;
+                for (auto& initializer : variable.initializers) {
+                    const bool initializerValid = analyzeExpression(*initializer, line);
+                    if (initializer.get() == variable.initializers.front().get() && initializerValid) {
+                        type = initializer->inferredType;
+                    }
+                    valid = initializerValid && valid;
+                }
             }
         } else if (variable.initializerKind == VariableDeclarationAst::InitializerKind::Parenthesized &&
                    isListType(type)) {
@@ -1127,23 +1157,32 @@ private:
             statement.semanticAnalyzed = true;
             statement.semanticValid = valid;
         } else if (auto* branch = dynamic_cast<IfStatementAst*>(&statement)) {
-            bool valid = analyzeCondition(branch->condition.get(), branch->syntax.lineNumber, "if");
+            bool valid = !branch->syntaxOk && markSyntaxRecoveryInvalid(branch->condition.get())
+                ? false
+                : analyzeCondition(branch->condition.get(), branch->syntax.lineNumber, "if");
             analyzeBlock(branch->thenBody, false);
             for (auto& elseIf : branch->elseIfBranches) {
-                valid = analyzeCondition(elseIf.condition.get(), elseIf.headerSyntax.lineNumber, "else if") && valid;
+                const bool elseIfValid = !elseIf.syntaxOk && markSyntaxRecoveryInvalid(elseIf.condition.get())
+                    ? false
+                    : analyzeCondition(elseIf.condition.get(), elseIf.headerSyntax.lineNumber, "else if");
+                valid = elseIfValid && valid;
                 analyzeBlock(elseIf.body, false);
             }
             if (branch->elseBranch) analyzeBlock(branch->elseBranch->body, false);
             branch->semanticAnalyzed = true;
             branch->semanticValid = valid;
         } else if (auto* loop = dynamic_cast<WhileStatementAst*>(&statement)) {
-            const bool valid = analyzeCondition(loop->condition.get(), loop->syntax.lineNumber, "while");
+            const bool valid = !loop->syntaxOk && markSyntaxRecoveryInvalid(loop->condition.get())
+                ? false
+                : analyzeCondition(loop->condition.get(), loop->syntax.lineNumber, "while");
             ++loopDepth; analyzeBlock(loop->body, false); --loopDepth;
             if (loop->nobreakBranch) analyzeBlock(loop->nobreakBranch->body, false);
             loop->semanticAnalyzed = true; loop->semanticValid = valid;
         } else if (auto* loop = dynamic_cast<RepStatementAst*>(&statement)) {
             bool valid = false;
-            if (loop->count) {
+            if (!loop->syntaxOk && markSyntaxRecoveryInvalid(loop->count.get())) {
+                valid = false;
+            } else if (loop->count) {
                 if (auto* recovered = dynamic_cast<ErrorExpr*>(loop->count.get());
                     recovered && !recovered->sourceSpan.valid()) {
                     error(loop->syntax.lineNumber, std::max(1, recovered->sourceColumn),
@@ -1169,7 +1208,9 @@ private:
             if (loop->nobreakBranch) analyzeBlock(loop->nobreakBranch->body, false);
             loop->semanticAnalyzed = true; loop->semanticValid = valid;
         } else if (auto* loop = dynamic_cast<ForEachStatementAst*>(&statement)) {
-            bool valid = loop->iterable && analyzeExpression(*loop->iterable, loop->syntax.lineNumber);
+            const bool recoveredHeader = !loop->syntaxOk && markSyntaxRecoveryInvalid(loop->iterable.get());
+            bool valid = !recoveredHeader && loop->iterable &&
+                analyzeExpression(*loop->iterable, loop->syntax.lineNumber);
             Type element = PrimitiveType::Unknown;
             if (valid && isRangeType(loop->iterable->inferredType)) element = PrimitiveType::Int;
             else if (valid && isMapType(loop->iterable->inferredType)) element = Type(PrimitiveType::Pair,
@@ -1181,8 +1222,9 @@ private:
                     "for-in expects List, Set, Map, or range; convert this value with List(value)");
                 valid = false;
             }
-            Type variableType = loop->inferredVariable ? element :
-                resolveType(loop->variableType, false, loop->syntax.lineNumber, loop->syntax.startColumn);
+            Type variableType = loop->inferredVariable
+                ? (recoveredHeader ? Type(PrimitiveType::Unknown) : element)
+                : resolveType(loop->variableType, false, loop->syntax.lineNumber, loop->syntax.startColumn);
             loop->resolvedVariableType = variableType;
             if (valid && !isImplicitlyConvertible(element, variableType)) {
                 error(loop->syntax.lineNumber, loop->syntax.startColumn, "cannot implicitly convert " +

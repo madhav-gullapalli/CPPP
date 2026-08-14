@@ -213,14 +213,14 @@ ForEachParseResult parseForEachHeader(const std::vector<Token>& sourceTokens) {
         variableIndex = type.nextTokenIndex;
     }
     if (variableIndex >= rightParen || tokens[variableIndex].kind != TokenKind::Identifier || tokens[variableIndex].text == "in") { result.errorOffset = offsetOf(tokens, variableIndex, tokens[1].span.endOffset); result.message = "expected loop variable before 'in'"; return result; }
-    if (variableIndex + 1 >= rightParen || tokens[variableIndex + 1].text != "in") { result.errorOffset = offsetOf(tokens, variableIndex + 1, tokens[variableIndex].span.endOffset); result.message = "expected 'in' after loop variable"; return result; }
-    if (variableIndex + 2 >= rightParen) { result.errorOffset = tokens[variableIndex + 1].span.endOffset; result.message = "expected List expression after 'in'"; return result; }
-
-    result.ok = true;
     result.header.declarationOffset = offsetOf(tokens, 2);
     result.header.declarationTokens = tokenRange(tokens, 2, variableIndex + 1);
     result.header.variableName = tokens[variableIndex].text;
     result.header.variableOffset = tokens[variableIndex].span.startOffset;
+    if (variableIndex + 1 >= rightParen || tokens[variableIndex + 1].text != "in") { result.errorOffset = offsetOf(tokens, variableIndex + 1, tokens[variableIndex].span.endOffset); result.message = "expected 'in' after loop variable"; return result; }
+    if (variableIndex + 2 >= rightParen) { result.errorOffset = tokens[variableIndex + 1].span.endOffset; result.message = "expected List expression after 'in'"; return result; }
+
+    result.ok = true;
     result.header.iterableOffset = tokens[variableIndex + 2].span.startOffset;
     result.header.iterableTokens = tokenRange(tokens, variableIndex + 2, rightParen);
     return result;
