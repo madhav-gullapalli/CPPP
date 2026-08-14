@@ -1,5 +1,5 @@
 /*
- * submitPostProcessor.cpp
+ * codegen/submit/submitPostProcessor.cpp
  *
  * Compacts a complete generated C++ translation unit after normal emission.
  */

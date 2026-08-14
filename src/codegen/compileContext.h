@@ -8,9 +8,9 @@
  *   -> TokenStream
  *   -> ProgramAst
  *   -> analyzeProgramAst(...)
- *   -> compileProgramAst(...)
+ *   -> run codegen, or submit pruning -> submit codegen
  *   -> generatedTopLevelLines / generatedFunctionLines / generatedMainLines
- *   -> emitTranslatedProgram(...)
+ *   -> run or submit program emitter
  *
  * If two compiler stages need to communicate, that data usually lives here.
  */
@@ -41,7 +41,6 @@ struct GeneratedLine {
     std::string text;
     int sourceLine = 0;
     std::vector<SourceRange> sourceRanges;
-    std::string submitOwnerKey;
 };
 
 enum class OutputTarget {
@@ -75,8 +74,6 @@ struct CompileContext {
     bool inFunction = false;
     bool currentStructIsClass = false;
     std::string currentStructName;
-    std::string currentStructMethodName;
-    std::string currentTopLevelFunctionName;
     std::vector<std::string> currentStructFields;
     FunctionSignature currentFunction;
     std::map<std::string, Type> savedDeclaredVariables;
@@ -89,31 +86,23 @@ struct CompileContext {
 
     // Output that must live above generated functions and above main().
     void queueTopLevelLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
-        const std::string ownerKey = currentStructMethodName.empty()
-            ? (currentStructName.empty() ? "" : "struct:" + currentStructName)
-            : "method:" + currentStructName + "." + currentStructMethodName;
-        generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
+        generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges)});
     }
 
     // Output for emitted user-defined function bodies.
     void queueFunctionLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
-        const std::string ownerKey = currentTopLevelFunctionName.empty() ? "" : "function:" + currentTopLevelFunctionName;
-        generatedFunctionLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
+        generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
     }
 
     // Default queue used during statement lowering. The current OutputTarget
     // decides whether the line lands in a function body or generated main().
     void queueGeneratedLine(const std::string& text, int sourceLine = 0, std::vector<SourceRange> ranges = {}) {
         if (outputTarget == OutputTarget::Function) {
-            const std::string ownerKey = currentTopLevelFunctionName.empty() ? "" : "function:" + currentTopLevelFunctionName;
-            generatedFunctionLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
+            generatedFunctionLines.push_back({text, sourceLine, std::move(ranges)});
         } else if (outputTarget == OutputTarget::TopLevel) {
-            const std::string ownerKey = currentStructMethodName.empty()
-                ? (currentStructName.empty() ? "" : "struct:" + currentStructName)
-                : "method:" + currentStructName + "." + currentStructMethodName;
-            generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges), ownerKey});
+            generatedTopLevelLines.push_back({text, sourceLine, std::move(ranges)});
         } else {
-            generatedMainLines.push_back({text, sourceLine, std::move(ranges), ""});
+            generatedMainLines.push_back({text, sourceLine, std::move(ranges)});
         }
     }
 

@@ -277,8 +277,8 @@ bool recordContextualSuggestion(
 
 class AstLowerer {
 public:
-    AstLowerer(CompileContext& context, const AnalyzedProgramAst& analyzed) :
-        context(context), analyzed(analyzed) {}
+    AstLowerer(CompileContext& context, const AnalyzedProgramAst& analyzed, CodegenMode mode) :
+        context(context), analyzed(analyzed), submitMode(mode == CodegenMode::Submit) {}
 
     void compile(const ProgramAst& program) {
         std::map<std::string, const AggregateDeclarationAst*> aggregates;
@@ -336,19 +336,9 @@ public:
 private:
     CompileContext& context;
     const AnalyzedProgramAst& analyzed;
+    const bool submitMode;
     std::set<std::string> deferredClassEqualityFields;
     bool sawUnclosedBlock = false;
-
-    void setRequirementOwner() {
-        const std::string owner = !context.currentStructMethodName.empty()
-            ? "method:" + context.currentStructName + "." + context.currentStructMethodName
-            : (!context.currentStructName.empty()
-                ? "struct:" + context.currentStructName
-                : (context.currentTopLevelFunctionName.empty()
-                    ? ""
-                    : "function:" + context.currentTopLevelFunctionName));
-        setRuntimeRequirementOwner(owner);
-    }
 
     bool checkLexicalErrors(const ProgramStatement& statement) {
         const std::vector<Token>& tokens = statement.syntax.tokens;
@@ -467,7 +457,6 @@ private:
     }
 
     void compileStatement(const ProgramStatement& statement) {
-        setRequirementOwner();
         if (const auto* comment = dynamic_cast<const CommentStatementAst*>(&statement)) {
             if (!comment->syntax.commentText.empty()) {
                 context.queueGeneratedLine(
@@ -761,7 +750,7 @@ private:
             const AssignmentEmitResult result = emitParsedAssignment(
                 context.options.inputFile, lineNumber, statementColumn,
                 context.sourceLines, context.declaredVariables, context.declaredFunctions,
-                !context.options.shouldSubmit, clause.operation, clause.operationToken,
+                !submitMode, clause.operation, clause.operationToken,
                 clause.targetTokens, clause.targetOffsets,
                 clause.valueTokens, clause.valueOffsets);
             if (!result.ok) return false;
@@ -939,8 +928,8 @@ private:
         const std::string breakFlag = "__cppp_loop_completed_" + std::to_string(context.loopControlIndex++);
         context.queueGeneratedLine(indentForDepth(context.blockDepth) + "bool " + breakFlag + " = true;", node.syntax.lineNumber);
         const std::string suffix = std::to_string(context.repLoopIndex++);
-        const std::string index = context.options.shouldSubmit ? "_" + suffix : "__cppp_rep_" + suffix;
-        const std::string limit = context.options.shouldSubmit ? "_n" + suffix : "__cppp_rep_limit_" + suffix;
+        const std::string index = submitMode ? "_" + suffix : "__cppp_rep_" + suffix;
+        const std::string limit = submitMode ? "_n" + suffix : "__cppp_rep_limit_" + suffix;
         context.queueGeneratedLine(
             indentForDepth(context.blockDepth) + "long long " + limit + " = " + count + ";",
             node.syntax.lineNumber
@@ -1108,7 +1097,7 @@ private:
             context.sourceLines,
             context.declaredVariables,
             context.declaredFunctions,
-            !context.options.shouldSubmit,
+            !submitMode,
             node.operation,
             node.operationToken,
             node.targetTokens,
@@ -1136,7 +1125,7 @@ private:
 
         const ListEmitResult list = emitListStatement(
             context.options.inputFile, line, context.sourceLines, context.declaredVariables,
-            !context.options.shouldSubmit, tokens);
+            !submitMode, tokens);
         if (list.matched) {
             if (list.ok) context.queueGeneratedLine(
                 withComment(indentGeneratedStatement(list.generatedStatement, context.blockDepth), node.syntax),
@@ -1218,7 +1207,6 @@ private:
                 const auto found = resolved->second.find(signature.name);
                 if (found != resolved->second.end()) signature = found->second;
             }
-            context.currentStructMethodName = signature.name;
             context.queueTopLevelLine("    " + generatedSignature, node.syntax.lineNumber);
             context.savedDeclaredVariables = context.declaredVariables;
             context.declaredVariables = context.declaredStructs[context.currentStructName];
@@ -1235,7 +1223,6 @@ private:
             context.declaredVariables = context.savedDeclaredVariables;
             context.savedDeclaredVariables.clear();
             context.currentFunction = FunctionSignature{};
-            context.currentStructMethodName.clear();
             return;
         }
 
@@ -1245,7 +1232,6 @@ private:
             return;
         }
         context.declaredFunctions[signature.name] = signature;
-        context.currentTopLevelFunctionName = signature.name;
         context.queueFunctionLine(
             withComment(generatedSignature, node.syntax),
             node.syntax.lineNumber
@@ -1264,7 +1250,6 @@ private:
         context.declaredVariables = context.savedDeclaredVariables;
         context.savedDeclaredVariables.clear();
         context.currentFunction = FunctionSignature{};
-        context.currentTopLevelFunctionName.clear();
     }
 
     void compileConstructor(const ConstructorDeclarationAst& node) {
@@ -1349,7 +1334,6 @@ private:
         const bool hasUserConstructor = analyzed.aggregateConstructors.count(node.name) != 0;
 
         for (const auto& member : node.body.statements) {
-            setRequirementOwner();
             if (const auto* method = dynamic_cast<const FunctionDeclarationAst*>(member.get())) {
                 compileFunction(*method, true);
             } else if (const auto* constructor = dynamic_cast<const ConstructorDeclarationAst*>(member.get())) {
@@ -1376,7 +1360,6 @@ private:
         // The generated copy/equality/print members belong to the aggregate,
         // not to whichever user method happened to be lowered last.  Submit
         // pruning may discard that method while retaining this class.
-        setRequirementOwner();
         if (!hasUserConstructor && !context.currentStructFields.empty()) {
             std::string constructor = "    " + context.currentStructName + "(";
             size_t index = 0;
@@ -1472,7 +1455,7 @@ private:
 };
 }
 
-void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& analyzed) {
+void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& analyzed, CodegenMode mode) {
     if (!analyzed.program || !analyzed.valid) return;
     context.declaredStructs = analyzed.aggregateFields;
     context.declaredStructFieldOrders = analyzed.aggregateFieldOrder;
@@ -1484,5 +1467,5 @@ void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& analyz
     setDeclaredStructFieldOrdersForExpressions(&context.declaredStructFieldOrders);
     setDeclaredStructMethodsForExpressions(&context.declaredStructMethods);
     setDeclaredStructConstructorsForExpressions(&context.declaredStructConstructors);
-    AstLowerer(context, analyzed).compile(*analyzed.program);
+    AstLowerer(context, analyzed, mode).compile(*analyzed.program);
 }

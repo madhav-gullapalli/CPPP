@@ -14,6 +14,14 @@
 #include "compileContext.h"
 
 #include <ostream>
+#include <string>
+#include <vector>
 
-// Serializes the fully lowered program from CompileContext into one .cpp file.
-void emitTranslatedProgram(std::ostream& output, CompileContext& context);
+// Shared serialization used by the explicit run and submit emitter frontends.
+// User-declaration reachability has already been decided before this function.
+void emitLoweredProgram(
+    std::ostream& output,
+    CompileContext& context,
+    const std::vector<std::string>& preambleLines,
+    bool runtimeDiagnostics
+);

@@ -13,11 +13,14 @@
 #include "compileContext.h"
 #include "errors.h"
 #include "expressions.h"
-#include "programEmitter.h"
+#include "run/runCodegen.h"
+#include "run/runProgramEmitter.h"
 #include "semanticAnalyzer.h"
 #include "semanticPrinter.h"
 #include "sourceSplitter.h"
-#include "statementCompiler.h"
+#include "submit/pruning/submitPruner.h"
+#include "submit/submitCodegen.h"
+#include "submit/submitProgramEmitter.h"
 #include "typesCppp.h"
 
 #include <algorithm>
@@ -93,37 +96,6 @@ void printTokenStream(const TokenStream& stream) {
     }
 }
 
-// trim removes surrounding whitespace from a string.
-std::string trim(const std::string& text) {
-    const size_t start = text.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) {
-        return "";
-    }
-
-    const size_t end = text.find_last_not_of(" \t\r\n");
-    return text.substr(start, end - start + 1);
-}
-
-// startsWithTrimmed returns whether the text starts with the given prefix.
-bool startsWithTrimmed(const std::string& text, const std::string& prefix) {
-    const std::string trimmed = trim(text);
-    return trimmed.rfind(prefix, 0) == 0;
-}
-
-// loopBreakFlagNameFromDeclaration implements the loopBreakFlagNameFromDeclaration behavior for the compilerDriver.cpp module.
-std::string loopBreakFlagNameFromDeclaration(const std::string& text) {
-    const std::string trimmed = trim(text);
-    const std::string prefix = "bool __cppp_loop_completed_";
-    const std::string suffix = " = true;";
-    if (trimmed.rfind(prefix, 0) != 0 || trimmed.size() <= prefix.size() + suffix.size()) {
-        return "";
-    }
-    if (trimmed.substr(trimmed.size() - suffix.size()) != suffix) {
-        return "";
-    }
-    return trimmed.substr(5, trimmed.size() - 5 - suffix.size());
-}
-
 // quotePath quotes a path string for safe output.
 std::string quotePath(const std::string& path) {
     return "\"" + path + "\"";
@@ -161,64 +133,13 @@ std::string executablePathFor(const std::string& inputFile, const std::string& e
     return (directory / "build" / executableName).string();
 }
 
-void pruneSubmitLoopHelpers(CompileContext& context) {
-    // Submit mode prefers cleaner contest-style output, so strip loop-completion
-    // helpers that are no longer referenced by any lowered loop-nobreak code.
-    std::vector<std::string> usedLoopFlags;
-    for (const GeneratedLine& line : context.generatedMainLines) {
-        const std::string trimmed = trim(line.text);
-        if (!startsWithTrimmed(trimmed, "if (__cppp_loop_completed_")) {
-            continue;
-        }
-
-        const size_t flagStart = trimmed.find("__cppp_loop_completed_");
-        const size_t flagEnd = trimmed.find(')', flagStart);
-        if (flagStart == std::string::npos || flagEnd == std::string::npos || flagEnd <= flagStart) {
-            continue;
-        }
-
-        usedLoopFlags.push_back(trimmed.substr(flagStart, flagEnd - flagStart));
-    }
-
-    std::vector<GeneratedLine> cleanedLines;
-    for (GeneratedLine line : context.generatedMainLines) {
-        const std::string flagName = loopBreakFlagNameFromDeclaration(line.text);
-        if (!flagName.empty() &&
-            std::find(usedLoopFlags.begin(), usedLoopFlags.end(), flagName) == usedLoopFlags.end()) {
-            continue;
-        }
-
-        if (line.text.find("__cppp_loop_completed_") != std::string::npos &&
-            line.text.find(" = false; break;") != std::string::npos) {
-            const std::string originalText = line.text;
-            const size_t indentEnd = line.text.find_first_not_of(' ');
-            const std::string indent = indentEnd == std::string::npos ? "" : line.text.substr(0, indentEnd);
-            const size_t assignEnd = line.text.find("break;");
-            const size_t commentStart = originalText.find("//", assignEnd == std::string::npos ? 0 : assignEnd);
-            const size_t flagStart = line.text.find("__cppp_loop_completed_");
-            const size_t flagEnd = line.text.find(" = false; break;");
-            if (flagStart != std::string::npos && flagEnd != std::string::npos) {
-                const std::string flag = line.text.substr(flagStart, flagEnd - flagStart);
-                if (std::find(usedLoopFlags.begin(), usedLoopFlags.end(), flag) == usedLoopFlags.end()) {
-                    line.text = indent + "break;";
-                    if (commentStart != std::string::npos) {
-                        line.text += " " + trim(originalText.substr(commentStart));
-                    }
-                }
-            }
-        }
-
-        cleanedLines.push_back(std::move(line));
-    }
-    context.generatedMainLines = std::move(cleanedLines);
-}
 }
 
 // Keep the driver flow linear on purpose:
 // raw file -> canonical TokenStream -> ProgramAst -> semantic lowering -> C++.
 int runCompilerDriver(int argc, char* argv[]) {
     if ((argc < 3 || argc > 5) || std::string(argv[1]) != "--cppp") {
-        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--ast|--semantic|--compile|--run|--submit [--readable]]\n";
+        std::cerr << "Usage: " << argv[0] << " --cppp FILE_NAME.cppp [--tokens|--ast|--semantic|--submit-ast|--compile|--run|--submit [--readable]]\n";
         return 1;
     }
     clearRecordedSourceErrors();
@@ -229,10 +150,11 @@ int runCompilerDriver(int argc, char* argv[]) {
     const bool shouldPrintTokens = action == "--tokens";
     const bool shouldPrintAst = action == "--ast";
     const bool shouldPrintSemantic = action == "--semantic";
+    const bool shouldPrintSubmitAst = action == "--submit-ast";
     const bool shouldCompile = action == "--compile" || action == "--run" || action == "--submit";
     const bool shouldRun = action == "--run";
     const bool shouldSubmit = action == "--submit";
-    if (hasAction && !shouldCompile && !shouldPrintTokens && !shouldPrintAst && !shouldPrintSemantic) {
+    if (hasAction && !shouldCompile && !shouldPrintTokens && !shouldPrintAst && !shouldPrintSemantic && !shouldPrintSubmitAst) {
         std::cerr << "Error: unknown option " << argv[3] << '\n';
         return 1;
     }
@@ -315,8 +237,28 @@ int runCompilerDriver(int argc, char* argv[]) {
         printAnalyzedProgramAst(std::cout, analyzed);
         return 0;
     }
+    if (shouldPrintSubmitAst) {
+        PrunedAnalyzedProgramAst pruned = pruneAnalyzedProgramForSubmit(analyzed);
+        std::string pruningInvariantError;
+        if (!validatePrunedAnalyzedProgramAst(pruned, analyzed, pruningInvariantError)) {
+            std::cerr << "Internal submit-pruning AST error: " << pruningInvariantError << '\n';
+            return 1;
+        }
+        printProgramAst(std::cout, *pruned.ownedProgram);
+        return 0;
+    }
     setDeclaredFunctionsForExpressions(&context.declaredFunctions);
-    compileProgramAst(context, analyzed);
+    if (options.shouldSubmit) {
+        PrunedAnalyzedProgramAst pruned = pruneAnalyzedProgramForSubmit(analyzed);
+        std::string pruningInvariantError;
+        if (!validatePrunedAnalyzedProgramAst(pruned, analyzed, pruningInvariantError)) {
+            std::cerr << "Internal submit-pruning AST error: " << pruningInvariantError << '\n';
+            return 1;
+        }
+        generateSubmitProgram(context, pruned);
+    } else {
+        generateRunProgram(context, analyzed);
+    }
 
     if (context.blockDepth > 0) {
         recordSourceError(options.inputFile, context.sourceLines.empty() ? 1 : context.sourceLines.rbegin()->first, 1, "unclosed block", context.sourceLines);
@@ -330,10 +272,6 @@ int runCompilerDriver(int argc, char* argv[]) {
         return 1;
     }
 
-    if (options.shouldSubmit) {
-        pruneSubmitLoopHelpers(context);
-    }
-
     std::ofstream output(options.outputFile, std::ios::binary);
     if (!output) {
         std::cerr << "Error: could not write to " << options.outputFile << '\n';
@@ -342,7 +280,8 @@ int runCompilerDriver(int argc, char* argv[]) {
         return 1;
     }
 
-    emitTranslatedProgram(output, context);
+    if (options.shouldSubmit) emitSubmitProgram(output, context);
+    else emitRunProgram(output, context);
     output.close();
 
     if (options.shouldCompile) {

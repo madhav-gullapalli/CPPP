@@ -498,7 +498,6 @@ private:
             // Methods may mutate their receiver. Indexed class values must
             // therefore use mutable list access instead of the const read path.
             const std::string receiver = generateMutableAccess(*expr.receiver);
-            requireStructMethod(expr.receiver->inferredType.name, expr.callee);
             const FunctionSignature* method = declaredStructMethodForType(expr.receiver->inferredType, expr.callee);
             const bool isClass = isClassType(expr.receiver->inferredType);
             std::string call = "(" + receiver + ")" + (isClass ? "->" : ".") + expr.callee + "(";

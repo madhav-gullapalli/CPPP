@@ -8,173 +8,16 @@
 
 #include "programEmitter.h"
 
-#include "submitPostProcessor.h"
-#include "typesCppp.h"
-
-#include <cctype>
-#include <sstream>
 #include <string>
-#include <set>
 #include <vector>
 
 namespace {
-bool containsIdentifier(const std::string& text, const std::string& name) {
-    size_t position = text.find(name);
-    while (position != std::string::npos) {
-        const bool leftBoundary = position == 0 || !(std::isalnum(static_cast<unsigned char>(text[position - 1])) || text[position - 1] == '_');
-        const size_t end = position + name.size();
-        const bool rightBoundary = end == text.size() || !(std::isalnum(static_cast<unsigned char>(text[end])) || text[end] == '_');
-        if (leftBoundary && rightBoundary) {
-            return true;
-        }
-        position = text.find(name, position + 1);
-    }
-    return false;
-}
-
-std::set<std::string> reachableSubmitOwners(const CompileContext& context) {
-    std::map<std::string, std::vector<std::string>> linesByOwner;
-    for (const GeneratedLine& line : context.generatedTopLevelLines) {
-        if (!line.submitOwnerKey.empty()) linesByOwner[line.submitOwnerKey].push_back(line.text);
-    }
-    for (const GeneratedLine& line : context.generatedFunctionLines) {
-        if (!line.submitOwnerKey.empty()) linesByOwner[line.submitOwnerKey].push_back(line.text);
-    }
-
-    std::set<std::string> reachable;
-    std::set<std::string> calledMethodNames;
-    std::vector<std::string> pendingText;
-    for (const GeneratedLine& line : context.generatedMainLines) pendingText.push_back(line.text);
-    for (const GeneratedLine& line : context.generatedTopLevelLines) {
-        if (line.submitOwnerKey.empty()) pendingText.push_back(line.text);
-    }
-    for (const GeneratedLine& line : context.generatedFunctionLines) {
-        if (line.submitOwnerKey.empty()) pendingText.push_back(line.text);
-    }
-
-    const auto addOwner = [&](const std::string& owner, std::set<std::string>& found, std::vector<std::string>& work) {
-        if (!found.insert(owner).second) return;
-        const auto lines = linesByOwner.find(owner);
-        if (lines != linesByOwner.end()) work.insert(work.end(), lines->second.begin(), lines->second.end());
-    };
-
-    for (size_t index = 0; index < pendingText.size(); ++index) {
-        // addOwner() may append to pendingText and reallocate its storage.
-        // Keep a value copy so the text being scanned cannot dangle.
-        const std::string text = pendingText[index];
-        for (const auto& function : context.declaredFunctions) {
-            if (containsIdentifier(text, function.first)) {
-                addOwner("function:" + function.first, reachable, pendingText);
-            }
-        }
-        for (const auto& structure : context.declaredStructs) {
-            if (containsIdentifier(text, structure.first)) {
-                addOwner("struct:" + structure.first, reachable, pendingText);
-            }
-        }
-        for (const auto& structure : context.declaredStructMethods) {
-            for (const auto& method : structure.second) {
-                if (text.find("->" + method.first + "(") != std::string::npos ||
-                    text.find("." + method.first + "(") != std::string::npos) {
-                    calledMethodNames.insert(method.first);
-                }
-            }
-        }
-
-        for (const auto& structure : context.declaredStructMethods) {
-            if (reachable.count("struct:" + structure.first) == 0) continue;
-            for (const std::string& methodName : calledMethodNames) {
-                if (structure.second.count(methodName) != 0) {
-                    addOwner("method:" + structure.first + "." + methodName, reachable, pendingText);
-                }
-            }
-        }
-    }
-    return reachable;
-}
-
-std::set<std::string> requiredSubmitContainerTypes(
-    const CompileContext& context,
-    const std::set<std::string>& reachableOwners
-) {
-    std::set<std::string> types;
-    const auto inspect = [&](const std::vector<GeneratedLine>& lines) {
-        for (const GeneratedLine& line : lines) {
-            if (!line.submitOwnerKey.empty() && reachableOwners.count(line.submitOwnerKey) == 0) continue;
-            if (line.text.find("CPPPPair<") != std::string::npos) types.insert("CPPPPair");
-            if (line.text.find("CPPPList<") != std::string::npos) types.insert("CPPPList");
-            if (line.text.find("CPPPStack<") != std::string::npos) types.insert("CPPPStack");
-            if (line.text.find("CPPPQueue<") != std::string::npos) types.insert("CPPPQueue");
-            if (line.text.find("CPPPDeque<") != std::string::npos) types.insert("CPPPDeque");
-            if (line.text.find("CPPPHeap<") != std::string::npos) types.insert("CPPPHeap");
-            if (line.text.find("CPPPSet<") != std::string::npos) types.insert("CPPPSet");
-            if (line.text.find("CPPPMap<") != std::string::npos) types.insert("CPPPMap");
-        }
-    };
-    inspect(context.generatedTopLevelLines);
-    inspect(context.generatedFunctionLines);
-    inspect(context.generatedMainLines);
-    return types;
-}
-
-std::set<std::string> requiredSubmitContainerMembers(
-    const CompileContext& context,
-    const std::set<std::string>& reachableOwners
-) {
-    std::set<std::string> members = requiredContainerMembersForOwners(reachableOwners);
-    const auto inspect = [&](const std::vector<GeneratedLine>& lines) {
-        for (const GeneratedLine& line : lines) {
-            if (!line.submitOwnerKey.empty() && reachableOwners.count(line.submitOwnerKey) == 0) continue;
-            const std::vector<std::string> types = {
-                "CPPPPair", "CPPPList", "CPPPStack", "CPPPQueue", "CPPPDeque", "CPPPHeap", "CPPPSet", "CPPPMap"
-            };
-            for (const std::string& type : types) {
-                if (line.text.find(type + "<") == std::string::npos) continue;
-                if (line.text.find("= {}") != std::string::npos || line.text.find(">{}") != std::string::npos) {
-                    members.insert(type + ".ctor_default");
-                }
-                if ((type == "CPPPList" || type == "CPPPSet" || type == "CPPPMap") &&
-                    line.text.find(">{") != std::string::npos && line.text.find(">{}") == std::string::npos) {
-                    members.insert(type + ".ctor_init");
-                }
-                if (type == "CPPPPair" &&
-                    (line.text.find("= {") != std::string::npos || line.text.find(">(") != std::string::npos)) {
-                    members.insert(type + ".ctor_values");
-                }
-            }
-            if (line.text.find(" = CPPPList<") != std::string::npos &&
-                line.text.find(">(") != std::string::npos) {
-                // Sized declarations call CPPPList's variadic constructor. Its
-                // elements are constructed in place, so retain the default
-                // constructors for any directly nested container type too.
-                members.insert("CPPPList.ctor_size");
-                members.insert("CPPPList.ctor_default");
-                if (line.text.find("CPPPMap<") != std::string::npos) members.insert("CPPPMap.ctor_default");
-                if (line.text.find("CPPPSet<") != std::string::npos) members.insert("CPPPSet.ctor_default");
-                if (line.text.find("CPPPPair<") != std::string::npos) members.insert("CPPPPair.ctor_default");
-            }
-        }
-    };
-    inspect(context.generatedTopLevelLines);
-    inspect(context.generatedFunctionLines);
-    inspect(context.generatedMainLines);
-    return members;
-}
-
 void emitGeneratedLines(
     std::ostream& output,
     CompileContext& context,
     const std::vector<GeneratedLine>& lines
 ) {
-    const std::set<std::string> submitOwners = context.options.shouldSubmit
-        ? reachableSubmitOwners(context)
-        : std::set<std::string>{};
     for (const GeneratedLine& line : lines) {
-        if (context.options.shouldSubmit &&
-            !line.submitOwnerKey.empty() &&
-            submitOwners.count(line.submitOwnerKey) == 0) {
-            continue;
-        }
         output << line.text << '\n';
         ++context.generatedLine;
         if (line.sourceLine != 0) {
@@ -187,13 +30,14 @@ void emitGeneratedLines(
 }
 }
 
-void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
-    const CompileOptions& options = context.options;
-    std::ostringstream submitBuffer;
-    const bool compactSubmit = options.shouldSubmit && !options.readableSubmit;
-    std::ostream& destination = compactSubmit ? static_cast<std::ostream&>(submitBuffer) : output;
+void emitLoweredProgram(
+    std::ostream& output,
+    CompileContext& context,
+    const std::vector<std::string>& preambleLines,
+    bool runtimeDiagnostics
+) {
     const auto emitLine = [&](const std::string& text, int sourceLine = 0) {
-        destination << text << '\n';
+        output << text << '\n';
         ++context.generatedLine;
         if (sourceLine != 0) {
             context.cppToCpppLine[context.generatedLine] = sourceLine;
@@ -231,25 +75,15 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
 "\n");
     emitLine("using namespace std;");
     emitLine("");
-    const std::set<std::string> submitOwners = options.shouldSubmit
-        ? reachableSubmitOwners(context)
-        : std::set<std::string>{};
-    const std::vector<std::string> preambleLines = options.shouldSubmit
-        ? typeSupportPreambleForSubmit(
-            requiredRuntimeHelpersForOwners(submitOwners),
-            requiredSubmitContainerTypes(context, submitOwners),
-            requiredSubmitContainerMembers(context, submitOwners)
-        )
-        : typeSupportPreamble();
     for (const std::string& preambleLine : preambleLines) {
         emitLine(preambleLine);
     }
-    emitGeneratedLines(destination, context, context.generatedTopLevelLines);
+    emitGeneratedLines(output, context, context.generatedTopLevelLines);
     if (!context.generatedTopLevelLines.empty()) {
         emitLine("");
     }
 
-    emitGeneratedLines(destination, context, context.generatedFunctionLines);
+    emitGeneratedLines(output, context, context.generatedFunctionLines);
     if (!context.generatedFunctionLines.empty()) {
         emitLine("");
     }
@@ -258,14 +92,14 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
     emitLine("    ios::sync_with_stdio(false);");
     emitLine("    cin.tie(nullptr);");
     emitLine("");
-    if (options.shouldRun) {
+    if (runtimeDiagnostics) {
         emitLine("    try {");
     }
 
-    emitGeneratedLines(destination, context, context.generatedMainLines);
+    emitGeneratedLines(output, context, context.generatedMainLines);
 
     emitLine("    return 0;");
-    if (options.shouldRun) {
+    if (runtimeDiagnostics) {
         emitLine("    } catch (const runtime_error& __cppp_error) {");
         emitLine("        string __cppp_message = __cppp_error.what();");
         emitLine("        size_t __cppp_first = __cppp_message.find(':');");
@@ -281,5 +115,4 @@ void emitTranslatedProgram(std::ostream& output, CompileContext& context) {
         emitLine("    }");
     }
     emitLine("}");
-    if (compactSubmit) output << compactSubmitCpp(submitBuffer.str());
 }

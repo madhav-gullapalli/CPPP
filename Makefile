@@ -9,7 +9,10 @@ INCLUDE_DIRS := \
     -I$(SRC_DIR)/tokenize \
     -I$(SRC_DIR)/parse \
     -I$(SRC_DIR)/semantic_analyze \
-    -I$(SRC_DIR)/codegen
+    -I$(SRC_DIR)/codegen \
+    -I$(SRC_DIR)/codegen/run \
+    -I$(SRC_DIR)/codegen/submit \
+    -I$(SRC_DIR)/codegen/submit/pruning
 
 ifeq ($(OS),Windows_NT)
 EXE_EXT := .exe
@@ -29,19 +32,25 @@ $(SRC_DIR)/compilerDriver.cpp \
 $(wildcard $(SRC_DIR)/tokenize/*.cpp) \
 $(wildcard $(SRC_DIR)/parse/*.cpp) \
 $(wildcard $(SRC_DIR)/semantic_analyze/*.cpp) \
-$(wildcard $(SRC_DIR)/codegen/*.cpp)
+$(wildcard $(SRC_DIR)/codegen/*.cpp) \
+$(wildcard $(SRC_DIR)/codegen/run/*.cpp) \
+$(wildcard $(SRC_DIR)/codegen/submit/*.cpp) \
+$(wildcard $(SRC_DIR)/codegen/submit/pruning/*.cpp)
 
 HEADERS := \
 $(SRC_DIR)/compilerDriver.h \
 $(wildcard $(SRC_DIR)/tokenize/*.h) \
 $(wildcard $(SRC_DIR)/parse/*.h) \
 $(wildcard $(SRC_DIR)/semantic_analyze/*.h) \
-$(wildcard $(SRC_DIR)/codegen/*.h)
+$(wildcard $(SRC_DIR)/codegen/*.h) \
+$(wildcard $(SRC_DIR)/codegen/run/*.h) \
+$(wildcard $(SRC_DIR)/codegen/submit/*.h) \
+$(wildcard $(SRC_DIR)/codegen/submit/pruning/*.h)
 
 INPUT ?= in.cppp
 PROGRAM := $(dir $(INPUT))$(BUILD_DIR)/$(basename $(notdir $(INPUT)))$(EXE_EXT)
 
-.PHONY: all tokens ast semantic ast-invariants semantic-invariants transpile compile run submit subrun test submit-catalog codegen-freeze codegen-freeze-record clean
+.PHONY: all tokens ast semantic ast-invariants semantic-invariants submit-pruning-invariants transpile compile run submit subrun test submit-catalog codegen-freeze codegen-freeze-record clean
 
 all: $(COMPILER)
 
@@ -68,6 +77,9 @@ ast-invariants: $(COMPILER)
 
 semantic-invariants: $(COMPILER)
 	$(PYTHON) tests/semantic_invariants.py
+
+submit-pruning-invariants: $(COMPILER)
+	$(PYTHON) tests/submit_pruning_invariants.py
 
 compile: $(COMPILER)
 	"$(COMPILER)" --cppp "$(INPUT)" --compile

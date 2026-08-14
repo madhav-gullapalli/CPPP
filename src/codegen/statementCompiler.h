@@ -14,5 +14,14 @@
 
 #include <vector>
 
+enum class CodegenMode {
+    Run,
+    Submit
+};
+
 // Codegen pass over the analyzed recursive ProgramAst.
-void compileProgramAst(CompileContext& context, const AnalyzedProgramAst& program);
+void compileProgramAst(
+    CompileContext& context,
+    const AnalyzedProgramAst& program,
+    CodegenMode mode
+);

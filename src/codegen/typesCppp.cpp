@@ -22,24 +22,9 @@ std::set<std::string>& runtimeRequirementSet() {
     return helpers;
 }
 
-std::set<std::string>& structMethodRequirementSet() {
-    static std::set<std::string> methods;
-    return methods;
-}
-
-std::string& runtimeRequirementOwner() {
-    static std::string owner;
-    return owner;
-}
-
-std::map<std::string, std::set<std::string>>& runtimeRequirementOwners() {
-    static std::map<std::string, std::set<std::string>> owners;
-    return owners;
-}
-
-std::map<std::string, std::set<std::string>>& containerMemberRequirementOwners() {
-    static std::map<std::string, std::set<std::string>> owners;
-    return owners;
+std::set<std::string>& containerMemberRequirementSet() {
+    static std::set<std::string> members;
+    return members;
 }
 
 std::string containerTypeName(const Type& type) {
@@ -1302,16 +1287,13 @@ std::vector<std::string> typeSupportPreamble() {
 
 void clearRequiredRuntimeHelpers() {
     runtimeRequirementSet().clear();
-    structMethodRequirementSet().clear();
-    runtimeRequirementOwners().clear();
-    containerMemberRequirementOwners().clear();
-    runtimeRequirementOwner().clear();
+    containerMemberRequirementSet().clear();
 }
 
 void requireContainerMember(const Type& type, const std::string& memberName) {
     const std::string typeName = containerTypeName(type);
     if (typeName.empty()) return;
-    containerMemberRequirementOwners()[typeName + "." + memberName].insert(runtimeRequirementOwner());
+    containerMemberRequirementSet().insert(typeName + "." + memberName);
     if (isStackType(type) && memberName == "to_list") {
         requireContainerMember(Type(PrimitiveType::List, type.subtypes), "ctor_vector");
     } else if (isQueueType(type) && memberName == "to_list") {
@@ -1347,26 +1329,12 @@ void requireContainerMember(const Type& type, const std::string& memberName) {
     }
 }
 
-std::set<std::string> requiredContainerMembersForOwners(const std::set<std::string>& ownerKeys) {
-    std::set<std::string> members;
-    for (const auto& requirement : containerMemberRequirementOwners()) {
-        if (requirement.second.count("") != 0) {
-            members.insert(requirement.first);
-            continue;
-        }
-        for (const std::string& owner : requirement.second) {
-            if (ownerKeys.count(owner) != 0) {
-                members.insert(requirement.first);
-                break;
-            }
-        }
-    }
-    return members;
+std::set<std::string> requiredContainerMembers() {
+    return containerMemberRequirementSet();
 }
 
 void requireRuntimeHelper(const std::string& helperName) {
     runtimeRequirementSet().insert(helperName);
-    runtimeRequirementOwners()[helperName].insert(runtimeRequirementOwner());
 }
 
 const std::set<std::string>& requiredRuntimeHelpers() {
@@ -1435,35 +1403,6 @@ void requirePrintHelpersForType(const Type& type) {
     for (const Type& subtype : type.subtypes) {
         requirePrintHelpersForType(subtype);
     }
-}
-
-void setRuntimeRequirementOwner(const std::string& ownerKey) {
-    runtimeRequirementOwner() = ownerKey;
-}
-
-std::set<std::string> requiredRuntimeHelpersForOwners(const std::set<std::string>& ownerKeys) {
-    std::set<std::string> helpers;
-    for (const auto& requirement : runtimeRequirementOwners()) {
-        if (requirement.second.count("") != 0) {
-            helpers.insert(requirement.first);
-            continue;
-        }
-        for (const std::string& owner : requirement.second) {
-            if (ownerKeys.count(owner) != 0) {
-                helpers.insert(requirement.first);
-                break;
-            }
-        }
-    }
-    return helpers;
-}
-
-void requireStructMethod(const std::string& structName, const std::string& methodName) {
-    structMethodRequirementSet().insert(structName + "." + methodName);
-}
-
-const std::set<std::string>& requiredStructMethods() {
-    return structMethodRequirementSet();
 }
 
 // typeSupportPreambleForSubmit implements the typeSupportPreambleForSubmit behavior for the typesCppp.cpp module.

@@ -1,5 +1,5 @@
 /*
- * submitPostProcessor.h
+ * codegen/submit/submitPostProcessor.h
  *
  * Final post-processing for contest-oriented generated C++.
  */
