@@ -185,7 +185,7 @@
   "missing_after_rep": "error: missing '{' after rep\n --> <source>:1:4\n  |\n1 | rep(3)\n  |    ^",
   "missing_after_while": "error: missing '{' after while\n --> <source>:1:6\n  |\n1 | while (true)\n  |      ^",
   "missing_semicolon": "error: missing semicolon\n --> <source>:1:15\n  |\n1 | print(\"hello\")\n  |               ^ statement ends here\n  |\n  = help: add `;` to terminate the statement",
-  "missing_semicolon_after_a_bare_call": "error: unexpected token in expression\n --> <source>:1:1\n  |\n1 | moveDisks()\n  | ^~~~~~~~~~~",
+  "missing_semicolon_after_a_bare_call": "error: missing semicolon\n --> <source>:1:12\n  |\n1 | moveDisks()\n  |            ^ statement ends here\n  |\n  = help: add `;` to terminate the statement",
   "modulo_by_zero": "error: runtime error: modulo by zero\n --> <source>:1:11\n  |\n1 | int x = 4 % 0;\n  |           ^",
   "multi_assignment_requires_the_same_number_of_values_as_targets": "error: multi-assignment requires the same number of values as targets\n --> <source>:2:1\n  |\n2 | a,b = 1,2,3;\n  | ^",
   "multi_declaration_requires_the_same_number_of_values_as_variables": "error: multi-declaration requires the same number of values as variables\n --> <source>:1:11\n  |\n1 | int a,b = 1,2,3;\n  |           ^",

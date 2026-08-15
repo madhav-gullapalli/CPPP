@@ -1,1 +1,116 @@
-Lst<int> x;
+
+
+int calc_v(int p, int x) {
+    int res = 0;
+    int pw_p = p;
+
+    while (pw_p <= x) {
+        res += x / pw_p;
+
+        // Prevent unnecessary overflow on the final multiplication.
+        if (pw_p > x / p) {
+            break;
+        }
+
+        pw_p *= p;
+    }
+
+    return res;
+}
+
+
+int MAXN = 10000005;
+int INF = 1000000005;
+
+List<bool> is_prime(MAXN);
+List<int> small_primes;
+// Sieve of Eratosthenes
+for (int i = 2; i < 10000005; i++) {
+    is_prime[i] = true;
+}
+for (int p = 2; p * p < MAXN; p++) {
+    if (!is_prime[p]) {
+        continue;
+    }
+
+    small_primes.add(p);
+
+    for (int i = p * p; i < MAXN; i += p) {
+        is_prime[i] = false;
+    }
+}
+
+int t = input();
+
+rep(t) {
+    int n, m =  input();
+
+    // Largest prime q <= n.
+    int q = n;
+    while (!is_prime[q]) {
+        q--;
+    }
+
+    // Precompute the useful large primes.
+    List<int> useful_p;
+
+    for (int f = 1; f * f <= n; f++) {
+        int p_bnd = n / f;
+        int p = p_bnd;
+
+        while (!is_prime[p]) {
+            p--;
+        }
+
+        useful_p.add(p);
+    }
+
+    int ans = 0;
+
+    // For all x < q, f_m(x, n) = 0.
+    for (int x = q; x < n; x++) {
+        int res = INF;
+
+        for (int p in useful_p) {
+            int vx = calc_v(p, x);
+            int vn = calc_v(p, n);
+
+            if (vx != vn) {
+                res = min(res, vx);
+            }
+        }
+
+        for (int p in small_primes) {
+            if (p * p > m) {
+                break;
+            }
+
+            int base_vx = calc_v(p, x);
+            int base_vn = calc_v(p, n);
+
+            int exp = 1;
+            int pw_p = p;
+
+            while (pw_p <= m) {
+                int vx = base_vx / exp;
+                int vn = base_vn / exp;
+
+                if (vx != vn) {
+                    res = min(res, vx);
+                }
+
+                exp++;
+
+                if (pw_p > m / p) {
+                    break;
+                }
+
+                pw_p *= p;
+            }
+        }
+
+        ans += res;
+    }
+
+    print(ans);
+}

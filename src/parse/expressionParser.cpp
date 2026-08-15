@@ -279,11 +279,11 @@ std::unique_ptr<Expr> ExpressionParser::parseLogicalOr(bool& ok) {
     return expression;
 }
 std::unique_ptr<Expr> ExpressionParser::parseLogicalAnd(bool& ok) {
-    std::unique_ptr<Expr> expression = parseBitwiseOr(ok);
+    std::unique_ptr<Expr> expression = parseEquality(ok);
     while (ok && isOperator("&&")) {
         const Token op = peek();
         ++current;
-        std::unique_ptr<Expr> right = parseBitwiseOr(ok);
+        std::unique_ptr<Expr> right = parseEquality(ok);
         if (!ok) return nullptr;
         expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
@@ -312,22 +312,22 @@ std::unique_ptr<Expr> ExpressionParser::parseBitwiseXor(bool& ok) {
     return expression;
 }
 std::unique_ptr<Expr> ExpressionParser::parseBitwiseAnd(bool& ok) {
-    std::unique_ptr<Expr> expression = parseEquality(ok);
+    std::unique_ptr<Expr> expression = parseComparison(ok);
     while (ok && isOperator("&")) {
         const Token op = peek();
         ++current;
-        std::unique_ptr<Expr> right = parseEquality(ok);
+        std::unique_ptr<Expr> right = parseComparison(ok);
         if (!ok) return nullptr;
         expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }
     return expression;
 }
 std::unique_ptr<Expr> ExpressionParser::parseEquality(bool& ok) {
-    std::unique_ptr<Expr> expression = parseComparison(ok);
+    std::unique_ptr<Expr> expression = parseBitwiseOr(ok);
     while (ok && (isOperator("==") || isOperator("!="))) {
         const Token op = peek();
         ++current;
-        std::unique_ptr<Expr> right = parseComparison(ok);
+        std::unique_ptr<Expr> right = parseBitwiseOr(ok);
         if (!ok) return nullptr;
         expression = std::make_unique<BinaryExpr>(op.text, std::move(expression), std::move(right), absoluteColumn(op), op.sourceSpan);
     }

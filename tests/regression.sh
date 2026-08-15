@@ -43,7 +43,7 @@ fail() {
     exit 1
 }
 
-TOTAL_STEPS=37
+TOTAL_STEPS=39
 CURRENT_STEP=0
 
 progress() {
@@ -211,6 +211,17 @@ assert_contains "$LOG_DIR/variable_name_suggestion.log" "did you mean 'count'?" 
 assert_not_contains "$LOG_DIR/variable_name_suggestion.log" "to unknown" "misspelled assignment does not produce an unknown-type cascade"
 pass "malformed type and variable names receive edit-distance suggestions"
 
+progress "missing semicolon recovery before for"
+missing_semicolon_for_case="$(stage_case "$TEST_DIR/missing_semicolon_before_for.cppp")"
+run_failure "$missing_semicolon_for_case" "$LOG_DIR/missing_semicolon_before_for.log" "missing semicolon before for should fail locally"
+assert_contains "$LOG_DIR/missing_semicolon_before_for.log" "error: missing semicolon" "missing semicolon is reported on the preceding statement"
+assert_not_contains "$LOG_DIR/missing_semicolon_before_for.log" "unexpected token in expression" "for header is not swallowed into the declaration"
+assert_not_contains "$LOG_DIR/missing_semicolon_before_for.log" "use of undeclared variable" "recovered loop preserves its scope"
+assert_not_contains "$LOG_DIR/missing_semicolon_before_for.log" "unmatched closing brace" "recovered loop preserves block structure"
+missing_semicolon_error_count="$(grep -c '^error:' "$LOG_DIR/missing_semicolon_before_for.log")"
+[[ "$missing_semicolon_error_count" == "1" ]] || fail "missing semicolon recovery emits one diagnostic"
+pass "missing semicolon recovery preserves the following for loop"
+
 progress "partial function standard-name collision"
 partial_std_name_collision_case="$(stage_case "$TEST_DIR/partial_std_name_collision.cppp")"
 run_program_ok "$partial_std_name_collision_case" "$LOG_DIR/partial_std_name_collision.log" "partial function named get runs"
@@ -323,8 +334,10 @@ pass "list literal type mismatch is rejected"
 progress "expression behavior"
 expression_behavior_case="$(stage_case "$TEST_DIR/expression_behavior.cppp")"
 run_program_ok "$expression_behavior_case" "$LOG_DIR/expression_behavior.log" "expression behavior program runs"
+run_submit_ok "$expression_behavior_case" "$LOG_DIR/expression_behavior_submit.log" "expression behavior submit builds"
 assert_contains "$LOG_DIR/expression_behavior.log" "14 20 9 30 2" "expression behavior output"
-pass "expression precedence, variables, calls, and nested indexing are preserved"
+assert_contains "$LOG_DIR/expression_behavior.log" $'1 1 1 1 0\n0 1' "arithmetic-and-bitwise-before-equality and logical-after-equality output"
+pass "arithmetic and bitwise precedence, logical precedence, variables, calls, and nested indexing are preserved"
 
 progress "range printing"
 print_range_case="$(stage_case "$TEST_DIR/print_range.cppp")"

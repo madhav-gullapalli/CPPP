@@ -85,6 +85,46 @@ bool looksLikeCompleteBareCall(const std::vector<Token>& tokens) {
     return depth == 0;
 }
 
+bool canEndStatementBeforeNewline(const std::vector<Token>& tokens) {
+    if (tokens.empty()) return false;
+    int parenDepth = 0;
+    int bracketDepth = 0;
+    int braceDepth = 0;
+    for (const Token& token : tokens) {
+        if (token.kind == TokenKind::LeftParen) ++parenDepth;
+        else if (token.kind == TokenKind::RightParen && parenDepth > 0) --parenDepth;
+        else if (token.kind == TokenKind::LeftBracket) ++bracketDepth;
+        else if (token.kind == TokenKind::RightBracket && bracketDepth > 0) --bracketDepth;
+        else if (token.kind == TokenKind::LeftBrace) ++braceDepth;
+        else if (token.kind == TokenKind::RightBrace && braceDepth > 0) --braceDepth;
+    }
+    if (parenDepth != 0 || bracketDepth != 0 || braceDepth != 0) return false;
+
+    const Token& last = tokens.back();
+    if (last.kind == TokenKind::Identifier ||
+        last.kind == TokenKind::Integer ||
+        last.kind == TokenKind::Float ||
+        last.kind == TokenKind::String ||
+        last.kind == TokenKind::Char ||
+        last.kind == TokenKind::RightParen ||
+        last.kind == TokenKind::RightBracket ||
+        last.kind == TokenKind::RightBrace) {
+        return true;
+    }
+    return last.kind == TokenKind::Operator &&
+        (last.text == "++" || last.text == "--");
+}
+
+bool startsUnambiguousStatement(const PhysicalFragment& fragment) {
+    if (fragment.codeTokens.empty()) return false;
+    const Token& first = fragment.codeTokens.front();
+    // An identifier at delimiter depth zero can start a declaration, control
+    // header, assignment, or call, but it cannot continue an already complete
+    // expression without an intervening operator. A closing brace likewise
+    // always starts a new structural fragment.
+    return first.kind == TokenKind::Identifier || first.kind == TokenKind::RightBrace;
+}
+
 std::vector<PhysicalFragment> splitPhysicalFragments(const TokenStream& stream) {
     std::vector<PhysicalFragment> fragments;
     PhysicalFragment current;
@@ -209,6 +249,15 @@ std::vector<LogicalFragment> mergeLogicalFragments(
                 }
             }
             continue;
+        }
+
+        if (!pending.codeTokens.empty() &&
+            canEndStatementBeforeNewline(pending.codeTokens) &&
+            startsUnambiguousStatement(fragment)) {
+            // Preserve the unfinished statement as its own AST node. Its
+            // missing terminator is diagnosed before semantic analysis; the
+            // following statement must not be swallowed into its expression.
+            flush();
         }
 
         pending.codeTokens.insert(

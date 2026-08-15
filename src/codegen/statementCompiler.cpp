@@ -375,28 +375,6 @@ private:
         return true;
     }
 
-    bool requireSemicolon(const ProgramStatement& node) {
-        if (node.syntax.terminated) return true;
-        const int insertionColumn = node.syntax.startColumn + static_cast<int>(node.syntax.codeLength);
-        const SourceSpan insertion = sourceInsertionSpan(
-            context.options.inputFile,
-            context.sourceLines,
-            node.syntax.lineNumber,
-            insertionColumn
-        );
-        Diagnostic diagnostic;
-        diagnostic.message = "missing semicolon";
-        diagnostic.labels.push_back({insertion, "statement ends here", true});
-        diagnostic.suggestions.push_back({
-            insertion,
-            ";",
-            "add `;` to terminate the statement",
-            SuggestionApplicability::MachineApplicable
-        });
-        recordDiagnostic(std::move(diagnostic));
-        return false;
-    }
-
     void enterBlock(
         const std::string& kind,
         const std::string& breakFlag = "",
@@ -510,7 +488,6 @@ private:
             }
         }
         if (recordContextualSuggestion(context, node, node.syntax.opensBlock)) return;
-        if (!requireSemicolon(node)) return;
         recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
             "unsupported statement", context.sourceLines);
     }
@@ -959,7 +936,6 @@ private:
     }
 
     void compileBreak(const ProgramStatement& node) {
-        if (!requireSemicolon(node)) return;
         const std::string breakFlag = context.nearestLoopBreakFlag();
         if (breakFlag.empty()) {
             recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
@@ -973,7 +949,6 @@ private:
     }
 
     void compileContinue(const ProgramStatement& node) {
-        if (!requireSemicolon(node)) return;
         if (context.nearestLoopBreakFlag().empty()) {
             recordSourceError(context.options.inputFile, node.syntax.lineNumber, node.syntax.startColumn,
                 "continue can only be used inside a loop", context.sourceLines);
@@ -986,7 +961,6 @@ private:
     }
 
     void compileReturn(const ReturnStatementAst& node) {
-        if (!requireSemicolon(node)) return;
         const int line = node.syntax.lineNumber;
         if (!node.value) {
             context.queueGeneratedLine(withComment(indentForDepth(context.blockDepth) + "return;", node.syntax), line);
@@ -1008,7 +982,6 @@ private:
     }
 
     void compileVariable(const VariableDeclarationAst& node) {
-        if (!requireSemicolon(node)) return;
         if (!node.syntaxOk) {
             recordSourceError(context.options.inputFile, node.syntax.lineNumber,
                 node.syntax.startColumn + static_cast<int>(node.syntaxErrorOffset),
@@ -1089,7 +1062,6 @@ private:
     }
 
     void compileAssignment(const AssignmentStatementAst& node) {
-        if (!requireSemicolon(node)) return;
         const AssignmentEmitResult result = emitParsedAssignment(
             context.options.inputFile,
             node.syntax.lineNumber,
@@ -1114,7 +1086,6 @@ private:
     }
 
     void compileExpression(const ExpressionStatementAst& node) {
-        if (!requireSemicolon(node)) return;
         const std::vector<Token> tokens = withoutTrailingSemicolon(node.syntax.tokens);
         const int line = node.syntax.lineNumber;
         const int column = node.syntax.startColumn;

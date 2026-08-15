@@ -86,6 +86,111 @@ private:
         );
     }
 
+    bool requiresSemicolon(const ProgramStatement& statement) const {
+        return statement.kind == ProgramStatementKind::VariableDeclaration ||
+            statement.kind == ProgramStatementKind::Assignment ||
+            statement.kind == ProgramStatementKind::Expression ||
+            statement.kind == ProgramStatementKind::Return ||
+            statement.kind == ProgramStatementKind::Break ||
+            statement.kind == ProgramStatementKind::Continue;
+    }
+
+    bool reportMissingSemicolon(const ProgramStatement& statement) {
+        if (!requiresSemicolon(statement) || statement.syntax.terminated) return false;
+        for (const Token& token : statement.syntax.tokens) {
+            const bool quoted = token.kind == TokenKind::String || token.kind == TokenKind::Char;
+            if (quoted && (token.text.size() < 2 || token.text.front() != token.text.back())) {
+                // The tokenizer consumed the textual semicolon as part of the
+                // broken literal. Report the literal error, not a fake second
+                // missing-terminator diagnostic.
+                return false;
+            }
+        }
+
+        SourceSpan insertion;
+        for (const Token& token : statement.syntax.tokens) {
+            if (token.kind == TokenKind::EndOfFile || !token.sourceSpan.valid()) continue;
+            insertion = {
+                token.sourceSpan.source,
+                token.sourceSpan.endOffset,
+                token.sourceSpan.endOffset
+            };
+        }
+        if (!insertion.valid()) {
+            insertion = sourceInsertionSpan(
+                context.options.inputFile,
+                context.sourceLines,
+                statement.syntax.lineNumber,
+                statement.syntax.startColumn + static_cast<int>(statement.syntax.codeLength)
+            );
+        }
+
+        Diagnostic diagnostic;
+        diagnostic.message = "missing semicolon";
+        diagnostic.labels.push_back({insertion, "statement ends here", true});
+        diagnostic.suggestions.push_back({
+            insertion,
+            ";",
+            "add `;` to terminate the statement",
+            SuggestionApplicability::MachineApplicable
+        });
+        recordDiagnostic(std::move(diagnostic));
+        return true;
+    }
+
+    void markExpressionInvalid(Expr* expression) {
+        if (!expression) return;
+        expression->inferredType = PrimitiveType::Unknown;
+        expression->semanticAnalyzed = true;
+        expression->semanticValid = false;
+
+        if (auto* node = dynamic_cast<FieldExpr*>(expression)) {
+            markExpressionInvalid(node->base.get());
+        } else if (auto* node = dynamic_cast<UnaryExpr*>(expression)) {
+            markExpressionInvalid(node->operand.get());
+        } else if (auto* node = dynamic_cast<BinaryExpr*>(expression)) {
+            markExpressionInvalid(node->left.get());
+            markExpressionInvalid(node->right.get());
+        } else if (auto* node = dynamic_cast<CastExpr*>(expression)) {
+            markExpressionInvalid(node->operand.get());
+        } else if (auto* node = dynamic_cast<CallExpr*>(expression)) {
+            markExpressionInvalid(node->receiver.get());
+            for (auto& argument : node->arguments) markExpressionInvalid(argument.get());
+        } else if (auto* node = dynamic_cast<IndexExpr*>(expression)) {
+            markExpressionInvalid(node->base.get());
+            markExpressionInvalid(node->index.get());
+        } else if (auto* node = dynamic_cast<SliceExpr*>(expression)) {
+            markExpressionInvalid(node->base.get());
+            markExpressionInvalid(node->start.get());
+            markExpressionInvalid(node->end.get());
+        } else if (auto* node = dynamic_cast<ListLiteralExpr*>(expression)) {
+            for (auto& item : node->elements) markExpressionInvalid(item.get());
+        } else if (auto* node = dynamic_cast<SetLiteralExpr*>(expression)) {
+            for (auto& item : node->elements) markExpressionInvalid(item.get());
+        } else if (auto* node = dynamic_cast<MapLiteralExpr*>(expression)) {
+            for (auto& item : node->entries) {
+                markExpressionInvalid(item.key.get());
+                markExpressionInvalid(item.value.get());
+            }
+        } else if (auto* node = dynamic_cast<PairLiteralExpr*>(expression)) {
+            markExpressionInvalid(node->first.get());
+            markExpressionInvalid(node->second.get());
+        }
+    }
+
+    void markMissingSemicolonStatementInvalid(ProgramStatement& statement) {
+        if (auto* assignment = dynamic_cast<AssignmentStatementAst*>(&statement)) {
+            for (auto& target : assignment->targets) markExpressionInvalid(target.get());
+            for (auto& value : assignment->values) markExpressionInvalid(value.get());
+        } else if (auto* expression = dynamic_cast<ExpressionStatementAst*>(&statement)) {
+            markExpressionInvalid(expression->expression.get());
+        } else if (auto* returned = dynamic_cast<ReturnStatementAst*>(&statement)) {
+            markExpressionInvalid(returned->value.get());
+        }
+        statement.semanticAnalyzed = true;
+        statement.semanticValid = false;
+    }
+
     void errorWithNameSuggestion(
         int line,
         int column,
@@ -1121,6 +1226,12 @@ private:
     }
 
     void analyzeStatement(ProgramStatement& statement) {
+        const bool missingSemicolon = reportMissingSemicolon(statement);
+        if (missingSemicolon &&
+            statement.kind != ProgramStatementKind::VariableDeclaration) {
+            markMissingSemicolonStatementInvalid(statement);
+            return;
+        }
         if (!statement.syntaxOk) {
             error(statement.syntax.lineNumber,
                 statement.syntax.startColumn + static_cast<int>(statement.syntaxErrorOffset),
@@ -1276,6 +1387,7 @@ private:
             statement.semanticAnalyzed = true;
             statement.semanticValid = true;
         }
+        if (missingSemicolon) statement.semanticValid = false;
     }
 };
 
