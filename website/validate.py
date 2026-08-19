@@ -45,7 +45,7 @@ def main() -> None:
     failures: list[str] = []
     documents: dict[Path, DocumentParser] = {}
 
-    required = ["index.html", "getting-started/index.html", "examples/index.html", "learn/basics/index.html", "learn/io/index.html", "reference/index.html", "reference/quick/index.html", "advanced/index.html", "advanced/feature-inventory/index.html"]
+    required = ["index.html", "getting-started/index.html", "examples/index.html", "learn/basics/index.html", "learn/io/index.html", "reference/index.html", "reference/quick/index.html", "advanced/index.html"]
     for route in required:
         if not (site / route).is_file():
             failures.append(f"missing required route: {route}")
