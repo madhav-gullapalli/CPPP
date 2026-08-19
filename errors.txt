@@ -1342,9 +1342,10 @@ empty print
     print();
 
 describe
-  describe prints the expression text followed by its value. It accepts any
-  CP++ expression and evaluates it once before printing, so it works for
-  indexing, slicing, find(...), arithmetic, and future expression forms too.
+  describe prints each expression's text followed by its value. It accepts any
+  positive number of CP++ expressions, evaluates each once, and separates the
+  labeled values with commas. It works for indexing, slicing, find(...),
+  arithmetic, and future expression forms too.
 
   Example:
     int x = 3;
@@ -1353,14 +1354,16 @@ describe
     describe(x);
     describe(values[1]);
     describe(s);
+    describe(x, values[1], s);
 
   Output:
     x: 3
     values[1]: 20
     s: abc
+    x: 3, values[1]: 20, s: abc
 
 describe requires a value
-  describe needs one expression inside the parentheses.
+  describe needs at least one expression inside the parentheses.
 
   Example:
     describe();

@@ -677,48 +677,60 @@ PrintEmitResult emitDescribeStatement(
         recordSourceError(inputFile, lineNumber, argumentStartColumn, "describe requires a value", sourceLines);
         return {false, "", {}};
     }
-    if (rawArguments.size() != 1) {
-        recordSourceError(inputFile, lineNumber, rawArguments[1].column, "describe takes exactly one value", sourceLines);
-        return {false, "", {}};
+    std::vector<CallArgumentAst> arguments;
+    arguments.reserve(rawArguments.size());
+    for (const RawArgumentSegment& rawArgument : rawArguments) {
+        CallArgumentAst argument;
+        if (!parseCallArgumentAst(inputFile, lineNumber, rawArgument, sourceLines, argument)) {
+            return {false, "", {}};
+        }
+        if (argument.kind == CallArgumentAst::Kind::Named) {
+            recordSourceError(inputFile, lineNumber, argument.nameColumn, "describe does not support named arguments", sourceLines);
+            return {false, "", {}};
+        }
+        arguments.push_back(std::move(argument));
     }
 
-    CallArgumentAst argument;
-    if (!parseCallArgumentAst(inputFile, lineNumber, rawArguments[0], sourceLines, argument)) {
-        return {false, "", {}};
-    }
-    if (argument.kind == CallArgumentAst::Kind::Named) {
-        recordSourceError(inputFile, lineNumber, argument.nameColumn, "describe does not support named arguments", sourceLines);
-        return {false, "", {}};
-    }
+    std::string generatedStatement = "    { ";
+    std::vector<SourceRange> ranges;
+    for (size_t i = 0; i < arguments.size(); ++i) {
+        const CallArgumentAst& argument = arguments[i];
+        const ExpressionEmitResult expression = emitExpression(
+            inputFile,
+            lineNumber,
+            argument.valueTokens,
+            argument.valueColumn,
+            sourceLines,
+            declaredVariables
+        );
+        if (!expression.ok) {
+            return {false, "", {}};
+        }
 
-    const ExpressionEmitResult expression = emitExpression(
-        inputFile,
-        lineNumber,
-        argument.valueTokens,
-        argument.valueColumn,
-        sourceLines,
-        declaredVariables
-    );
-    if (!expression.ok) {
-        return {false, "", {}};
-    }
+        requirePrintHelpersForType(expression.type);
+        if (printedTypeNeedsStringHelper(expression.type)) {
+            requireRuntimeHelper("CPPPPrintValueString");
+        }
 
-    const std::string label = escapeForCppStringLiteral(trim(argument.valueText));
-    requirePrintHelpersForType(expression.type);
-    if (printedTypeNeedsStringHelper(expression.type)) {
-        requireRuntimeHelper("CPPPPrintValueString");
-    }
-    const std::string generatedStatement =
-        "    { auto __cppp_describe_value = " + expression.generatedExpression +
-        "; cout << \"" + label + ": \"; CPPPPrintValue(cout, __cppp_describe_value); cout << '\\n'; }";
-    return {
-        true,
-        generatedStatement,
-        {{
+        if (i > 0) {
+            generatedStatement += "cout << \", \"; ";
+        }
+        const std::string temporary = arguments.size() == 1
+            ? "__cppp_describe_value"
+            : "__cppp_describe_value_" + std::to_string(i);
+        generatedStatement += "auto " + temporary + " = ";
+        const int generatedStartColumn = static_cast<int>(generatedStatement.size()) + 1;
+        generatedStatement += expression.generatedExpression;
+        ranges.push_back({
             lineNumber,
             argument.valueColumn,
-            34,
-            33 + static_cast<int>(expression.generatedExpression.size())
-        }}
-    };
+            generatedStartColumn,
+            generatedStartColumn + static_cast<int>(expression.generatedExpression.size()) - 1
+        });
+
+        const std::string label = escapeForCppStringLiteral(trim(argument.valueText));
+        generatedStatement += "; cout << \"" + label + ": \"; CPPPPrintValue(cout, " + temporary + "); ";
+    }
+    generatedStatement += "cout << '\\n'; }";
+    return {true, generatedStatement, ranges};
 }

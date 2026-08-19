@@ -1489,6 +1489,19 @@ describe variable output
   Output:
     x: 3
 
+variadic describe output
+  describe accepts any positive number of expressions, evaluates each once,
+  and labels every value on one line.
+
+  Example:
+    int a = 1;
+    int b = 2;
+    int c = 3;
+    describe(a,b,c);
+
+  Output:
+    a: 1, b: 2, c: 3
+
 describe index expression output
   describe accepts index expressions.
 

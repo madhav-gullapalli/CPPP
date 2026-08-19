@@ -473,10 +473,11 @@ List element is the top; for Queue, the first List element is the top/front.
   describe(x);
   describe(values[1]);
   describe(s.find("ab"));
+  describe(x, values[1], s.find("ab"));
   ```
-- What it does: Prints a type-oriented description of an expression.
-- Notes: This is implemented for more than plain variables: indexing, slicing, `find(...)`, arithmetic, and future expression forms flow through the same surface.
-- Complexity: proportional to the described value's printed representation
+- What it does: Prints each expression's source text and value, separating multiple labeled values with `, ` on one line.
+- Notes: Accepts any positive number of expressions and evaluates each exactly once. Indexing, slicing, `find(...)`, arithmetic, and future expression forms flow through the same surface.
+- Complexity: proportional to evaluating and printing all described values
 
 ## Truthiness and Conditions
 
