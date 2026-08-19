@@ -352,7 +352,7 @@ List element is the top; for Queue, the first List element is the top/front.
 
 - Syntax: `abs(x)`
 - What it does: Returns the absolute value of a numeric expression.
-- Notes: Accepts numeric values.
+- Notes: Accepts `int` and `float` values.
 - Complexity: O(1)
 
 ## Input
@@ -808,7 +808,7 @@ List element is the top; for Queue, the first List element is the top/front.
 - Syntax: `values.find(3)`
 - What it does: Returns a `List<int>` containing every zero-based index where `3` occurs.
 - Notes: Also supports `values.find(sublist)` and returns starting indices of sublist matches. Works on `string` as well.
-- Complexity: O(n) for single-element search; sublist search grows with container and pattern length
+- Complexity: O(n) for single-element search; O(n + m) for a sublist pattern of length `m`
 
 ### Split by element or sublist
 
@@ -819,7 +819,7 @@ List element is the top; for Queue, the first List element is the top/front.
   ```
 - What it does: Breaks a list into a `List<List<T>>` using either one element or a same-typed sublist delimiter.
 - Notes: Consecutive delimiters are skipped, so they do not produce empty pieces.
-- Complexity: grows with list and delimiter length
+- Complexity: O(n) for an element delimiter; worst-case O(nm) for a sublist delimiter of length `m`
 
 ## Stacks, Queues, and Deques
 
@@ -870,8 +870,8 @@ runtime error.
 - Syntax: `Heap<T> values;`, `Heap<T> values(compare);`, `Heap<T> values = Heap(list);`, `List<T> ordered = List(values);`
 - What it does: Stores values in a heap-backed, aliasing priority collection. The default heap is a min-heap. Supplying a `bool(T, T)` comparator chooses the priority order; `greater` creates a max-heap.
 - Operations: `values.push(x)` inserts a value, `values.top()` returns the next value, `values.pop()` removes and returns it, and `len(values)` returns its size. `print(values)` displays the backing heap array as `[*,...]`; its non-root order is intentionally not sorted.
-- Notes: `Heap(list)` heapifies the whole List in O(n). `List(heap)` returns values in repeated-pop priority order in O(n). Assignment aliases the same heap; `copy(heap)` makes an independent deep copy and keeps its comparator. A default heap needs an ordered element type; classes require an explicit comparator.
-- Complexity: `push` and `pop` are O(log n), `top` and `len` are O(1), and heap construction from a List is O(n).
+- Notes: `Heap(list)` heapifies the whole List in O(n). `List(heap)` returns values in repeated-pop priority order in O(n log n). Assignment aliases the same heap; `copy(heap)` makes an independent deep copy in O(n log n) and keeps its comparator. A default heap needs an ordered element type; classes require an explicit comparator.
+- Complexity: `push` and `pop` are O(log n), `top` and `len` are O(1), heap construction from a List is O(n), and priority-ordered List conversion is O(n log n).
 
 ### String slicing
 
@@ -892,14 +892,14 @@ runtime error.
 - Syntax: `'a' in s`
 - What it does: Checks whether a character or compatible pattern occurs in the string.
 - Notes: Follows the list-style membership model. Implemented successful forms include both character membership like `'e' in s` and substring membership like `"ell" in s`.
-- Complexity: O(n)
+- Complexity: O(n) for character membership; O(n + m) for substring membership where `m` is the pattern length
 
 ### String find
 
 - Syntax: `s.find("ab")`
 - What it does: Returns a `List<int>` of match positions.
 - Notes: Works through the same `find(...)` surface documented for lists.
-- Complexity: grows with string and pattern length
+- Complexity: O(n) for one character; O(n + m + k) for a substring of length `m` with `k` matches
 
 ### String split
 
@@ -910,7 +910,7 @@ runtime error.
   ```
 - What it does: Splits a string through the same list-style `.split(...)` operation because `string` behaves like `List<char>`.
 - Notes: The result is a `List<string>`.
-- Complexity: grows with string and delimiter length
+- Complexity: O(n) for a character delimiter; worst-case O(nm) for a delimiter of length `m`
 
 ## Ranges
 
@@ -1082,7 +1082,7 @@ runtime error.
 
 - Syntax: `range values = range(stop);`, `range(start, stop)`, or `range(start, stop, step)`
 - What it does: Represents a lazy integer sequence. One-argument ranges start at zero; two-argument ranges choose an ascending or descending unit step; three-argument ranges use the supplied non-zero step magnitude in the required direction.
-- Notes: Ranges support foreach iteration, integer membership, truthiness through emptiness, and conversion to `List<int>` or `Set<int>`.
+- Notes: Ranges support foreach iteration, integer membership, and conversion to `List<int>` or `Set<int>`. A range is not accepted directly as an `if` or `while` condition.
 - Complexity: O(1) storage and O(1) membership
 
 ### `Set<T>`

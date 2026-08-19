@@ -43,13 +43,16 @@ the code path is:
    performs no symbol lookup, type checking, or C++ emission.
 5. [`src/semantic_analyze/semanticAnalyzer.cpp`](../src/semantic_analyze/semanticAnalyzer.cpp) consumes the syntax
    AST, resolves and validates its meaning, and returns `AnalyzedProgramAst`.
-6. [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp) consumes that
-   valid analyzed representation through `compileProgramAst(...)`.
-7. [`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp) turns its output buffers
-   into one readable generated C++ translation unit.
-8. Compact `--submit` passes the complete unit through
-   [`src/codegen/submitPostProcessor.cpp`](../src/codegen/submitPostProcessor.cpp); `--readable`
-   skips this pass.
+6. Run mode sends the analyzed program to [`src/codegen/run/runCodegen.cpp`](../src/codegen/run/runCodegen.cpp).
+   Submit mode first creates a `PrunedAnalyzedProgramAst` in
+   [`src/codegen/submit/pruning/submitPruner.cpp`](../src/codegen/submit/pruning/submitPruner.cpp),
+   then sends that pruned representation to
+   [`src/codegen/submit/submitCodegen.cpp`](../src/codegen/submit/submitCodegen.cpp).
+7. Both mode frontends call [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp)
+   with an explicit codegen mode and fill the shared generated-line buffers.
+8. The run and submit program emitters select the appropriate runtime preamble.
+   Submit mode prunes unused runtime/container support and optionally compacts the
+   readable translation unit; `--readable` skips only compaction.
 9. [`src/compilerDriver.cpp`](../src/compilerDriver.cpp) optionally invokes
    `g++`, prints compile diagnostics if that fails, and optionally runs the
    produced executable.
@@ -85,9 +88,10 @@ Important driver responsibilities:
 - optionally call `g++`
 - optionally execute the produced binary
 
-`--submit` has one extra cleanup step: `pruneSubmitLoopHelpers(...)` removes
-loop helper artifacts that are useful during richer lowering but unnecessary in
-the final contest-style output.
+`--submit` has an additional analyzed-AST pruning stage before codegen. It
+removes unreachable declarations and records the container methods needed by
+reachable code. A narrow post-codegen loop-helper cleanup remains inside the
+submit backend.
 
 ## Stage 3: Canonical Tokenization and Full-Program Parsing
 
@@ -148,7 +152,12 @@ Expression work follows the same stage boundary:
 
 The older helpers in [`src/parse/expressions.cpp`](../src/parse/expressions.cpp) remain a narrow token-slice compatibility adapter for specialized emitters that have not yet been converted to carry analyzed expression nodes directly.
 
-## Stage 5: Analyzed AST Codegen
+## Stage 5: Run and submit codegen
+
+Run codegen consumes the complete `AnalyzedProgramAst`. Submit codegen consumes
+only the `PrunedAnalyzedProgramAst` produced by the submit-only pruning stage.
+Prior tokenization, parsing, and semantic analysis are shared and run exactly
+once.
 
 [`src/codegen/statementCompiler.cpp`](../src/codegen/statementCompiler.cpp) is the center of
 the backend. `compileProgramAst(...)` accepts `AnalyzedProgramAst` and dispatches
@@ -234,8 +243,10 @@ are driven by recursive AST nodes in `statementCompiler.cpp`.
 
 ## Stage 8: Final Program Emission
 
-[`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp) converts the generated
-buffers in `CompileContext` into the final `.cpp` file.
+[`src/codegen/programEmitter.cpp`](../src/codegen/programEmitter.cpp) contains the shared
+serialization machinery. [`src/codegen/run/runProgramEmitter.cpp`](../src/codegen/run/runProgramEmitter.cpp)
+and [`src/codegen/submit/submitProgramEmitter.cpp`](../src/codegen/submit/submitProgramEmitter.cpp)
+select the mode-specific preamble and final processing.
 
 It emits, in order:
 
@@ -248,9 +259,10 @@ It emits, in order:
 7. queued generated main-body lines
 8. optional runtime error translation wrapper for `--run`
 
-Emission itself always produces ordinary readable C++. Compact submit mode
+The shared emitter always produces ordinary readable C++. Submit emission first
+selects only required runtime helpers, container types, and methods. Compact mode
 buffers that complete translation unit and then passes it through
-[`src/codegen/submitPostProcessor.cpp`](../src/codegen/submitPostProcessor.cpp). This keeps
+[`src/codegen/submit/submitPostProcessor.cpp`](../src/codegen/submit/submitPostProcessor.cpp). This keeps
 whitespace compaction separate from parsing, lowering, reachability, helper
 pruning, and serialization. `--submit --readable` changes only this final
 post-processing decision.
@@ -296,10 +308,14 @@ The easiest way to keep the codebase straight is this:
 - `sourceSplitter.cpp` owns parser-internal statement grouping
 - `astParser.cpp` owns recursive program structure
 - `semanticAnalyzer.cpp` owns meaning, typing, and semantic diagnostics
-- `statementCompiler.cpp` owns analyzed-tree codegen
+- `codegen/run` owns the run-mode frontend and emitter
+- `codegen/submit/pruning` owns submit-only analyzed-AST pruning
+- `codegen/submit` owns the submit-mode frontend, support pruning, emitter, and compaction
+- `statementCompiler.cpp` owns shared analyzed-tree lowering parameterized by mode
 - helper modules own specialized subproblems
 - `CompileContext` is the shared memory between stages
-- `programEmitter.cpp` owns final file serialization
+- `programEmitter.cpp` owns shared final-file serialization
+- the run and submit program emitters own mode-specific preambles
 - `submitPostProcessor.cpp` owns optional submit-only lexical compaction
 
 If you keep that model in mind, most of the compiler becomes much easier to

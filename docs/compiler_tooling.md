@@ -9,6 +9,7 @@ regression tools rather than the CP++ language itself.
 build/cppp --cppp file.cppp --tokens
 build/cppp --cppp file.cppp --ast
 build/cppp --cppp file.cppp --semantic
+build/cppp --cppp file.cppp --submit-ast
 ```
 
 `--tokens` prints the canonical whole-file token stream as JSON lines, with
@@ -20,6 +21,10 @@ spans. It does not generate C++.
 
 `--semantic` prints the semantic view: resolved types, symbols, calls,
 lvalue state, and conversions. It exits before C++ code generation.
+
+`--submit-ast` runs the submit-only analyzed-AST pruning stage and prints the
+remaining program tree. It is useful for inspecting reachability before submit
+codegen and does not generate C++.
 
 See [compiler_pipeline.md](compiler_pipeline.md) for the stage boundaries and
 representation ownership rules.

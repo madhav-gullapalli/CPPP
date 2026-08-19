@@ -17,3 +17,4 @@ tmp_*
 prompt*
 NUL
 .vscode/
+_site/

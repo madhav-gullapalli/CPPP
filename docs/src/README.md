@@ -24,12 +24,13 @@ The compiler pipeline today is:
 4. `src/semantic_analyze/semanticAnalyzer.cpp` resolves names and types, validates scopes,
    conversions, calls, returns, loops, and aggregates, and produces an
    `AnalyzedProgramAst` view over the enriched tree.
-5. `src/codegen/statementCompiler.cpp` consumes only a valid `AnalyzedProgramAst` and
-   lowers it to generated C++ lines.
-6. `src/codegen/programEmitter.cpp` turns the generated line buffers in
-   `CompileContext` into one readable C++ translation unit.
-7. `src/codegen/submitPostProcessor.cpp` optionally compacts the completed translation
-   unit for `--submit`; `--readable` skips this post-processing pass.
+5. Run mode consumes the full analyzed program. Submit mode first creates a
+   `PrunedAnalyzedProgramAst` in `src/codegen/submit/pruning`.
+6. The run or submit frontend calls `src/codegen/statementCompiler.cpp`, which
+   lowers the selected analyzed representation into generated C++ lines.
+7. The mode-specific program emitter selects a runtime preamble. Submit emission
+   prunes unused support and optionally compacts the completed translation unit;
+   `--readable` skips only compaction.
 8. `src/compilerDriver.cpp` optionally invokes `g++` and optionally runs the
    produced executable.
 
@@ -140,12 +141,14 @@ nodes through `AnalyzedProgramAst`, uses owned `BlockAst` relationships, and
 routes expression-level work to assignment, list, print, and type helpers before
 queueing generated C++ lines into `CompileContext`.
 
-## [src/codegen/programEmitter.cpp](../../src/codegen/programEmitter.cpp) and [src/codegen/programEmitter.h](../../src/codegen/programEmitter.h)
-This is the final emission stage. It writes includes, runtime helper preamble,
-optional runtime-diagnostic scaffolding, emitted top-level declarations,
-emitted function bodies, and generated `main()`.
+## Codegen frontends and program emitters
+`src/codegen/run/` consumes the full analyzed AST and selects checked run
+support. `src/codegen/submit/pruning/` creates the submit-only pruned analyzed
+AST. `src/codegen/submit/` consumes that representation, selects only required
+runtime/container support, and optionally compacts it. Shared lowering and
+serialization remain in `statementCompiler.*` and `programEmitter.*`.
 
-## [src/codegen/submitPostProcessor.cpp](../../src/codegen/submitPostProcessor.cpp) and [src/codegen/submitPostProcessor.h](../../src/codegen/submitPostProcessor.h)
+## [src/codegen/submit/submitPostProcessor.cpp](../../src/codegen/submit/submitPostProcessor.cpp) and [src/codegen/submit/submitPostProcessor.h](../../src/codegen/submit/submitPostProcessor.h)
 This post-emission pass is used only by compact submit mode. It receives the
 complete readable C++ translation unit, removes comments and nonessential
 whitespace without changing literals or preprocessor boundaries, and returns
@@ -164,9 +167,8 @@ helper machinery for list operations.
 ## Fast Orientation Symbols
 
 ### `src/compilerDriver.cpp`
-- `runCompilerDriver(...)` is the top-level orchestration function.
-- `pruneSubmitLoopHelpers(...)` strips loop-else helper artifacts that submit
-  mode does not need.
+- `runCompilerDriver(...)` is the top-level orchestration function and chooses
+  the run or submit backend after shared semantic analysis.
 
 ### `src/parse/sourceSplitter.cpp`
 - `splitTokenStream(...)` supplies parser-internal statement views.
@@ -190,10 +192,10 @@ helper machinery for list operations.
 - `parseForEachHeader(...)` parses CP++ `for-in` headers with precise offsets.
 
 ### `src/codegen/programEmitter.cpp`
-- `emitTranslatedProgram(...)` serializes the final translation unit.
+- `emitLoweredProgram(...)` serializes the final translation unit.
 - `emitGeneratedLines(...)` writes queued generated lines while preserving
   source mappings.
 
-### `src/codegen/submitPostProcessor.cpp`
+### `src/codegen/submit/submitPostProcessor.cpp`
 - `compactSubmitCpp(...)` performs lexical compaction on a completed readable
   translation unit; no lowering or code generation happens in this pass.

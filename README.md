@@ -72,9 +72,11 @@ print();
 
 ## Learn CP++
 
-Read the [CP++ language reference](cppp_language.md) for syntax, types,
-containers, input/output, functions, and control flow. The executable examples
-in `correct.txt` and diagnostics in `errors.txt` define the supported surface.
+Use the [CP++ documentation website](https://madhav-gullapalli.github.io/CPPP/)
+for the guided learning path, searchable quick reference, examples, and deeper
+compiler documentation. The canonical [language reference](cppp_language.md)
+remains in the repository. The executable examples in `correct.txt` and
+diagnostics in `errors.txt` define the supported surface.
 
 Compiler architecture, inspection modes, and development/test workflows live
 in [docs/](docs/), starting with [the compiler pipeline](docs/compiler_pipeline.md).
